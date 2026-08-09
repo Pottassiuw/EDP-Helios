@@ -57,7 +57,9 @@ recebe o usuário e filtra o log por ele — sem isso o botão "Reverter Última
 Alteração" de uma pessoa desfaria o trabalho de outra, já que o agrupamento é
 por `MAX(Data_Hora)`. Além disso, cada campo só é revertido se ainda tiver o
 valor que *aquele* usuário gravou; se alguém editou depois, o campo é pulado e
-contabilizado como sobrescrito na mensagem de retorno.
+contabilizado como sobrescrito na mensagem de retorno. A leitura do log, a
+comparação do valor atual e o update do undo ficam sob o mesmo
+`BEGIN IMMEDIATE`, impedindo uma escrita concorrente entre o check e a reversão.
 
 **Bloqueios por nota (edição concorrente).** A tabela `bloqueios` já existia
 no schema real do banco da rede (legado, nunca portada por falta de uso) —
@@ -67,7 +69,9 @@ no schema real do banco da rede (legado, nunca portada por falta de uso) —
   travada por OUTRO usuário e o lock não expirou, devolve `{"ok": False,
   "usuario": ..., "desde": ...}` em vez de lançar erro — mesmo padrão de
   `reverter_ultima_alteracao` (conflito no corpo da resposta, não em HTTP 409).
-  Se o lock já é do próprio usuário, é um upsert que renova o `Data_Hora`.
+  A consulta e a reivindicação usam a mesma transação `BEGIN IMMEDIATE`: dois
+  usuários concorrentes nunca recebem sucesso para a mesma nota. Se o lock já
+  é do próprio usuário, o upsert renova o `Data_Hora`.
 - **Sem heartbeat dedicado.** Cada clique numa célula de uma nota já travada
   pelo mesmo usuário chama `travar_nota` de novo, renovando o TTL
   (`BLOQUEIO_TTL_MINUTOS = 20`) como efeito colateral. Se o usuário fecha a
@@ -82,6 +86,23 @@ no schema real do banco da rede (legado, nunca portada por falta de uso) —
   editar por fora da UI (outra aba, chamada direta à API) ou o TTL expirar
   entre o clique e o salvamento. `aplicar_edicoes` devolve as notas puladas em
   `bloqueadas`, para a UI manter a edição pendente em vez de descartá-la.
+  `deletar_notas` refaz a consulta dos locks dentro de `BEGIN IMMEDIATE`; um
+  lock adquirido depois da triagem inicial ainda impede o `DELETE` e permanece
+  pertencendo ao novo dono. A mesma transação confirma quais notas ainda
+  existem antes de gerar a auditoria, evitando dois logs de exclusão quando
+  chamadas concorrentes disputam a mesma nota. Números repetidos na mesma
+  requisição são deduplicados antes da triagem e geram no máximo um log.
+- `aplicar_edicoes` também usa `BEGIN IMMEDIATE` para manter leitura, validação
+  do lock, logs e updates no mesmo commit. A escrita atualiza apenas os campos
+  enviados pela UI, em vez de fazer UPSERT do registro inteiro a partir de um
+  snapshot antigo; edições simultâneas em campos diferentes não se apagam. Em
+  falha, logs e dados sofrem rollback juntos. Escritores concorrentes aguardam
+  timeout de 30 segundos configurado em `get_db_connection()`. Os campos são
+  filtrados pelo `PRAGMA table_info(notas)` da conexão: schemas legados sem uma
+  coluna derivada, como `Status_Anterior`, continuam aceitando a edição sem que
+  o app tente migrar o arquivo compartilhado. Se a mesma nota aparecer mais de
+  uma vez no payload, as linhas são consolidadas e o último valor enviado para
+  cada campo prevalece, com uma única contagem de nota alterada.
 - Escopo desta fase: só a tabela `notas` (Gerenciar → Geral → Edição
   Rápida/Lote/Exclusão). `notas_ramal` não trava — não há evidência de que o
   Numero_Nota colida entre as duas tabelas, mas a tabela `bloqueios` não tem
