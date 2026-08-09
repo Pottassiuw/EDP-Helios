@@ -81,6 +81,7 @@ def iniciar_consulta_operacao(
     ids: list[int],
     origem: str = "avulsa",
     trace: str | None = None,
+    usuario: str | None = None,
 ) -> str:
     job_id = uuid.uuid4().hex
     ids_a_consultar = operation_service.adicionar_entradas(
@@ -92,7 +93,7 @@ def iniciar_consulta_operacao(
         snapshot = db.criar_operacao(job_id, "consulta", len(ids_a_consultar))
     threading.Thread(
         target=_rodar_consulta_operacao,
-        args=(job_id, snapshot, ids_a_consultar, origem, trace),
+        args=(job_id, snapshot, ids_a_consultar, origem, trace, usuario),
         daemon=True,
     ).start()
     return job_id
@@ -104,8 +105,10 @@ def _rodar_consulta_operacao(
     ids: list[int],
     origem: str,
     trace: str | None,
+    usuario: str | None,
 ) -> None:
     db.definir_trace(trace)
+    db.definir_usuario(usuario)
     for ident in ids:
         try:
             nota = client.buscar_nota(ident)
@@ -218,6 +221,7 @@ def _rodar_geracao(
 def iniciar_geracao_operacao(
     pks: list[int],
     trace: str | None = None,
+    usuario: str | None = None,
 ) -> str:
     operation_service.validar_prontas(pks)
     job_id, snapshot = _novo_job("geracao", len(pks))
@@ -225,7 +229,7 @@ def iniciar_geracao_operacao(
         operation_service.marcar_processando(pks, job_id)
         threading.Thread(
             target=_rodar_geracao_operacao,
-            args=(job_id, snapshot, list(pks), trace),
+            args=(job_id, snapshot, list(pks), trace, usuario),
             daemon=True,
         ).start()
     except Exception as exc:
@@ -247,8 +251,10 @@ def _rodar_geracao_operacao(
     snapshot: dict,
     pks: list[int],
     trace: str | None,
+    usuario: str | None,
 ) -> None:
     db.definir_trace(trace)
+    db.definir_usuario(usuario)
     for ident in pks:
         try:
             resultado = _executar_geracao(ident)

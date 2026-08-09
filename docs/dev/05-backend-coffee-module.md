@@ -80,6 +80,13 @@ progresso, erros e resultados. Na inicialização, operações que ficaram
 `rodando` são interrompidas e seus cards em processamento retornam à etapa
 recuperável.
 
+O `X-User` é capturado na rota e passado explicitamente a todos esses jobs.
+No início de cada thread, o job chama `db.definir_usuario(usuario)`: uma
+`ContextVar` definida na requisição não atravessa `threading.Thread`. Assim,
+os logs assíncronos de consulta, geração, atualização SAP e correção de local
+mantêm o usuário informado, em vez do fallback do usuário da máquina. O
+`trace_id` segue o mesmo padrão de propagação explícita.
+
 A regra central de `_rodar_geracao()` (`jobs.py:70-110`) é: **o COFFEE só
 processa notas desarquivadas** — ele atribui o SAP real e arquiva sozinho
 ao concluir. Por isso, forçar a geração sempre chama `client.definir_sap(id,

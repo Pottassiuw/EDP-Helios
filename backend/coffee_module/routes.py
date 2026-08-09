@@ -343,25 +343,33 @@ def obter_operacao():
 
 
 @router.post("/operacao/consultar")
-def consultar_operacao(pedido: OperacaoIdsPedido):
+def consultar_operacao(
+    pedido: OperacaoIdsPedido,
+    usuario: Optional[str] = Depends(usuario_coffee),
+):
     _garantir_banco()
     ids = _validar_ids(pedido.ids)
     job_id = jobs.iniciar_consulta_operacao(
         ids,
         origem="avulsa",
         trace=db.trace_atual(),
+        usuario=usuario,
     )
     return {"job_id": job_id}
 
 
 @router.post("/operacao/gerar")
-def gerar_operacao(pedido: OperacaoIdsPedido):
+def gerar_operacao(
+    pedido: OperacaoIdsPedido,
+    usuario: Optional[str] = Depends(usuario_coffee),
+):
     _garantir_banco()
     ids = _validar_ids(pedido.ids)
     try:
         job_id = jobs.iniciar_geracao_operacao(
             ids,
             trace=db.trace_atual(),
+            usuario=usuario,
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

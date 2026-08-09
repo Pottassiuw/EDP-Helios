@@ -239,6 +239,31 @@ def test_job_consulta_persiste_e_atualiza_quadro(
     assert db.listar_itens_operacao()[0]["etapa"] == "pronta"
 
 
+def test_consulta_operacao_mantem_x_user_nos_logs_da_thread(
+    operation_client,
+    monkeypatch,
+):
+    def buscar_e_logar(ident):
+        db.registrar_log(
+            "api_call", "buscar_nota", int(ident), {"id": ident}, True
+        )
+        return _nota(int(ident), None, alimentador="ABC01")
+
+    monkeypatch.setattr(db.getpass, "getuser", lambda: "usuario-da-maquina")
+    monkeypatch.setattr(client, "buscar_nota", buscar_e_logar)
+
+    resposta = operation_client.post(
+        "/api/coffee/operacao/consultar",
+        json={"ids": [101]},
+        headers={"X-User": "alice"},
+    )
+
+    assert resposta.status_code == 200
+    assert _aguardar(resposta.json()["job_id"])["estado"] == "concluido"
+    logs = db.listar_logs(nota_pk=101, tipo="api_call")
+    assert logs and all(log["usuario"] == "alice" for log in logs)
+
+
 def test_job_atualizacao_remove_nota_quando_sap_fica_real(
     coffee_operation_tmp,
     monkeypatch,
@@ -256,6 +281,37 @@ def test_job_atualizacao_remove_nota_quando_sap_fica_real(
     assert _aguardar(job_id)["estado"] == "concluido"
     assert db.listar_itens_operacao() == []
     assert db.listar_notas("corrigida")[0]["pk"] == 202
+
+
+def test_geracao_operacao_mantem_x_user_nos_logs_da_thread(
+    operation_client,
+    monkeypatch,
+):
+    def buscar_e_logar(ident):
+        db.registrar_log(
+            "api_call", "buscar_nota", int(ident), {"id": ident}, True
+        )
+        return _nota(int(ident), None, alimentador="ABC01")
+
+    operation_service.adicionar_entradas([303], "avulsa", "seed")
+    operation_service.aplicar_consulta(
+        303, _nota(303, None), "avulsa", "seed"
+    )
+    monkeypatch.setattr(db.getpass, "getuser", lambda: "usuario-da-maquina")
+    monkeypatch.setattr(client, "buscar_nota", buscar_e_logar)
+    monkeypatch.setattr(client, "definir_sap", lambda ident, sap: True)
+    monkeypatch.setattr(client, "desarquivar", lambda ident: True)
+
+    resposta = operation_client.post(
+        "/api/coffee/operacao/gerar",
+        json={"ids": [303]},
+        headers={"X-User": "bob"},
+    )
+
+    assert resposta.status_code == 200
+    assert _aguardar(resposta.json()["job_id"])["estado"] == "concluido"
+    logs = db.listar_logs(nota_pk=303, tipo="api_call")
+    assert logs and all(log["usuario"] == "bob" for log in logs)
 
 
 def test_geracao_operacao_rejeita_selecao_mista_sem_mutar_fila_ou_job(
