@@ -1,7 +1,10 @@
 """Testes do módulo Input (backend)."""
+import datetime
 import io
 import os
 import tempfile
+import threading
+import time
 from pathlib import Path
 
 # Blindagem global: impede que a execução de testes afete o banco de dados real
@@ -325,6 +328,272 @@ def test_backup_rotativo(banco_temporario):
     assert len(arquivos) == 1
     db.realizar_backup(limite=20, intervalo_horas=2)
     assert len(list(pasta.glob("notas_departamento_*.db"))) == 1
+
+
+def test_backup_rotativo_inclui_commit_no_wal_de_conexao_concorrente(banco_temporario):
+    """Protege contra cópia do .db sem o conteúdo confirmado no arquivo -wal."""
+    from input_module import db
+
+    db.salvar_em_massa(pd.DataFrame([_nota(5001)]))
+    pasta = config_backups_dir()
+    for arquivo in pasta.glob("notas_departamento_*.db"):
+        arquivo.unlink()
+    caminho_origem = db.obter_caminho_banco()
+    conexao_gravadora = sqlite3.connect(caminho_origem)
+    try:
+        journal_mode = conexao_gravadora.execute(
+            "PRAGMA journal_mode = WAL"
+        ).fetchone()[0].lower()
+        assert journal_mode == "wal"
+        conexao_gravadora.execute(
+            "UPDATE notas SET Observacao = ? WHERE Numero_Nota = ?",
+            ("gravado por conexão concorrente", 5001),
+        )
+        conexao_gravadora.commit()
+
+        db.realizar_backup(limite=20, intervalo_horas=0)
+
+        caminho_backup = next(pasta.glob("notas_departamento_*.db"))
+        conexao_backup = sqlite3.connect(caminho_backup)
+        try:
+            observacao = conexao_backup.execute(
+                "SELECT Observacao FROM notas WHERE Numero_Nota = ?", (5001,)
+            ).fetchone()[0]
+        finally:
+            conexao_backup.close()
+    finally:
+        conexao_gravadora.close()
+
+    assert observacao == "gravado por conexão concorrente"
+
+
+def test_backup_rotativo_remove_arquivo_parcial_quando_snapshot_falha(
+    banco_temporario, monkeypatch
+):
+    from input_module import db
+
+    db.salvar_em_massa(pd.DataFrame([_nota(5002)]))
+    pasta = config_backups_dir()
+    for arquivo in pasta.glob("notas_departamento_*.db"):
+        arquivo.unlink()
+
+    class ConexaoOrigemComFalha:
+        def backup(self, conexao_destino):
+            raise sqlite3.OperationalError("falha simulada no snapshot")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        db, "_conectar_origem_backup", lambda caminho: ConexaoOrigemComFalha()
+    )
+
+    db.realizar_backup(limite=20, intervalo_horas=0)
+
+    assert list(pasta.glob("notas_departamento_*.db")) == []
+
+
+def test_backups_no_mesmo_segundo_recebem_nomes_unicos(
+    banco_temporario, monkeypatch
+):
+    from input_module import db
+
+    db.salvar_em_massa(pd.DataFrame([_nota(5003)]))
+    pasta = config_backups_dir()
+    for arquivo in pasta.glob("notas_departamento_*.db"):
+        arquivo.unlink()
+
+    class DataHoraFixa(datetime.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 8, 9, 18, 15, 30, tzinfo=tz)
+
+    monkeypatch.setattr(db.datetime, "datetime", DataHoraFixa)
+
+    db.realizar_backup(limite=20, intervalo_horas=0)
+    db.realizar_backup(limite=20, intervalo_horas=0)
+
+    assert len(list(pasta.glob("notas_departamento_*.db"))) == 2
+
+
+def test_backup_falho_nao_remove_snapshot_valido_do_mesmo_instante(
+    banco_temporario, monkeypatch
+):
+    from input_module import db
+
+    db.salvar_em_massa(pd.DataFrame([_nota(5004)]))
+    pasta = config_backups_dir()
+    for arquivo in pasta.glob("notas_departamento_*.db"):
+        arquivo.unlink()
+
+    class DataHoraFixa(datetime.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 8, 9, 18, 15, 30, tzinfo=tz)
+
+    monkeypatch.setattr(db.datetime, "datetime", DataHoraFixa)
+    db.realizar_backup(limite=20, intervalo_horas=0)
+    snapshot_valido = next(pasta.glob("notas_departamento_*.db"))
+
+    class ConexaoOrigemComFalha:
+        def backup(self, conexao_destino):
+            raise sqlite3.OperationalError("falha concorrente simulada")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        db, "_conectar_origem_backup", lambda caminho: ConexaoOrigemComFalha()
+    )
+
+    db.realizar_backup(limite=20, intervalo_horas=0)
+
+    assert snapshot_valido.exists()
+    assert list(pasta.glob("notas_departamento_*.db")) == [snapshot_valido]
+
+
+def test_backup_nao_recria_origem_removida_antes_da_abertura(
+    banco_temporario, monkeypatch
+):
+    from input_module import db
+
+    db.salvar_em_massa(pd.DataFrame([_nota(5005)]))
+    pasta = config_backups_dir()
+    for arquivo in pasta.glob("notas_departamento_*.db"):
+        arquivo.unlink()
+    caminho_origem = Path(db.obter_caminho_banco())
+    caminho_origem.unlink()
+    existe_original = db.os.path.exists
+
+    def existe(caminho):
+        if str(caminho) == str(caminho_origem):
+            return True
+        return existe_original(caminho)
+
+    monkeypatch.setattr(db.os.path, "exists", existe)
+
+    db.realizar_backup(limite=20, intervalo_horas=0)
+
+    assert not caminho_origem.exists()
+    assert list(pasta.glob("notas_departamento_*.db")) == []
+
+
+def test_conexao_backup_converte_unc_para_uri_sem_authority(monkeypatch):
+    from input_module import db
+
+    caminho_unc = "\\\\servidor\\share\\notas departamento.db"
+    conectar_original = db.sqlite3.connect
+    chamada = {}
+
+    def capturar(database, **kwargs):
+        chamada["uri"] = database
+        chamada["kwargs"] = kwargs
+        return object()
+
+    monkeypatch.setattr(db.sqlite3, "connect", capturar)
+
+    db._conectar_origem_backup(caminho_unc)
+
+    assert chamada == {
+        "uri": "file:////servidor/share/notas%20departamento.db?mode=ro",
+        "kwargs": {"uri": True, "timeout": 30},
+    }
+    uri_memoria = chamada["uri"].replace("mode=ro", "mode=memory")
+    conexao = conectar_original(uri_memoria, uri=True)
+    conexao.close()
+
+
+def test_backups_concorrentes_respeitam_limite_e_nao_deixam_parcial(
+    banco_temporario, monkeypatch
+):
+    from input_module import db
+
+    db.salvar_em_massa(pd.DataFrame([_nota(5006)]))
+    pasta = config_backups_dir()
+    for arquivo in pasta.glob("notas_departamento_*"):
+        arquivo.unlink()
+    lock_medicao = threading.Lock()
+    ciclos_ativos = 0
+    maximo_ciclos_ativos = 0
+    executar_original = db._realizar_backup_serializado
+
+    def executar(limite, intervalo_horas):
+        nonlocal ciclos_ativos, maximo_ciclos_ativos
+        with lock_medicao:
+            ciclos_ativos += 1
+            maximo_ciclos_ativos = max(maximo_ciclos_ativos, ciclos_ativos)
+        time.sleep(0.05)
+        try:
+            executar_original(limite, intervalo_horas)
+        finally:
+            with lock_medicao:
+                ciclos_ativos -= 1
+
+    monkeypatch.setattr(db, "_realizar_backup_serializado", executar)
+    threads = [
+        threading.Thread(
+            target=db.realizar_backup,
+            kwargs={"limite": 1, "intervalo_horas": 2},
+        )
+        for _ in range(2)
+    ]
+
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert maximo_ciclos_ativos == 1
+    assert len(list(pasta.glob("notas_departamento_*.db"))) == 1
+    assert list(pasta.glob("*.partial")) == []
+
+
+def test_backup_so_publica_db_depois_do_snapshot_concluido(
+    banco_temporario, monkeypatch
+):
+    from input_module import db
+
+    db.salvar_em_massa(pd.DataFrame([_nota(5007)]))
+    pasta = config_backups_dir()
+    for arquivo in pasta.glob("notas_departamento_*"):
+        arquivo.unlink()
+    iniciou_snapshot = threading.Event()
+    liberar_snapshot = threading.Event()
+    conectar_original = db._conectar_origem_backup
+
+    class ConexaoControlada:
+        def __init__(self, conexao):
+            self._conexao = conexao
+
+        def backup(self, conexao_destino):
+            iniciou_snapshot.set()
+            assert liberar_snapshot.wait(timeout=5)
+            self._conexao.backup(conexao_destino)
+
+        def close(self):
+            self._conexao.close()
+
+    def conectar(caminho):
+        return ConexaoControlada(conectar_original(caminho))
+
+    monkeypatch.setattr(db, "_conectar_origem_backup", conectar)
+    thread = threading.Thread(
+        target=db.realizar_backup,
+        kwargs={"limite": 20, "intervalo_horas": 0},
+    )
+    thread.start()
+    try:
+        assert iniciou_snapshot.wait(timeout=5)
+        assert list(pasta.glob("notas_departamento_*.db")) == []
+        assert len(list(pasta.glob("*.partial"))) == 1
+    finally:
+        liberar_snapshot.set()
+        thread.join(timeout=10)
+
+    assert not thread.is_alive()
+    assert len(list(pasta.glob("notas_departamento_*.db"))) == 1
+    assert list(pasta.glob("*.partial")) == []
 
 
 def config_backups_dir():
@@ -864,6 +1133,9 @@ def test_backups_lista_e_download(cliente):
     assert len(backups) >= 1
     nome = backups[0]["arquivo"]
     assert cliente.get(f"/api/input/backups/{nome}/download").status_code == 200
+    legado = config_backups_dir() / "notas_departamento_20260809_181530.db"
+    legado.write_bytes(b"backup legado")
+    assert cliente.get(f"/api/input/backups/{legado.name}/download").status_code == 200
     assert cliente.get("/api/input/backups/..%2Fhack.db/download").status_code in (400, 404)
 
 
