@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { PageHeader, SegTabs } from '@/components/branded/section';
 import { Filters, FILTROS_INICIAIS, type FiltersState } from './filters';
 import { INPUT_SUBS } from './subs';
+import { NetworkSyncStatus } from './network-sync-status';
 
 interface InputSectionProps {
   sub: AbaInput;
@@ -48,7 +49,7 @@ export function InputSection({
     }
     return FILTROS_INICIAIS;
   });
-  const { sincronizando } = useNetworkSync();
+  const { estado: estadoRede, tentarNovamente } = useNetworkSync();
 
   React.useEffect(() => {
     try {
@@ -82,17 +83,7 @@ export function InputSection({
           subtitle="Controle unificado de notas, alterações, base ramal e indicadores."
           action={
             <div className="flex items-center gap-3 flex-wrap">
-              {sincronizando ? (
-                <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-amber/10 border border-amber/30 text-amber text-xs font-medium animate-pulse">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin text-amber" />
-                  <span>Sincronizando com a rede...</span>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-green/10 border border-green/20 text-green text-xs font-medium">
-                  <div className="carteira-sync-dot" />
-                  <span>Base Sincronizada</span>
-                </div>
-              )}
+              <NetworkSyncStatus estado={estadoRede} onTentarNovamente={tentarNovamente} />
               <SegTabs tabs={INPUT_SUBS} value={sub} onChange={setSub} ariaLabel="Seções do módulo Input" />
             </div>
           }

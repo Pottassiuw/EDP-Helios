@@ -3,9 +3,19 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { InputApi } from './api';
 import { gravarSnapshot, lerSnapshot, SNAPSHOT_INPUT } from './cache';
+import type { NetworkSyncState } from './network-sync-status';
 import type { InputDataset } from './types';
 
 export const INPUT_DADOS_KEY = ['input-dados'] as const;
+
+export async function obterEstadoRede(): Promise<NetworkSyncState> {
+  try {
+    const resposta = await InputApi.sync();
+    return { estado: resposta.sincronizando ? 'sincronizando' : 'sincronizada' };
+  } catch {
+    return { estado: 'indisponivel' };
+  }
+}
 
 async function buscarEGravar(): Promise<InputDataset> {
   const dataset = await InputApi.dados();
@@ -68,37 +78,37 @@ export function useSincronizacaoAutomatica(versaoConhecida: string | undefined):
 }
 
 /** Hook para monitorar sincronização de rede ativa e bloquear o fechamento do navegador. */
-export function useNetworkSync() {
-  const [sincronizando, setSincronizando] = React.useState(false);
+export function useNetworkSync(): {
+  estado: NetworkSyncState['estado'];
+  tentarNovamente: () => void;
+} {
+  const [status, setStatus] = React.useState<NetworkSyncState>({ estado: 'verificando' });
+  const ativo = React.useRef(true);
+  const sequencia = React.useRef(0);
 
-  React.useEffect(() => {
-    let active = true;
-    
-    const tick = () => {
-      InputApi.sync()
-        .then((res) => {
-          if (active) {
-            setSincronizando(!!res.sincronizando);
-          }
-        })
-        .catch(() => {
-          if (active) {
-            setSincronizando(false);
-          }
-        });
-    };
-
-    tick();
-    const intervalId = window.setInterval(tick, 3000);
-
-    return () => {
-      active = false;
-      window.clearInterval(intervalId);
-    };
+  const consultar = React.useCallback((mostrarVerificando: boolean) => {
+    const tentativa = ++sequencia.current;
+    if (mostrarVerificando) setStatus({ estado: 'verificando' });
+    void obterEstadoRede().then((novoStatus) => {
+      if (ativo.current && tentativa === sequencia.current) setStatus(novoStatus);
+    });
   }, []);
 
+  const tentarNovamente = React.useCallback(() => consultar(true), [consultar]);
+
   React.useEffect(() => {
-    if (!sincronizando) return;
+    ativo.current = true;
+    consultar(false);
+    const intervalId = window.setInterval(() => consultar(false), 3000);
+    return () => {
+      ativo.current = false;
+      sequencia.current += 1;
+      window.clearInterval(intervalId);
+    };
+  }, [consultar]);
+
+  React.useEffect(() => {
+    if (status.estado !== 'sincronizando') return;
 
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       e.preventDefault();
@@ -107,10 +117,8 @@ export function useNetworkSync() {
     };
 
     window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
-  }, [sincronizando]);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [status.estado]);
 
-  return { sincronizando };
+  return { estado: status.estado, tentarNovamente };
 }
