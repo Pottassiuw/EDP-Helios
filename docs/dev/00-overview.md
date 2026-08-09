@@ -152,6 +152,14 @@ cd frontend && npm run build                    # type-check (tsc) + build
   `app_state.json`: `GET /api/data` lê o `Verificar.db` compartilhado em modo
   somente leitura. Esses estados e o endpoint `/api/upload` restam apenas para
   compatibilidade/testes e não são restaurados no startup.
+- O upload de compatibilidade (`POST /api/upload`) recebe o corpo de forma
+  assíncrona, mas executa a leitura Pandas, a montagem da triagem e a gravação
+  do estado em worker via `asyncio.to_thread`. O helper síncrono
+  `processar_upload` permanece em `backend/main.py`; `publicar_upload` usa um
+  lock de módulo para publicar `RECORDS`/`COMPLETED`, gravar o estado e capturar
+  o total como uma operação indivisível entre uploads concorrentes. As respostas de sucesso,
+  erro de leitura (400), Carteira indisponível (503) e identificação (500)
+  preservam o contrato anterior.
 - `backend/main.py:17-22` — CORS liberado para `allow_origins=["*"]`,
   `allow_methods=["*"]`, `allow_headers=["*"]`.
 - `backend/main.py` — `GET /api/data` só envia em `raw` as colunas da

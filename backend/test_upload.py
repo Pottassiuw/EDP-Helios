@@ -1,4 +1,7 @@
+import asyncio
 import re
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 import pytest
@@ -111,6 +114,119 @@ def test_gzip_comprime_resposta_grande(monkeypatch):
     assert r.headers.get("content-encoding") == "gzip"
     # httpx descomprime transparentemente: o corpo continua íntegro
     assert len(r.json()["records"]) == 500
+
+
+def test_upload_processa_csv_e_triagem_fora_da_thread_da_event_loop(monkeypatch):
+    """A leitura e a triagem do upload não podem bloquear a event loop."""
+    from fastapi.testclient import TestClient
+    import main
+
+    thread_da_event_loop = []
+    threads_do_processamento = []
+    to_thread_original = asyncio.to_thread
+
+    async def observar_to_thread(funcao, /, *args, **kwargs):
+        thread_da_event_loop.append(threading.get_ident())
+        return await to_thread_original(funcao, *args, **kwargs)
+
+    def ler_csv(*args, **kwargs):
+        threads_do_processamento.append(threading.get_ident())
+        return pd.DataFrame([{"id": 100}])
+
+    def montar_triagem(dataframe):
+        threads_do_processamento.append(threading.get_ident())
+        assert dataframe.to_dict("records") == [{"id": 100}]
+        return [{"id": "100", "raw": {}}]
+
+    monkeypatch.setattr(main.asyncio, "to_thread", observar_to_thread)
+    monkeypatch.setattr(main.pd, "read_csv", ler_csv)
+    monkeypatch.setattr(main, "montar_registros_triagem", montar_triagem)
+    monkeypatch.setattr(main, "save_state", lambda: None)
+
+    resposta = TestClient(main.app).post(
+        "/api/upload", files={"file": ("notas.csv", b"id\n100\n")}
+    )
+
+    assert resposta.status_code == 200
+    assert resposta.json() == {"status": "ok", "total": 1}
+    assert thread_da_event_loop
+    assert threads_do_processamento
+    assert set(threads_do_processamento).isdisjoint(thread_da_event_loop)
+
+
+def test_upload_mantem_erro_de_leitura_quando_processamento_vai_para_worker(monkeypatch):
+    """Erro de leitura continua 400, mesmo quando o helper roda em worker."""
+    from fastapi.testclient import TestClient
+    import main
+
+    thread_da_event_loop = []
+    thread_da_leitura = []
+    to_thread_original = asyncio.to_thread
+
+    async def observar_to_thread(funcao, /, *args, **kwargs):
+        thread_da_event_loop.append(threading.get_ident())
+        return await to_thread_original(funcao, *args, **kwargs)
+
+    def falhar_leitura(*args, **kwargs):
+        thread_da_leitura.append(threading.get_ident())
+        raise ValueError("arquivo inválido")
+
+    monkeypatch.setattr(main.asyncio, "to_thread", observar_to_thread)
+    monkeypatch.setattr(main.pd, "read_csv", falhar_leitura)
+
+    resposta = TestClient(main.app).post(
+        "/api/upload", files={"file": ("notas.csv", b"id\n100\n")}
+    )
+
+    assert resposta.status_code == 400
+    assert resposta.json()["detail"] == "Erro ao ler arquivo: arquivo inválido"
+    assert len(thread_da_event_loop) == 1
+    assert set(thread_da_leitura).isdisjoint(thread_da_event_loop)
+
+
+def test_uploads_simultaneos_publicam_e_persistem_o_proprio_estado(monkeypatch):
+    """Sem publicação atômica, o primeiro upload responde e salva dados do segundo."""
+    from fastapi.testclient import TestClient
+    import main
+
+    primeiro_save_iniciado = threading.Event()
+    segundo_save_iniciado = threading.Event()
+    estados_persistidos = []
+
+    def processar_upload(_filename, content):
+        if content == b"primeiro":
+            return [{"id": "primeiro", "raw": {}}]
+        assert primeiro_save_iniciado.wait(timeout=1)
+        return [
+            {"id": "segundo-1", "raw": {}},
+            {"id": "segundo-2", "raw": {}},
+        ]
+
+    def salvar_estado():
+        if main.RECORDS[0]["id"] == "primeiro":
+            primeiro_save_iniciado.set()
+            segundo_save_iniciado.wait(timeout=1)
+        else:
+            segundo_save_iniciado.set()
+        estados_persistidos.append([registro["id"] for registro in main.RECORDS])
+
+    def enviar(cliente, nome, content):
+        resposta = cliente.post("/api/upload", files={"file": (nome, content)})
+        return nome, resposta
+
+    monkeypatch.setattr(main, "processar_upload", processar_upload)
+    monkeypatch.setattr(main, "save_state", salvar_estado)
+
+    with TestClient(main.app) as cliente:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            resultados = dict(executor.map(
+                lambda args: enviar(cliente, *args),
+                [("primeiro.csv", b"primeiro"), ("segundo.csv", b"segundo")],
+            ))
+
+    assert resultados["primeiro.csv"].json() == {"status": "ok", "total": 1}
+    assert resultados["segundo.csv"].json() == {"status": "ok", "total": 2}
+    assert estados_persistidos == [["primeiro"], ["segundo-1", "segundo-2"]]
 
 
 def test_slim_raw_mantem_so_colunas_consumidas():

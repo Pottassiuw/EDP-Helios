@@ -5,6 +5,7 @@ import os
 import pathlib
 import re
 import sqlite3
+import threading
 import time
 import uuid
 
@@ -88,6 +89,7 @@ async def start_scheduler():
 
 RECORDS = []
 COMPLETED = set()
+UPLOAD_STATE_LOCK = threading.Lock()
 
 STATE_FILE = pathlib.Path(__file__).parent / "app_state.json"
 DE_PARA_MEMBROS_PADRAO = pathlib.Path(__file__).parent.parent / "De-Para Membros.xlsx"
@@ -437,10 +439,36 @@ def montar_registros_triagem(df: pd.DataFrame) -> list[dict]:
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 
-@app.post("/api/upload")
-async def upload_file(file: UploadFile = File(...)):
+class ErroLeituraUpload(Exception):
+    """Representa falhas de parsing que devem manter o contrato HTTP 400."""
+
+
+def processar_upload(filename: str, content: bytes) -> list[dict]:
+    """Lê a planilha e monta a triagem fora da thread da event loop."""
+    try:
+        if filename.endswith(".csv"):
+            dataframe = pd.read_csv(io.StringIO(content.decode("utf-8-sig")))
+        else:
+            dataframe = pd.read_excel(io.BytesIO(content))
+    except Exception as erro:
+        raise ErroLeituraUpload(str(erro)) from erro
+
+    return montar_registros_triagem(dataframe)
+
+
+def publicar_upload(records: list[dict]) -> int:
+    """Publica e persiste um upload sem intercalar o estado global."""
     global RECORDS, COMPLETED
 
+    with UPLOAD_STATE_LOCK:
+        RECORDS = records
+        COMPLETED = set()
+        save_state()
+        return len(records)
+
+
+@app.post("/api/upload")
+async def upload_file(file: UploadFile = File(...)):
     if not file.filename.endswith((".xlsx", ".xls", ".csv")):
         raise HTTPException(
             status_code=400, detail="Formato inválido. Use .xlsx, .xls ou .csv"
@@ -448,15 +476,9 @@ async def upload_file(file: UploadFile = File(...)):
 
     try:
         content = await file.read()
-        if file.filename.endswith(".csv"):
-            df = pd.read_csv(io.StringIO(content.decode("utf-8-sig")))
-        else:
-            df = pd.read_excel(io.BytesIO(content))
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Erro ao ler arquivo: {e}")
-
-    try:
-        RECORDS = montar_registros_triagem(df)
+        records = await asyncio.to_thread(processar_upload, file.filename, content)
+    except ErroLeituraUpload as erro:
+        raise HTTPException(status_code=400, detail=f"Erro ao ler arquivo: {erro}") from erro
     except CarteiraIndisponivelErro as erro:
         raise HTTPException(status_code=503, detail=str(erro)) from erro
     except (FileNotFoundError, ValueError, OSError) as erro:
@@ -464,10 +486,9 @@ async def upload_file(file: UploadFile = File(...)):
             status_code=500,
             detail=f"Não foi possível identificar quem gerou as notas: {erro}",
         ) from erro
-    COMPLETED = set()
-    save_state()
+    total = await asyncio.to_thread(publicar_upload, records)
 
-    return {"status": "ok", "total": len(RECORDS)}
+    return {"status": "ok", "total": total}
 
 
 @app.get("/api/data")
