@@ -10,6 +10,10 @@ import os
 import re
 import shutil
 import sqlite3
+import threading
+import uuid
+from contextlib import closing
+from pathlib import Path
 
 import pandas as pd
 
@@ -331,7 +335,25 @@ def inicializar_banco() -> None:
 # ==============================================================================
 # BACKUP ROTATIVO (local, síncrono — a rota decide o background)
 # ==============================================================================
+_BACKUP_LOCK = threading.Lock()
+
+
+def _conectar_origem_backup(caminho: str) -> sqlite3.Connection:
+    """Abre a origem existente sem criar um banco vazio durante uma corrida."""
+    uri = Path(caminho).absolute().as_uri()
+    if uri.startswith("file://") and not uri.startswith("file:///"):
+        uri = f"file:////{uri.removeprefix('file://')}"
+    uri = f"{uri}?mode=ro"
+    return sqlite3.connect(uri, uri=True, timeout=30)
+
+
 def realizar_backup(limite: int = 20, intervalo_horas: int = 2) -> None:
+    """Serializa a criação e a rotação de backups dentro do worker."""
+    with _BACKUP_LOCK:
+        _realizar_backup_serializado(limite, intervalo_horas)
+
+
+def _realizar_backup_serializado(limite: int, intervalo_horas: int) -> None:
     """Cria um backup rotativo do banco em ``config.data_dir()/"backups"``.
 
     Só cria um novo se o último tiver sido feito há mais de ``intervalo_horas``
@@ -359,19 +381,36 @@ def realizar_backup(limite: int = 20, intervalo_horas: int = 2) -> None:
             return  # Já existe um backup recente, não cria duplicatas à toa
 
     data_hora_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    nome_backup = f"notas_departamento_{data_hora_str}.db"
+    identificador = uuid.uuid4().hex
+    nome_backup = f"notas_departamento_{data_hora_str}_{identificador}.db"
     caminho_backup = os.path.join(diretorio_backup, nome_backup)
+    caminho_parcial = f"{caminho_backup}.partial"
 
     try:
-        shutil.copy2(caminho_db, caminho_backup)
-        if caminho_backup not in backups_existentes:
-            backups_existentes.append(caminho_backup)
-        while len(backups_existentes) > limite:
-            backup_antigo = backups_existentes.pop(0)
+        with closing(_conectar_origem_backup(caminho_db)) as conexao_origem:
+            with closing(sqlite3.connect(caminho_parcial)) as conexao_backup:
+                conexao_origem.backup(conexao_backup)
+        os.replace(caminho_parcial, caminho_backup)
+    except Exception as e:
+        if os.path.exists(caminho_parcial):
+            os.remove(caminho_parcial)
+        print(f"Erro ao realizar backup: {e}")
+        return
+
+    backups_concluidos = glob.glob(
+        os.path.join(diretorio_backup, "notas_departamento_*.db")
+    )
+    backups_concluidos.sort(key=os.path.getmtime)
+    while len(backups_concluidos) > limite:
+        backup_antigo = backups_concluidos.pop(0)
+        try:
             if os.path.exists(backup_antigo):
                 os.remove(backup_antigo)
-    except Exception as e:
-        print(f"Erro ao realizar backup: {e}")
+        except FileNotFoundError:
+            pass
+        except OSError as e:
+            print(f"Erro ao remover backup antigo: {e}")
+            break
 
 
 # ==============================================================================

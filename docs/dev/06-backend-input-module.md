@@ -101,6 +101,29 @@ migração inicial descrita acima, mas suas escritas ficam na máquina:
 antes de gravar `Base_Notas_Sincronizada.xlsx` ou `Input Nota.xlsx`. Só o
 perfil `producao` publica essas planilhas. `garantir_banco()` e
 `gerar_copia_excel_rede()` avisam isso no log.
+
+**Backups locais usam o snapshot do SQLite.** `db.realizar_backup()` abre uma
+conexão somente de leitura (`mode=ro`, sem recriar uma origem que desapareça
+durante a abertura); caminhos UNC são convertidos para URI com authority vazia
+(`file:////servidor/share/...`), aceita pelo SQLite no Windows. A conexão chama
+`sqlite3.Connection.backup()` para criar cada cópia
+rotativa. Isso inclui transações já confirmadas por outra conexão, inclusive
+quando o journal local está em WAL; copiar o arquivo `.db` com `shutil.copy2`
+não oferece essa consistência. Cada tentativa recebe um identificador único no
+nome do arquivo, para que uma falha concorrente remova somente o snapshot
+parcial criado por ela e nunca um backup válido de outra chamada. O snapshot é
+gravado com sufixo `.partial` e só recebe o nome `.db` por troca atômica após a
+conclusão; a rotação ignora arquivos em andamento e relê os concluídos antes de
+aplicar o limite. Um lock em memória serializa checagem de intervalo, snapshot e
+rotação dentro do worker único usado pelos scripts de inicialização do projeto.
+O destino é
+sempre o diretório local de
+backups e a operação não publica nem substitui o arquivo compartilhado; a
+origem segue o perfil ativo (banco local no perfil `local`, banco compartilhado
+no perfil `producao`). Em compartilhamentos SMB, o backend mantém o journal de
+rollback e o timeout de 30 segundos documentados em `get_db_connection()`;
+não se deve assumir que WAL funciona sobre SMB.
+
 A sincronização por `sqlite3.Connection.backup()` que existia até `ef19f4f`
 **não pode voltar**: ela sobrescreve o arquivo inteiro da rede e
 apaga o que os outros usuários gravaram. Se o perfil local algum dia

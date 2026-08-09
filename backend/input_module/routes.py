@@ -402,7 +402,8 @@ def listar_backups():
 
 @router.get("/backups/{nome}/download")
 def baixar_backup(nome: str):
-    if not _re.fullmatch(r"notas_departamento_\d{8}_\d{6}\.db", nome):
+    padrao_backup = r"notas_departamento_\d{8}_\d{6}(?:_[0-9a-f]{32})?\.db"
+    if not _re.fullmatch(padrao_backup, nome):
         raise HTTPException(400, "Nome de backup inválido.")
     caminho = config.data_dir() / "backups" / nome
     if not caminho.exists():
