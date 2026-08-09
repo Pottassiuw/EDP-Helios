@@ -403,12 +403,50 @@ Router `/api/input` (prefixo). Todo endpoint de leitura/escrita chama
 | `POST /desfazer` | Reverte a última transação de edição (`db.reverter_ultima_alteracao`). |
 | `POST /export` | Gera um `.xlsx` filtrado (linhas/colunas selecionadas) com nomes amigáveis. |
 | `GET /responsaveis`, `PUT /responsaveis` | Mapa Regional → responsável (JSON local). |
-| `GET /bases`, `GET /bases/{nome}/download`, `POST /bases/{nome}` | Lista/baixa/substitui as bases de apoio na rede (`config.BASES_APOIO`); todo upload dispara `_processar_upload_base` para gravar também no SQLite. |
+| `GET /bases`, `GET /bases/{nome}/download`, `POST /bases/{nome}` | Lista/baixa/substitui as bases de apoio na rede (`config.BASES_APOIO`). O upload é atômico e só responde `200` se o import para o SQLite deu certo — ver "Upload atômico de bases" abaixo. |
 | `POST /bases/sync-sap` | Dispara a extração SAP em background — é o que o botão **"Sincronizar SAP"** do frontend chama (`InputApi.syncSap()`, ver [`03-frontend-input.md`](03-frontend-input.md)). Roda `Sap_Robot.py` num subprocesso, depois importa os três Excel gerados (IW28/IW38/IW66) para o SQLite via `_processar_upload_base` e invalida o cache do engine. |
 | `GET /backups`, `GET /backups/{nome}/download` | Lista/baixa backups rotativos do banco de notas. |
 | `GET /ramal`, `POST /ramal/bulk`, `DELETE /ramal` | CRUD da tabela `notas_ramal` (obras de ramal, schema paralelo ao de `notas`). |
 | `POST /hierarquia`, `GET /hierarquia/{numero_nota}` | Vínculo nota-mãe/nota-filha (`Nota_Mae`). |
 | `POST /migrar` | Força nova tentativa de migração do banco a partir da rede. |
+
+### Upload atômico de bases (`POST /bases/{nome_arquivo}`)
+
+Antes, a rota escrevia os bytes do `UploadFile` direto no Excel alvo da rede:
+qualquer falha no meio da gravação deixava a base compartilhada truncada. E
+como `_processar_upload_base` engole a exceção e devolve `False`, um arquivo
+que não dava para importar ainda respondia `{"ok": true}` com HTTP 200 — o
+usuário achava que tinha substituído a base.
+
+Fluxo atual (`substituir_base`):
+
+1. `tempfile.mkstemp()` cria um temporário **no mesmo diretório do alvo** (mesmo
+   volume, requisito para o `os.replace` ser atômico) e recebe os bytes enviados.
+2. `_importar_base_para_sqlite(nome_arquivo, temporario)` lê e grava as tabelas
+   a partir dessa cópia — a validação acontece sobre o temporário, nunca sobre
+   o alvo.
+3. Só depois do import bem-sucedido, `os.replace(temporario, caminho)` troca o
+   alvo. Aí sim vêm `db.salvar_log_arquivo` e as invalidações de cache.
+
+Em qualquer falha o alvo anterior fica intacto, o temporário é removido em
+best-effort (`_descartar_temporario`, que loga se não conseguir em vez de
+mascarar o erro original) e a rota devolve erro de verdade:
+
+| Falha | HTTP |
+|---|---|
+| Não dá para criar/gravar o temporário na rede | `502` |
+| Arquivo ilegível, aba faltando, erro ao gravar no SQLite | `422` (mensagem inclui a causa e diz que a base anterior foi mantida) |
+| `os.replace` falha ao trocar o alvo | `502` |
+
+`_processar_upload_base` continua existindo com a mesma assinatura booleana —
+é o que `_rotina_sap_background` usa, onde uma base que falha só não entra em
+`log_arquivos` e as outras seguem. Ele agora é um wrapper fino sobre
+`_importar_base_para_sqlite`, que levanta em vez de devolver `False`.
+
+Consequência conhecida: se o import passar e o `os.replace` falhar, o SQLite
+já tem os dados novos enquanto o Excel da rede continua no conteúdo antigo. O
+`502` expõe isso ao usuário, que reenvia; o import é idempotente
+(`salvar_base_dataframe` substitui a tabela).
 
 ### Regra de executado em Relatórios
 

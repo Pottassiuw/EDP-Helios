@@ -1428,6 +1428,75 @@ def test_bases_lista_download_upload(cliente, monkeypatch, tmp_path):
     assert cliente.get("/api/input/bases/nao_existe.xlsx/download").status_code == 404
 
 
+def _base_apoio_temporaria(monkeypatch, tmp_path):
+    """Aponta BASES_APOIO para um Clientes_Conjunto.xlsx válido em tmp_path."""
+    from input_module import config
+    caminho = tmp_path / "Clientes_Conjunto.xlsx"
+    pd.DataFrame({"CONJUNTO_DESC": ["POA"], "QTDE_CONJUNTO": [10]}).to_excel(caminho, index=False)
+    monkeypatch.setattr(config, "BASES_APOIO", {"Clientes por Conjunto": str(caminho)})
+    return caminho
+
+
+def test_upload_base_invalida_preserva_arquivo_anterior(cliente, monkeypatch, tmp_path):
+    """Arquivo que não é um Excel válido é rejeitado ANTES de tocar o alvo."""
+    caminho = _base_apoio_temporaria(monkeypatch, tmp_path)
+    original = caminho.read_bytes()
+    antes = set(tmp_path.iterdir())
+
+    r = cliente.post("/api/input/bases/Clientes_Conjunto.xlsx",
+                     headers=CABECALHO_USER,
+                     files={"arquivo": ("novo.xlsx", b"isto nao e um xlsx")})
+
+    assert r.status_code == 422
+    assert "Clientes_Conjunto.xlsx" in r.json()["detail"]
+    assert caminho.read_bytes() == original
+    assert set(tmp_path.iterdir()) == antes
+    assert cliente.get("/api/input/logs/arquivos").json()["registros"] == []
+
+
+def test_upload_base_falha_no_meio_preserva_arquivo_anterior(cliente, monkeypatch, tmp_path):
+    """Excel válido cuja gravação no SQLite falha no meio não substitui o alvo."""
+    from input_module import db
+    caminho = _base_apoio_temporaria(monkeypatch, tmp_path)
+    original = caminho.read_bytes()
+
+    novo = io.BytesIO()
+    pd.DataFrame({"CONJUNTO_DESC": ["SUZ"], "QTDE_CONJUNTO": [99]}).to_excel(novo, index=False)
+
+    def falhar(*_args, **_kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(db, "salvar_base_dataframe", falhar)
+    antes = set(tmp_path.iterdir())
+
+    r = cliente.post("/api/input/bases/Clientes_Conjunto.xlsx",
+                     headers=CABECALHO_USER,
+                     files={"arquivo": ("novo.xlsx", novo.getvalue())})
+
+    assert r.status_code == 422
+    assert "database is locked" in r.json()["detail"]
+    assert caminho.read_bytes() == original
+    assert set(tmp_path.iterdir()) == antes
+    assert cliente.get("/api/input/logs/arquivos").json()["registros"] == []
+
+
+def test_upload_base_bem_sucedido_substitui_o_alvo(cliente, monkeypatch, tmp_path):
+    """Só depois do import bem-sucedido o conteúdo novo aparece no alvo."""
+    caminho = _base_apoio_temporaria(monkeypatch, tmp_path)
+
+    novo = io.BytesIO()
+    pd.DataFrame({"CONJUNTO_DESC": ["SUZ"], "QTDE_CONJUNTO": [99]}).to_excel(novo, index=False)
+    antes = set(tmp_path.iterdir())
+
+    r = cliente.post("/api/input/bases/Clientes_Conjunto.xlsx",
+                     headers=CABECALHO_USER,
+                     files={"arquivo": ("novo.xlsx", novo.getvalue())})
+
+    assert r.status_code == 200
+    assert pd.read_excel(caminho)["CONJUNTO_DESC"].tolist() == ["SUZ"]
+    assert set(tmp_path.iterdir()) == antes
+
+
 def test_backups_lista_e_download(cliente):
     from input_module import db
     db.salvar_em_massa(pd.DataFrame([_nota(9500)]))

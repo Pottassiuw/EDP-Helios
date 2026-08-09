@@ -5,6 +5,7 @@ import io
 import json
 import os
 import re as _re
+import tempfile
 from typing import Optional
 from input_module.status10_service import obter_resumo_status10, gerar_email_outlook_status10
 
@@ -293,9 +294,11 @@ def baixar_base(nome_arquivo: str):
     return FileResponse(caminho, filename=nome_arquivo)
 
 
-def _processar_upload_base(nome_arquivo: str, caminho: str) -> bool:
-    """Importa o arquivo para o SQLite nativo. Retorna se a importação teve sucesso —
-    o chamador usa isso para decidir se registra o import em log_arquivos."""
+def _importar_base_para_sqlite(nome_arquivo: str, caminho: str) -> None:
+    """Lê o Excel em `caminho` e grava as tabelas da base no SQLite nativo.
+
+    Levanta em qualquer falha (arquivo ilegível, aba ausente, erro de escrita) —
+    quem precisa do resultado como booleano usa `_processar_upload_base`."""
     map_simples = {
         "Indicador base conjunto - Limite Aneel.xlsx": "base_indicador_continuidade",
         "Gerada_base_IW28.XLSX": "base_iw28",
@@ -303,24 +306,38 @@ def _processar_upload_base(nome_arquivo: str, caminho: str) -> bool:
         "Gerada_medidas_IW66.XLSX": "base_iw66",
         "Clientes_Conjunto.xlsx": "base_clientes",
     }
+    if nome_arquivo in map_simples:
+        df = pd.read_excel(caminho)
+        db.salvar_base_dataframe(map_simples[nome_arquivo], df)
+    elif nome_arquivo == "Ganhos.xlsx":
+        df = pd.read_excel(caminho, sheet_name='Ganhos')
+        db.salvar_base_dataframe("base_ganhos", df)
+    elif nome_arquivo == "Custo_Modular.xlsx":
+        df_mod = pd.read_excel(caminho, sheet_name='Modulares')
+        db.salvar_base_dataframe("base_custo_modular", df_mod)
+        df_saz = pd.read_excel(caminho, sheet_name='Modulares', skiprows=1, nrows=4)
+        db.salvar_base_dataframe("base_sazonal", df_saz)
+    else:
+        raise ValueError(f"'{nome_arquivo}' não tem importador para o SQLite nativo.")
+
+
+def _processar_upload_base(nome_arquivo: str, caminho: str) -> bool:
+    """Importa o arquivo para o SQLite nativo. Retorna se a importação teve sucesso —
+    o chamador usa isso para decidir se registra o import em log_arquivos."""
     try:
-        if nome_arquivo in map_simples:
-            df = pd.read_excel(caminho)
-            db.salvar_base_dataframe(map_simples[nome_arquivo], df)
-        elif nome_arquivo == "Ganhos.xlsx":
-            df = pd.read_excel(caminho, sheet_name='Ganhos')
-            db.salvar_base_dataframe("base_ganhos", df)
-        elif nome_arquivo == "Custo_Modular.xlsx":
-            df_mod = pd.read_excel(caminho, sheet_name='Modulares')
-            db.salvar_base_dataframe("base_custo_modular", df_mod)
-            df_saz = pd.read_excel(caminho, sheet_name='Modulares', skiprows=1, nrows=4)
-            db.salvar_base_dataframe("base_sazonal", df_saz)
-        else:
-            return False
+        _importar_base_para_sqlite(nome_arquivo, caminho)
         return True
     except Exception as e:
         print(f"Aviso: Não foi possível importar {nome_arquivo} para o SQLite nativo: {e}")
         return False
+
+
+def _descartar_temporario(caminho: str) -> None:
+    """Remove o temporário de upload sem mascarar o erro que levou ao descarte."""
+    try:
+        os.remove(caminho)
+    except OSError as e:
+        print(f"Aviso: temporário de upload não removido ({caminho}): {e}")
 
 
 def _rotina_sap_background():
@@ -372,14 +389,40 @@ def substituir_base(nome_arquivo: str, arquivo: UploadFile = File(...),
                     usuario: str = Depends(usuario_atual)):
     garantir_banco()
     caminho = _achar_base(nome_arquivo)
+
+    # Grava num temporário no MESMO diretório do alvo: só depois de importar
+    # essa cópia com sucesso o alvo é substituído (os.replace é atômico dentro
+    # do mesmo volume). Assim um upload inválido ou uma queda no meio da
+    # gravação nunca deixa a base da rede truncada.
     try:
-        with open(caminho, "wb") as f:
-            f.write(arquivo.file.read())
+        descritor, temporario = tempfile.mkstemp(
+            dir=os.path.dirname(caminho), prefix=f"{nome_arquivo}.", suffix=".tmp")
     except OSError as e:
         raise HTTPException(502, f"Erro ao gravar na rede: {e}")
 
-    if _processar_upload_base(nome_arquivo, caminho):
-        db.salvar_log_arquivo(nome_arquivo, usuario, datetime.datetime.now(), "Substituição")
+    try:
+        with os.fdopen(descritor, "wb") as f:
+            f.write(arquivo.file.read())
+    except OSError as e:
+        _descartar_temporario(temporario)
+        raise HTTPException(502, f"Erro ao gravar na rede: {e}")
+
+    try:
+        _importar_base_para_sqlite(nome_arquivo, temporario)
+    except Exception as e:
+        _descartar_temporario(temporario)
+        raise HTTPException(
+            422, f"Arquivo recusado: não foi possível importar '{nome_arquivo}' ({e}). "
+                 "A base anterior foi mantida — confira o layout/abas da planilha e envie de novo.")
+
+    try:
+        os.replace(temporario, caminho)
+    except OSError as e:
+        _descartar_temporario(temporario)
+        raise HTTPException(502, f"Erro ao substituir '{nome_arquivo}' na rede: {e}. "
+                                 "A base anterior foi mantida — tente novamente.")
+
+    db.salvar_log_arquivo(nome_arquivo, usuario, datetime.datetime.now(), "Substituição")
     engine.invalidar_cache()
     engine.invalidar_status_bases()
     return {"ok": True}
