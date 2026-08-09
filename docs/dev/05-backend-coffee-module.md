@@ -121,7 +121,12 @@ O campo `arquivado` **não** entra nessa classificação — é tratado à parte
 ## db.py
 
 SQLite local em `config.data_dir() / "coffee.db"` (WAL habilitado), com
-tabelas criadas/migradas em `inicializar_banco()`:
+tabelas criadas/migradas em `inicializar_banco()`. O `journal_mode=WAL` é
+negociado somente nessa inicialização (modo persistido no arquivo); cada nova
+conexão apenas habilita `foreign_keys`, usa `synchronous=NORMAL` e recebe
+`busy_timeout=5000`. Isso evita que jobs concorrentes disputem um lock
+exclusivo ao renegociar WAL. As operações do módulo mantêm conexões curtas:
+executam, fazem `commit` e fecham a conexão antes de retornar.
 
 - **`notas_coffee`** — uma linha por `pk` de nota, com `id_sap`,
   `id_sap_anterior` (snapshot para a classificação), `arquivado`,
