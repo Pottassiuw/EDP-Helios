@@ -84,7 +84,8 @@ def mover_para_plano(pks: list[int], campos_usuario: dict, usuario: str,
         linha = {"Numero_Nota": nota["id_sap"]}
         linha.update({c: proposta[c] for c in mapping.CAMPOS_ATUALIZAVEIS})
         linha.update({c: campos_usuario[c] for c in mapping.CAMPOS_MANUAIS if c in campos_usuario})
-        resultado = input_db.aplicar_edicoes([linha], usuario=usuario)
+        resultado = input_db.aplicar_edicoes(
+            [linha], usuario=usuario, campos_adicionais=("Status_Obra",))
         coffee_db.registrar_log("acao_usuario", "atualizar_no_plano", nota["pk"],
                                 {"id_sap": nota["id_sap"], "campos": resultado["campos"]}, True)
         return {"inseridas": 0, "atualizadas": resultado["alteradas"]}

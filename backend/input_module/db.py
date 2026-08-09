@@ -1187,10 +1187,13 @@ CAMPOS_EDITAVEIS = [
 ]
 
 
-def aplicar_edicoes(linhas: list, usuario: str) -> dict:
+def aplicar_edicoes(linhas: list, usuario: str,
+                    campos_adicionais: tuple[str, ...] = ()) -> dict:
     """Aplica edições parciais: diff campo a campo, log e upsert.
 
     Cada item de ``linhas`` é um dict com Numero_Nota + os campos editados.
+    ``campos_adicionais`` permite a fluxos internos aprovados editar campos
+    que não fazem parte do editor genérico do Input.
     A comparação usa a MESMA representação formatada de ``carregar_dados()``
     (status como texto, datas formatadas), que é o que a UI exibe e envia.
 
@@ -1198,6 +1201,7 @@ def aplicar_edicoes(linhas: list, usuario: str) -> dict:
     geram log, não são salvas — e voltam em ``bloqueadas`` no retorno, para a
     UI manter a edição pendente do usuário em vez de descartá-la.
     """
+    campos_editaveis = (*CAMPOS_EDITAVEIS, *campos_adicionais)
     df_banco = carregar_dados()
     if df_banco.empty:
         raise ValueError("Banco vazio: nenhuma nota para editar.")
@@ -1220,7 +1224,7 @@ def aplicar_edicoes(linhas: list, usuario: str) -> dict:
 
         original = df_banco.loc[numero]
         mudancas = {}
-        for campo in CAMPOS_EDITAVEIS:
+        for campo in campos_editaveis:
             if campo not in linha:
                 continue
             novo = "" if linha[campo] is None else str(linha[campo]).strip()

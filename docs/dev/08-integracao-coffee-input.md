@@ -136,8 +136,9 @@ aqui para não ficarem só no código:
   mover — nunca bloqueiam a revisão.
 - **Atualizar não reseta `Status_Nota`.** Ao mover com
   `atualizar_existente=true`, apenas `CAMPOS_ATUALIZAVEIS`
-  (`Local_Instalacao`, `Circuito`, `Prioridade_Nota`) e os campos
-  manuais do usuário são sobrescritos — `Status_Nota` e
+  (`Local_Instalacao`, `Circuito`, `Prioridade_Nota`, `Planejado_DDPM`) e os campos
+  manuais do usuário são sobrescritos — inclusive `Status_Obra`, que é permitido
+  somente nesse fluxo interno e não pelo editor genérico do Input. `Status_Nota` e
   `Data_Envio_Projeto` são estado do planejamento, não da nota COFFEE,
   e ficam intocados.
 - **Lote é all-or-nothing.** `mover_para_plano` valida todas as notas
