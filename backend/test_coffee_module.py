@@ -2,6 +2,7 @@
 import os
 import tempfile
 import time as _time
+from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 
 # Blindagem global: impede que a execução de testes afete o banco de dados real
@@ -43,6 +44,41 @@ def coffee_tmp(monkeypatch, tmp_path):
     from coffee_module import db
     db.inicializar_banco()
     return tmp_path
+
+
+def test_conexao_configura_timeout_e_foreign_keys_por_conexao(coffee_tmp):
+    """Remover a configuração por conexão faria cada conexão voltar aos defaults."""
+    from coffee_module import db
+
+    primeira = db.get_db_connection()
+    segunda = db.get_db_connection()
+    try:
+        assert primeira.execute("PRAGMA busy_timeout").fetchone()[0] == 5000
+        assert segunda.execute("PRAGMA busy_timeout").fetchone()[0] == 5000
+        assert primeira.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+        assert segunda.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+    finally:
+        primeira.close()
+        segunda.close()
+
+
+def test_conexao_concorrente_abre_enquanto_outra_mantem_lock(coffee_tmp):
+    """Renegociar WAL na abertura tenta lock exclusivo e quebra jobs concorrentes."""
+    from coffee_module import db
+
+    bloqueadora = db.get_db_connection()
+    bloqueadora.execute("BEGIN EXCLUSIVE")
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(db.get_db_connection)
+            concorrente = future.result(timeout=1)
+        try:
+            assert concorrente.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+        finally:
+            concorrente.close()
+    finally:
+        bloqueadora.rollback()
+        bloqueadora.close()
 
 
 def test_upsert_primeira_busca_pendente(coffee_tmp):
