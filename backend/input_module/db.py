@@ -450,8 +450,10 @@ def carregar_projeto_construcao() -> dict:
 # ==============================================================================
 # CARGA E PERSISTÊNCIA DE DADOS
 # ==============================================================================
-def carregar_dados() -> pd.DataFrame:
-    conn = get_db_connection()
+def carregar_dados(conn: sqlite3.Connection | None = None) -> pd.DataFrame:
+    conexao_propria = conn is None
+    if conexao_propria:
+        conn = get_db_connection()
     try:
         df = pd.read_sql("SELECT * FROM notas ORDER BY ID_Cronologia ASC", conn)
 
@@ -460,7 +462,8 @@ def carregar_dados() -> pd.DataFrame:
         else:
             df['Centro_Responsavel'] = '-'
     finally:
-        conn.close()
+        if conexao_propria:
+            conn.close()
 
     if not df.empty:
         df['Status_Nota'] = df['Status_Nota'].map(STATUS_MAP)
@@ -719,21 +722,59 @@ def deletar_notas(lista_numeros_nota: list, usuario: str = "sistema") -> int:
     if not lista_numeros_nota:
         return 0
 
-    numeros = [int(n) for n in lista_numeros_nota]
+    numeros = list(dict.fromkeys(int(n) for n in lista_numeros_nota))
     bloqueios = obter_bloqueios(numeros)
     permitidos = [n for n in numeros
                  if not (bloqueios.get(n) and bloqueios[n]["usuario"] != usuario)]
     bloqueados = [n for n in numeros if n not in permitidos]
-    if bloqueados:
+    if not permitidos:
         print(f"Aviso: {len(bloqueados)} nota(s) não excluída(s) — em edição "
               f"por outro usuário: {bloqueados}")
-    if not permitidos:
         return 0
 
     conn = get_db_connection()
     cursor = conn.cursor()
 
     try:
+        cursor.execute("BEGIN IMMEDIATE")
+        marcadores = ",".join("?" * len(permitidos))
+        linhas_bloqueio = cursor.execute(
+            f"SELECT Numero_Nota, Usuario, Data_Hora FROM bloqueios "
+            f"WHERE Numero_Nota IN ({marcadores})",
+            permitidos,
+        ).fetchall()
+        bloqueios_atuais = {
+            numero: dono
+            for numero, dono, data_hora in linhas_bloqueio
+            if not _bloqueio_expirado(data_hora)
+        }
+        permitidos = [
+            numero for numero in permitidos
+            if bloqueios_atuais.get(numero, usuario) == usuario
+        ]
+        bloqueados = [numero for numero in numeros if numero not in permitidos]
+        if bloqueados:
+            print(f"Aviso: {len(bloqueados)} nota(s) não excluída(s) — em edição "
+                  f"por outro usuário: {bloqueados}")
+        if not permitidos:
+            conn.rollback()
+            return 0
+
+        marcadores_existentes = ",".join("?" * len(permitidos))
+        notas_existentes = {
+            linha[0] for linha in cursor.execute(
+                f"SELECT Numero_Nota FROM notas "
+                f"WHERE Numero_Nota IN ({marcadores_existentes})",
+                permitidos,
+            ).fetchall()
+        }
+        permitidos = [
+            numero for numero in permitidos if numero in notas_existentes
+        ]
+        if not permitidos:
+            conn.rollback()
+            return 0
+
         data_hora_log = datetime.datetime.now()
         logs_exclusao = [
             (nota, usuario, data_hora_log,
@@ -818,21 +859,29 @@ def travar_nota(numero: int, usuario: str) -> dict:
     travada pelo próprio ``usuario`` — renovando o TTL), ou ``{"ok": False,
     "usuario": ..., "desde": ...}`` se outra pessoa estiver editando agora.
     """
-    ativo = obter_bloqueios([numero]).get(numero)
-    if ativo and ativo["usuario"] != usuario:
-        return {"ok": False, **ativo}
-
     conn = get_db_connection()
     try:
+        conn.execute("BEGIN IMMEDIATE")
+        linha = conn.execute(
+            "SELECT Usuario, Data_Hora FROM bloqueios WHERE Numero_Nota = ?",
+            (numero,),
+        ).fetchone()
+        if linha and not _bloqueio_expirado(linha[1]) and linha[0] != usuario:
+            conn.rollback()
+            return {"ok": False, "usuario": linha[0], "desde": str(linha[1])}
+
         conn.execute(
             "INSERT INTO bloqueios (Numero_Nota, Usuario, Data_Hora) VALUES (?, ?, ?) "
             "ON CONFLICT(Numero_Nota) DO UPDATE SET "
             "Usuario = excluded.Usuario, Data_Hora = excluded.Data_Hora",
             (numero, usuario, datetime.datetime.now()))
         conn.commit()
+        return {"ok": True}
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
-    return {"ok": True}
 
 
 def destravar_notas(numeros: list[int], usuario: str) -> int:
@@ -1066,6 +1115,7 @@ def reverter_ultima_alteracao(usuario: str):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
+        cursor.execute("BEGIN IMMEDIATE")
         cursor.execute(
             "SELECT MAX(Data_Hora) FROM log_alteracoes WHERE Usuario = ?",
             (usuario,))
@@ -1237,52 +1287,89 @@ def aplicar_edicoes(linhas: list, usuario: str) -> dict:
     geram log, não são salvas — e voltam em ``bloqueadas`` no retorno, para a
     UI manter a edição pendente do usuário em vez de descartá-la.
     """
-    df_banco = carregar_dados()
-    if df_banco.empty:
-        raise ValueError("Banco vazio: nenhuma nota para editar.")
-    df_banco = df_banco.set_index("Numero_Nota", drop=False)
-
-    numeros = [int(linha["Numero_Nota"]) for linha in linhas]
-    bloqueios = obter_bloqueios(numeros)
-
-    agora = datetime.datetime.now()
-    logs, registros_alterados, bloqueadas = [], [], []
+    realizar_backup()
+    linhas_por_numero = {}
     for linha in linhas:
         numero = int(linha["Numero_Nota"])
-        if numero not in df_banco.index:
-            raise ValueError(f"Nota {numero} não existe no banco.")
+        linhas_por_numero.setdefault(numero, {}).update(linha)
+        linhas_por_numero[numero]["Numero_Nota"] = numero
+    linhas = list(linhas_por_numero.values())
+    numeros = list(linhas_por_numero)
+    conn = get_db_connection()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        df_banco = carregar_dados(conn)
+        if df_banco.empty:
+            raise ValueError("Banco vazio: nenhuma nota para editar.")
+        df_banco = df_banco.set_index("Numero_Nota", drop=False)
+        colunas_no_banco = {
+            coluna[1] for coluna in conn.execute("PRAGMA table_info(notas)")
+        }
 
-        bloqueio = bloqueios.get(numero)
-        if bloqueio and bloqueio["usuario"] != usuario:
-            bloqueadas.append(numero)
-            continue
+        marcadores = ",".join("?" * len(numeros))
+        linhas_bloqueio = conn.execute(
+            f"SELECT Numero_Nota, Usuario, Data_Hora FROM bloqueios "
+            f"WHERE Numero_Nota IN ({marcadores})",
+            numeros,
+        ).fetchall() if numeros else []
+        bloqueios = {
+            numero: {"usuario": dono, "desde": str(data_hora)}
+            for numero, dono, data_hora in linhas_bloqueio
+            if not _bloqueio_expirado(data_hora)
+        }
 
-        original = df_banco.loc[numero]
-        mudancas = {}
-        for campo in CAMPOS_EDITAVEIS:
-            if campo not in linha:
+        agora = datetime.datetime.now()
+        logs, atualizacoes, bloqueadas = [], [], []
+        for linha in linhas:
+            numero = int(linha["Numero_Nota"])
+            if numero not in df_banco.index:
+                raise ValueError(f"Nota {numero} não existe no banco.")
+
+            bloqueio = bloqueios.get(numero)
+            if bloqueio and bloqueio["usuario"] != usuario:
+                bloqueadas.append(numero)
                 continue
-            novo = "" if linha[campo] is None else str(linha[campo]).strip()
-            antigo = "" if pd.isna(original.get(campo)) else str(original.get(campo)).strip()
-            if novo != antigo:
-                mudancas[campo] = linha[campo]
-                logs.append((numero, usuario, agora, campo, antigo, novo))
-        if not mudancas:
-            continue
-        registro = original.to_dict()
-        registro.update(mudancas)
-        if "Status_Nota" in mudancas:
-            registro["Status_Anterior"] = original["Status_Nota"]
-        if "Local_Instalacao" in mudancas:
-            registro["Regional"] = DE_PARA_REGIONAL.get(
-                str(mudancas["Local_Instalacao"])[:3], "-")
-        registros_alterados.append(registro)
 
-    if registros_alterados:
-        salvar_log_alteracoes(logs)
-        salvar_em_massa(pd.DataFrame(registros_alterados))
-    return {"alteradas": len(registros_alterados), "campos": len(logs),
-            "bloqueadas": bloqueadas}
+            original = df_banco.loc[numero]
+            mudancas = {}
+            for campo in CAMPOS_EDITAVEIS:
+                if campo not in linha or campo not in colunas_no_banco:
+                    continue
+                novo = "" if linha[campo] is None else str(linha[campo]).strip()
+                antigo = "" if pd.isna(original.get(campo)) else str(original.get(campo)).strip()
+                if novo != antigo:
+                    mudancas[campo] = _valor_para_coluna(campo, linha[campo])
+                    logs.append((numero, usuario, agora, campo, antigo, novo))
+            if not mudancas:
+                continue
+            if "Status_Nota" in mudancas and "Status_Anterior" in colunas_no_banco:
+                mudancas["Status_Anterior"] = status_para_int(original["Status_Nota"])
+            if "Local_Instalacao" in mudancas and "Regional" in colunas_no_banco:
+                mudancas["Regional"] = DE_PARA_REGIONAL.get(
+                    str(mudancas["Local_Instalacao"])[:3], "-")
+            atualizacoes.append((numero, mudancas))
+
+        if logs:
+            conn.executemany(
+                "INSERT INTO log_alteracoes "
+                "(Numero_Nota, Usuario, Data_Hora, Campo_Alterado, Valor_Antigo, Valor_Novo) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                logs,
+            )
+        for numero, mudancas in atualizacoes:
+            atribuicoes = ", ".join(f'"{campo}" = ?' for campo in mudancas)
+            conn.execute(
+                f"UPDATE notas SET {atribuicoes} WHERE Numero_Nota = ?",
+                [*mudancas.values(), numero],
+            )
+        conn.commit()
+        return {"alteradas": len(atualizacoes), "campos": len(logs),
+                "bloqueadas": bloqueadas}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def obter_nota_plano(numero: int) -> dict | None:

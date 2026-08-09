@@ -157,6 +157,53 @@ def test_aplicar_edicoes_gera_diff_log_e_status_anterior(banco_temporario):
     assert resultado["alteradas"] == 0
 
 
+def test_aplicar_edicoes_aceita_schema_legado_sem_status_anterior(
+    banco_temporario
+):
+    from input_module import db
+
+    db.salvar_em_massa(pd.DataFrame([_nota(2001)]))
+    conn = db.get_db_connection()
+    try:
+        conn.execute("ALTER TABLE notas DROP COLUMN Status_Anterior")
+        conn.commit()
+    finally:
+        conn.close()
+
+    resultado = db.aplicar_edicoes(
+        [{"Numero_Nota": 2001, "Status_Nota": "99 Encerrado"}],
+        usuario="tester",
+    )
+
+    assert resultado == {"alteradas": 1, "campos": 1, "bloqueadas": []}
+    nota = db.carregar_dados().set_index("Numero_Nota").loc[2001]
+    assert nota["Status_Nota"] == "99 Encerrado"
+    assert list(db.carregar_logs()["Campo_Alterado"]) == ["Status_Nota"]
+
+
+def test_aplicar_edicoes_consolida_linhas_duplicadas_da_mesma_nota(
+    banco_temporario
+):
+    from input_module import db
+
+    db.salvar_em_massa(pd.DataFrame([_nota(2002)]))
+
+    resultado = db.aplicar_edicoes(
+        [
+            {"Numero_Nota": 2002, "Observacao": "primeira"},
+            {"Numero_Nota": 2002, "Observacao": "final", "Check": "feito"},
+        ],
+        usuario="tester",
+    )
+
+    assert resultado == {"alteradas": 1, "campos": 2, "bloqueadas": []}
+    nota = db.carregar_dados().set_index("Numero_Nota").loc[2002]
+    assert nota["Observacao"] == "final"
+    assert nota["Check"] == "feito"
+    logs = db.carregar_logs()
+    assert set(logs["Campo_Alterado"]) == {"Observacao", "Check"}
+
+
 def test_aplicar_edicoes_nota_inexistente_da_erro(banco_temporario):
     from input_module import db
     with pytest.raises(ValueError):
@@ -188,6 +235,45 @@ def test_reverter_nao_desfaz_alteracao_de_outro_usuario(banco_temporario):
     df = db.carregar_dados()
     # A edição da outra pessoa (mais recente) permanece intocada.
     assert df[df["Numero_Nota"] == 3100].iloc[0]["Observacao"] == "dela"
+
+
+def test_reverter_protege_comparacao_e_update_na_mesma_transacao(
+    banco_temporario, monkeypatch
+):
+    from input_module import db
+
+    db.salvar_em_massa(pd.DataFrame([_nota(3101)]))
+    db.aplicar_edicoes(
+        [{"Numero_Nota": 3101, "Observacao": "minha"}],
+        usuario="eu",
+    )
+    comparar_original = db._mesmo_valor
+    tentativa_concorrente = {}
+
+    def comparar_com_escrita_concorrente(gravado, esperado):
+        conexao = sqlite3.connect(db.obter_caminho_banco(), timeout=0)
+        try:
+            conexao.execute(
+                "UPDATE notas SET Observacao = ? WHERE Numero_Nota = ?",
+                ("concorrente", 3101),
+            )
+            conexao.commit()
+            tentativa_concorrente["gravou"] = True
+        except sqlite3.OperationalError as erro:
+            assert "locked" in str(erro).lower()
+            tentativa_concorrente["gravou"] = False
+        finally:
+            conexao.close()
+        return comparar_original(gravado, esperado)
+
+    monkeypatch.setattr(db, "_mesmo_valor", comparar_com_escrita_concorrente)
+
+    ok, _mensagem = db.reverter_ultima_alteracao("eu")
+
+    assert ok
+    assert tentativa_concorrente == {"gravou": False}
+    nota = db.carregar_dados().set_index("Numero_Nota").loc[3101]
+    assert nota["Observacao"] == ""
 
 
 def test_deletar_notas(banco_temporario):
@@ -243,6 +329,46 @@ def test_travar_nota_bloqueia_outro_usuario(banco_temporario):
     assert resultado["ok"] is False
     assert resultado["usuario"] == "ana"
     assert "desde" in resultado
+
+
+def test_travar_nota_concorrente_tem_apenas_um_vencedor(
+    banco_temporario, monkeypatch
+):
+    from input_module import db
+
+    get_connection_original = db.get_db_connection
+    conexoes_prontas = threading.Barrier(2)
+    resultados = []
+    erros = []
+
+    def get_connection_sincronizada():
+        conexao = get_connection_original()
+        conexoes_prontas.wait(timeout=5)
+        return conexao
+
+    def travar(usuario):
+        try:
+            resultados.append((usuario, db.travar_nota(4210, usuario)))
+        except Exception as erro:
+            erros.append(erro)
+
+    monkeypatch.setattr(db, "get_db_connection", get_connection_sincronizada)
+    threads = [
+        threading.Thread(target=travar, args=("ana",)),
+        threading.Thread(target=travar, args=("bob",)),
+    ]
+
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    monkeypatch.setattr(db, "get_db_connection", get_connection_original)
+    assert all(not thread.is_alive() for thread in threads)
+    assert erros == []
+    assert sum(resultado["ok"] for _, resultado in resultados) == 1
+    dono = db.obter_bloqueios([4210])[4210]["usuario"]
+    assert next(usuario for usuario, resultado in resultados if resultado["ok"]) == dono
 
 
 def test_travar_nota_mesmo_usuario_renova(banco_temporario):
@@ -304,6 +430,83 @@ def test_aplicar_edicoes_permite_dono_do_bloqueio(banco_temporario):
     assert resultado["bloqueadas"] == []
 
 
+def test_aplicar_edicoes_concorrentes_preserva_campos_diferentes(
+    banco_temporario, monkeypatch
+):
+    from input_module import db
+
+    db.salvar_em_massa(pd.DataFrame([_nota(4209)]))
+    carregar_original = db.carregar_dados
+    get_connection_original = db.get_db_connection
+    conexoes_prontas = threading.Barrier(2)
+    erros = []
+
+    def get_connection_sincronizada():
+        conexao = get_connection_original()
+        conexoes_prontas.wait(timeout=5)
+        return conexao
+
+    def editar(linha):
+        try:
+            db.aplicar_edicoes([linha], usuario="mesmo-usuario")
+        except Exception as erro:
+            erros.append(erro)
+
+    monkeypatch.setattr(db, "get_db_connection", get_connection_sincronizada)
+    threads = [
+        threading.Thread(
+            target=editar,
+            args=({"Numero_Nota": 4209, "Observacao": "observacao concorrente"},),
+        ),
+        threading.Thread(
+            target=editar,
+            args=({"Numero_Nota": 4209, "Check": "check concorrente"},),
+        ),
+    ]
+
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    monkeypatch.setattr(db, "get_db_connection", get_connection_original)
+    assert all(not thread.is_alive() for thread in threads)
+    assert erros == []
+    nota = carregar_original().set_index("Numero_Nota").loc[4209]
+    assert nota["Observacao"] == "observacao concorrente"
+    assert nota["Check"] == "check concorrente"
+
+
+def test_aplicar_edicoes_reverte_log_quando_update_falha(banco_temporario):
+    from input_module import db
+
+    db.salvar_em_massa(pd.DataFrame([_nota(4211)]))
+    conn = db.get_db_connection()
+    try:
+        conn.execute(
+            """CREATE TRIGGER falhar_update_observacao
+               BEFORE UPDATE OF Observacao ON notas
+               WHEN NEW.Observacao = 'falha-forcada'
+               BEGIN
+                 SELECT RAISE(ABORT, 'falha simulada no update');
+               END"""
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    with pytest.raises(sqlite3.IntegrityError, match="falha simulada"):
+        db.aplicar_edicoes(
+            [{"Numero_Nota": 4211, "Observacao": "falha-forcada"}],
+            usuario="teste",
+        )
+
+    nota = db.carregar_dados().set_index("Numero_Nota").loc[4211]
+    logs = db.carregar_logs()
+    assert nota["Observacao"] == ""
+    assert logs[logs["Numero_Nota"] == 4211].empty
+
+
 def test_deletar_notas_pula_travada_por_outro(banco_temporario):
     from input_module import db
     db.salvar_em_massa(pd.DataFrame([_nota(4207), _nota(4208)]))
@@ -312,6 +515,107 @@ def test_deletar_notas_pula_travada_por_outro(banco_temporario):
     numeros = set(db.carregar_dados()["Numero_Nota"])
     assert 4207 in numeros   # travada: sobreviveu
     assert 4208 not in numeros  # livre: excluída
+
+
+def test_deletar_notas_revalida_lock_adquirido_antes_do_delete(
+    banco_temporario, monkeypatch
+):
+    from input_module import db
+
+    db.salvar_em_massa(pd.DataFrame([_nota(4212)]))
+    obter_original = db.obter_bloqueios
+    consulta_concluida = threading.Event()
+    continuar_delete = threading.Event()
+    resultado_delete = {}
+    erros = []
+
+    def obter_pausado(numeros):
+        bloqueios = obter_original(numeros)
+        consulta_concluida.set()
+        assert continuar_delete.wait(timeout=5)
+        return bloqueios
+
+    def deletar():
+        try:
+            resultado_delete["quantidade"] = db.deletar_notas(
+                [4212], usuario="ana"
+            )
+        except Exception as erro:
+            erros.append(erro)
+
+    monkeypatch.setattr(db, "obter_bloqueios", obter_pausado)
+    thread = threading.Thread(target=deletar)
+    thread.start()
+    assert consulta_concluida.wait(timeout=5)
+    resultado_lock = db.travar_nota(4212, "bob")
+    continuar_delete.set()
+    thread.join(timeout=10)
+    monkeypatch.setattr(db, "obter_bloqueios", obter_original)
+
+    assert not thread.is_alive()
+    assert erros == []
+    assert resultado_lock == {"ok": True}
+    assert resultado_delete["quantidade"] == 0
+    assert 4212 in set(db.carregar_dados()["Numero_Nota"])
+    assert db.obter_bloqueios([4212])[4212]["usuario"] == "bob"
+
+
+def test_deletar_nota_concorrente_gera_um_unico_log(
+    banco_temporario, monkeypatch
+):
+    from input_module import db
+
+    db.salvar_em_massa(pd.DataFrame([_nota(4213)]))
+    obter_original = db.obter_bloqueios
+    consultas_concluidas = threading.Barrier(2)
+    resultados = []
+    erros = []
+
+    def obter_sincronizado(numeros):
+        bloqueios = obter_original(numeros)
+        consultas_concluidas.wait(timeout=5)
+        return bloqueios
+
+    def deletar(usuario):
+        try:
+            resultados.append(db.deletar_notas([4213], usuario=usuario))
+        except Exception as erro:
+            erros.append(erro)
+
+    monkeypatch.setattr(db, "obter_bloqueios", obter_sincronizado)
+    threads = [
+        threading.Thread(target=deletar, args=("ana",)),
+        threading.Thread(target=deletar, args=("bob",)),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+    monkeypatch.setattr(db, "obter_bloqueios", obter_original)
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert erros == []
+    assert sum(resultados) == 1
+    logs = db.carregar_logs()
+    logs_exclusao = logs[
+        (logs["Numero_Nota"] == 4213)
+        & (logs["Campo_Alterado"] == "EXCLUSÃO DE NOTA")
+    ]
+    assert len(logs_exclusao) == 1
+
+
+def test_deletar_notas_ignora_numeros_duplicados(banco_temporario):
+    from input_module import db
+
+    db.salvar_em_massa(pd.DataFrame([_nota(4214)]))
+
+    assert db.deletar_notas([4214, 4214], usuario="ana") == 1
+    logs = db.carregar_logs()
+    logs_exclusao = logs[
+        (logs["Numero_Nota"] == 4214)
+        & (logs["Campo_Alterado"] == "EXCLUSÃO DE NOTA")
+    ]
+    assert len(logs_exclusao) == 1
 
 
 def test_backup_rotativo(banco_temporario):
