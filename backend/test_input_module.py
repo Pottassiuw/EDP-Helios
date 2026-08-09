@@ -1489,6 +1489,48 @@ def test_perfil_producao_reconhecido(monkeypatch):
     assert config.em_producao() is True
 
 
+def _liberar_copia_excel_rede(monkeypatch):
+    """Remove as envs que fazem gerar_copia_excel_rede() sair antes do corpo.
+
+    Sem isso o teste passaria pelo atalho de ambiente de teste e nunca
+    exercitaria a guarda de perfil.
+    """
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.delenv("INPUT_DATA_DIR", raising=False)
+
+
+def test_copia_excel_rede_nao_toca_rede_no_perfil_local(monkeypatch):
+    """Perfil local sai antes de enriquecer dados e de qualquer caminho de rede."""
+    from input_module import engine
+    _liberar_copia_excel_rede(monkeypatch)
+    monkeypatch.delenv("EDP_PERFIL", raising=False)
+    chamadas = []
+    monkeypatch.setattr(engine, "enriquecer_dados",
+                        lambda: chamadas.append("enriquecer_dados"))
+
+    engine.gerar_copia_excel_rede()
+
+    assert chamadas == []
+
+
+def test_copia_excel_rede_segue_no_perfil_producao(monkeypatch):
+    """A guarda é do perfil local — produção continua gerando a cópia."""
+    from input_module import engine
+    _liberar_copia_excel_rede(monkeypatch)
+    monkeypatch.setenv("EDP_PERFIL", "producao")
+    chamadas = []
+
+    def _enriquecer_e_parar():
+        chamadas.append("enriquecer_dados")
+        raise RuntimeError("teste para antes de escrever na rede")
+
+    monkeypatch.setattr(engine, "enriquecer_dados", _enriquecer_e_parar)
+
+    engine.gerar_copia_excel_rede()
+
+    assert chamadas == ["enriquecer_dados"]
+
+
 def test_perfil_local_usa_banco_do_data_dir(monkeypatch, tmp_path):
     monkeypatch.delenv("EDP_PERFIL", raising=False)
     monkeypatch.delenv("INPUT_DB_PATH", raising=False)

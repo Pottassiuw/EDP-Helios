@@ -94,11 +94,15 @@ estiver acessível, `db.migrar_da_rede_se_preciso()` levanta
 notas desatualizadas de todo o setor — por isso o erro é explícito e é
 reavaliado a cada requisição.
 
-**Perfil local não espelha o banco.** As escritas ficam na máquina; só as
-planilhas Excel (`Base_Notas_Sincronizada.xlsx`, `Input Nota.xlsx`) vão
-para a rede. `garantir_banco()` e `gerar_copia_excel_rede()` avisam isso no
-log. A sincronização por `sqlite3.Connection.backup()` que existia até
-`ef19f4f` **não pode voltar**: ela sobrescreve o arquivo inteiro da rede e
+**Perfil local não publica na rede.** Ele ainda pode ler a rede durante a
+migração inicial descrita acima, mas suas escritas ficam na máquina:
+`gerar_copia_excel_rede()` sai logo no começo quando `config.em_producao()`
+é falso — antes de enriquecer os dados, antes de checar/remover locks `~$` e
+antes de gravar `Base_Notas_Sincronizada.xlsx` ou `Input Nota.xlsx`. Só o
+perfil `producao` publica essas planilhas. `garantir_banco()` e
+`gerar_copia_excel_rede()` avisam isso no log.
+A sincronização por `sqlite3.Connection.backup()` que existia até `ef19f4f`
+**não pode voltar**: ela sobrescreve o arquivo inteiro da rede e
 apaga o que os outros usuários gravaram. Se o perfil local algum dia
 precisar publicar, o caminho é UPSERT por `Numero_Nota`.
 
@@ -370,10 +374,11 @@ Sem `Encerram.por data`, a execução usa `Mes_Execucao_Planejado` e o payload
 incrementa `avisos.executadas_sem_data`, contado por nota no ano e no filtro
 regional ativo.
 
-Toda escrita bem-sucedida chama `_pos_escrita()` (`routes.py:83`), que
+Toda escrita bem-sucedida chama `service.pos_escrita()`, que
 invalida o cache do engine e agenda `engine.gerar_copia_excel_rede()`
-em background para manter o Excel espelhado na rede atualizado. O banco em
-si não é copiado por essa rotina — ver "Perfil de execução" acima.
+em background para manter o Excel espelhado na rede atualizado. Em perfil
+local a tarefa agendada retorna sem tocar em nenhum caminho de rede; o banco
+em si não é copiado por essa rotina — ver "Perfil de execução" acima.
 
 ### Ramal: `ID_Cronologia`
 
