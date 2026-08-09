@@ -27,7 +27,8 @@ enquanto o usuário está com a tela aberta.
 | `frontend/src/features/input/hierarquia-card.tsx` | Card de vínculo manual de hierarquia (nota-mãe/notas-filhas): busca a hierarquia de uma nota, lista candidatas órfãs do mesmo conjunto e aplica o vínculo (`InputApi.vincularHierarquia`). |
 | `frontend/src/features/input/data-grid.tsx` | Grid somente-leitura estilo Excel sobre `react-datasheet-grid`: ordenação, redimensionamento/autofit de colunas por arraste, barra de status com soma/média/contagem da seleção e a ação de detalhes fixa criada por `stickyRightColumn`, fora de `COLUNAS` e da exportação. |
 | `frontend/src/features/input/input-nota-inspector.tsx` | `InputNotaInspector`: `Sheet` read-only aberto pela ação fixa da grade; mostra primeiro dez campos presentes em `NotaInput` e depois reutiliza `CarteiraEnriquecimentoCard` por `Numero_Nota`, sem persistir ou criar colunas enriquecidas no Input. |
-| `frontend/src/features/input/use-input-data.ts` | Hooks de dados da base principal: `useInputData` (React Query, exporta a chave `INPUT_DADOS_KEY` para outros hooks/features invalidarem o mesmo cache), `useRecarregarInput` (invalidação) e `useSincronizacaoAutomatica` (polling que detecta alteração feita em outra sessão e revalida em background). |
+| `frontend/src/features/input/use-input-data.ts` | Hooks de dados da base principal: `useInputData` (React Query, exporta a chave `INPUT_DADOS_KEY` para outros hooks/features invalidarem o mesmo cache), `useRecarregarInput` (invalidação), `useSincronizacaoAutomatica` (polling que detecta alteração feita em outra sessão e revalida em background) e `useNetworkSync` (estado da rede no cabeçalho). |
+| `frontend/src/features/input/network-sync-status.tsx` | Card apresentacional do cabeçalho para os quatro estados da rede: verificando, sincronizando, sincronizada e indisponível. |
 | `frontend/src/features/input/cache.ts` | Snapshots do dataset em IndexedDB via Dexie (tabela `snapshots`, uma linha por dataset: `input-dados`, `ramal-dados`). Best-effort: falha de IndexedDB equivale a cache vazio. |
 | `frontend/src/features/input/ui.ts` | Constantes de estilo compartilhadas: `CLASSE_SELECT_MONO` para `SelectContent` mono-styling, usada por `filters.tsx`, `manage.tsx` e `ramal.tsx`. Nota: `MesExecucaoPicker` (agora em `components/branded/`) declara sua própria instância internamente. |
 | `frontend/src/components/branded/mes-execucao-picker.tsx` | `MesExecucaoPicker`: dropdown do campo "Mês de Execução Planejado", movido para `components/branded/` para reutilização entre features (Input e futura integração COFFEE). |
@@ -263,6 +264,20 @@ próprio polling, `use-auto-vinculos.ts` e a integração COFFEE
 (`mover-plano-modal.tsx`, ver `02-frontend-coffee.md`, fluxo "Revisar
 Nota e Mover para o Plano") — invalide o mesmo cache sem duplicar o
 array literal `['input-dados']`.
+
+### Status da rede no cabeçalho
+
+`useNetworkSync` consulta `GET /sync` ao montar e a cada 3 segundos. O
+retorno é um estado discriminado: `verificando`, `sincronizando`,
+`sincronizada` ou `indisponivel`. Apenas uma resposta bem-sucedida com
+`sincronizando=false` produz o card verde "Sincronizada". Enquanto a
+sincronização está ativa, o hook mantém o aviso de `beforeunload` existente.
+
+Falhas da consulta não exibem toast repetitivo: o cabeçalho mostra "Rede
+indisponível" e disponibiliza o botão acessível "Tentar novamente", que faz
+uma consulta imediata. O polling continua ativo, portanto uma recuperação da
+rede atualiza o card sem exigir uma ação do usuário. Os cards e o botão usam
+os tokens existentes; o botão `outline` do shadcn mantém raio padrão de 6px.
 
 ### Notas vindas do COFFEE
 
