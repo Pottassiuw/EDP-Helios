@@ -59,7 +59,7 @@ export function KpiDrawer(props: KpiDrawerProps): React.JSX.Element {
                          border-0 rounded-[999px] cursor-pointer
                          bg-[var(--accent)] text-primary-foreground [font-family:var(--font-display)]
                          font-extrabold"
-                style={{ boxShadow: "0 4px 14px rgba(0,0,0,.35)" }}>
+                style={{ boxShadow: "var(--shadow-floating)" }}>
           <span className="text-[15px] leading-none">⊞</span>{safePct}%
         </button>
       )}
@@ -71,7 +71,7 @@ export function KpiDrawer(props: KpiDrawerProps): React.JSX.Element {
                           border-l-[2px] border-l-[var(--accent)]
                           [animation:kpi-slide-in_.2s_ease-out]
                           overflow-y-auto"
-                 style={{ boxShadow: "-8px 0 24px rgba(0,0,0,.3)" }}>
+                 style={{ boxShadow: "var(--shadow-drawer)" }}>
             <div className="flex items-center justify-between">
               <Eyebrow>Indicadores</Eyebrow>
               <button ref={closeRef} onClick={() => setOpen(false)} title="Fechar" aria-label="Fechar indicadores"
