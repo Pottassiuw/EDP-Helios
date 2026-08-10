@@ -330,7 +330,7 @@ export function Dashboard(props: DashboardProps): React.JSX.Element {
             {chips.map((c, i) => (
               <button key={i} className="fchip" onClick={c.clear}>{c.k}<span className="text-[14px] leading-none">×</span></button>
             ))}
-            <button className="fchip text-red bg-tint-red" style={{ borderColor: "rgba(240,85,92,.3)" }}
+            <button className="fchip text-red bg-tint-red" style={{ borderColor: "var(--status-red-border)" }}
                     onClick={clearAll}>Limpar tudo</button>
           </div>
         )}
@@ -581,7 +581,7 @@ function Detail({ sel, done, dup, encaminhamento, onToggleDone, onMarkDuplicate,
           {otherErrors.length ? (
             <div className="flex flex-col gap-[8px]">
               {otherErrors.map((e) => (
-                <div key={e.rule} className="bg-tint-red rounded-app-sm py-[11px] px-[14px]" style={{ border: "1px solid rgba(240,85,92,0.25)", borderLeft: "3px solid var(--red)" }}>
+                <div key={e.rule} className="bg-tint-red rounded-app-sm py-[11px] px-[14px]" style={{ border: "1px solid var(--status-red-border)", borderLeft: "3px solid var(--red)" }}>
                   <div className="font-mono text-[10.5px] text-red tracking-[.08em]">{e.rule}</div>
                   <div className="text-[14px] font-semibold mt-[2px]">{e.rule_name}</div>
                   <div className="text-[12.5px] text-text-dim mt-[2px]">Valor: {e.value}</div>
@@ -599,7 +599,7 @@ function Detail({ sel, done, dup, encaminhamento, onToggleDone, onMarkDuplicate,
             ))}
           </div>
           {sel.latitude && sel.longitude && (
-            <Button asChild variant="outline" size="sm" className="text-blue mt-[12px]" style={{ borderColor: "rgba(31,159,214,0.4)" }}>
+            <Button asChild variant="outline" size="sm" className="text-blue mt-[12px]" style={{ borderColor: "var(--status-blue-border)" }}>
               <a target="_blank" rel="noopener" href={EDPApi.mapsUrl(sel.latitude, sel.longitude)}><MapPin /> Abrir no Google Maps</a>
             </Button>
           )}

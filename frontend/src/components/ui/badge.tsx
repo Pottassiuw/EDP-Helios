@@ -13,7 +13,7 @@ const badgeVariants = cva(
         secondary:
           "bg-secondary text-secondary-foreground [a&]:hover:bg-secondary/90",
         destructive:
-          "bg-destructive text-white focus-visible:ring-destructive/20 dark:bg-destructive/60 dark:focus-visible:ring-destructive/40 [a&]:hover:bg-destructive/90",
+          "bg-destructive text-destructive-foreground focus-visible:ring-destructive/20 dark:bg-destructive/60 dark:focus-visible:ring-destructive/40 [a&]:hover:bg-destructive/90",
         outline:
           "border-border text-foreground [a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
         ghost: "[a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
@@ -21,7 +21,7 @@ const badgeVariants = cva(
         tagOk: "inline-flex items-center gap-[5px] font-mono text-[10.5px] font-semibold tracking-[0.08em] uppercase py-[3px] px-[8px] rounded-[5px] whitespace-nowrap border-transparent bg-green text-on-green",
         tagErr: "inline-flex items-center gap-[5px] font-mono text-[10.5px] font-semibold tracking-[0.08em] uppercase py-[3px] px-[8px] rounded-[5px] whitespace-nowrap border-transparent bg-tint-red text-red",
         tagDone: "inline-flex items-center gap-[5px] font-mono text-[10.5px] font-semibold tracking-[0.08em] uppercase py-[3px] px-[8px] rounded-[5px] whitespace-nowrap border-transparent bg-tint-indigo text-indigo",
-        tagDup: "inline-flex items-center gap-[5px] font-mono text-[10.5px] font-semibold tracking-[0.08em] uppercase py-[3px] px-[8px] rounded-[5px] whitespace-nowrap border-transparent bg-indigo text-white",
+        tagDup: "inline-flex items-center gap-[5px] font-mono text-[10.5px] font-semibold tracking-[0.08em] uppercase py-[3px] px-[8px] rounded-[5px] whitespace-nowrap border-transparent bg-indigo text-on-dark",
         prioHigh: "inline-flex items-center justify-center min-w-[26px] h-[26px] px-[7px] rounded-[7px] font-mono text-[13px] font-semibold border bg-tint-red text-red",
         prioMed: "inline-flex items-center justify-center min-w-[26px] h-[26px] px-[7px] rounded-[7px] font-mono text-[13px] font-semibold border bg-tint-amber text-amber",
         prioLow: "inline-flex items-center justify-center min-w-[26px] h-[26px] px-[7px] rounded-[7px] font-mono text-[13px] font-semibold border bg-green text-on-green",
