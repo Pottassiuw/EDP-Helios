@@ -110,10 +110,12 @@ da Operação e o total **Encaminhadas hoje** para todos os usuários, discrimin
 backend persiste o último encaminhamento em `coffee.db`, sem escrever na fonte
 compartilhada.
 
-O filtro **Gerada por** alterna entre **Todos** e **Inspetores ES/SP**. Neste
-último escopo, o filtro **Inspetor** permite selecionar uma matrícula. A fila
-sempre mostra nome e UF de quem gerou a nota e sinaliza matrículas não
-cadastradas no De-Para.
+O filtro **Gerada por** alterna entre **Todos** e **Inspetores ES/SP**. O
+segundo escopo mantém somente notas cujo gerador esteja no De-Para, tenha UF
+`ES` ou `SP` e a permissão `inspetor_planejamento`. Só então aparece o filtro
+**Inspetor**: suas opções são os geradores desse escopo, deduplicadas por
+matrícula e exibidas como nome e UF. A fila sempre mostra nome e UF de quem
+gerou a nota e sinaliza matrículas não cadastradas no De-Para.
 
 Em Concluídas, a lista informa quando a nota veio de Verificar e quando foi
 corrigida. A ficha lateral mostra também quem a encaminhou e quem concluiu.
