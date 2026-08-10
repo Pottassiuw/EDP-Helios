@@ -6,6 +6,7 @@ import json
 import os
 import re as _re
 import tempfile
+import threading
 from typing import Optional
 from input_module.status10_service import obter_resumo_status10, gerar_email_outlook_status10
 
@@ -294,11 +295,26 @@ def baixar_base(nome_arquivo: str):
     return FileResponse(caminho, filename=nome_arquivo)
 
 
-def _importar_base_para_sqlite(nome_arquivo: str, caminho: str) -> None:
+def _importar_base_para_sqlite(nome_arquivo: str, caminho: str,
+                               tabelas_tocadas: Optional[list] = None) -> None:
     """Lê o Excel em `caminho` e grava as tabelas da base no SQLite nativo.
 
     Levanta em qualquer falha (arquivo ilegível, aba ausente, erro de escrita) —
-    quem precisa do resultado como booleano usa `_processar_upload_base`."""
+    quem precisa do resultado como booleano usa `_processar_upload_base`.
+
+    A leitura do arquivo inteiro vem antes da primeira gravação, inclusive nas
+    bases multi-tabela: uma planilha inválida é recusada sem tocar o SQLite.
+
+    Cada tabela entra em `tabelas_tocadas` ANTES de ser gravada: `salvar_base_dataframe`
+    usa `to_sql(if_exists="replace")`, que dropa a tabela antiga, então uma gravação
+    que levanta já pode ter mexido no SQLite. Quem trata o erro precisa saber
+    disso para não confundir "nem começou" com "parou no meio"."""
+    tocadas = [] if tabelas_tocadas is None else tabelas_tocadas
+
+    def gravar(nome_tabela: str, df) -> None:
+        tocadas.append(nome_tabela)
+        db.salvar_base_dataframe(nome_tabela, df)
+
     map_simples = {
         "Indicador base conjunto - Limite Aneel.xlsx": "base_indicador_continuidade",
         "Gerada_base_IW28.XLSX": "base_iw28",
@@ -308,15 +324,17 @@ def _importar_base_para_sqlite(nome_arquivo: str, caminho: str) -> None:
     }
     if nome_arquivo in map_simples:
         df = pd.read_excel(caminho)
-        db.salvar_base_dataframe(map_simples[nome_arquivo], df)
+        gravar(map_simples[nome_arquivo], df)
     elif nome_arquivo == "Ganhos.xlsx":
         df = pd.read_excel(caminho, sheet_name='Ganhos')
-        db.salvar_base_dataframe("base_ganhos", df)
+        gravar("base_ganhos", df)
     elif nome_arquivo == "Custo_Modular.xlsx":
+        # As duas abas são lidas ANTES da primeira gravação: uma planilha que só
+        # revela o defeito na segunda leitura é recusada sem ter tocado o SQLite.
         df_mod = pd.read_excel(caminho, sheet_name='Modulares')
-        db.salvar_base_dataframe("base_custo_modular", df_mod)
         df_saz = pd.read_excel(caminho, sheet_name='Modulares', skiprows=1, nrows=4)
-        db.salvar_base_dataframe("base_sazonal", df_saz)
+        gravar("base_custo_modular", df_mod)
+        gravar("base_sazonal", df_saz)
     else:
         raise ValueError(f"'{nome_arquivo}' não tem importador para o SQLite nativo.")
 
@@ -336,8 +354,56 @@ def _descartar_temporario(caminho: str) -> None:
     """Remove o temporário de upload sem mascarar o erro que levou ao descarte."""
     try:
         os.remove(caminho)
+    except FileNotFoundError:
+        pass
     except OSError as e:
         print(f"Aviso: temporário de upload não removido ({caminho}): {e}")
+
+
+_travas_de_base: dict[str, threading.Lock] = {}
+_trava_do_registro = threading.Lock()
+
+
+def _trava_da_base(caminho: str) -> threading.Lock:
+    """Trava exclusiva de UMA base de apoio.
+
+    Uploads da mesma base serializam (troca do Excel e import para o SQLite
+    formam um bloco só); uploads de bases diferentes continuam em paralelo."""
+    with _trava_do_registro:
+        return _travas_de_base.setdefault(caminho, threading.Lock())
+
+
+def _realinhar_sqlite_com_o_alvo(nome_arquivo: str, caminho: str) -> bool:
+    """Reimporta o arquivo que está no alvo, desfazendo gravações parciais de um
+    upload que falhou depois de já ter mexido no SQLite.
+
+    Devolve se o SQLite ficou comprovadamente igual ao alvo. Se a base ainda não
+    existe na rede — primeiro upload — não há de onde realinhar, e isso também é
+    um `False`: as tabelas gravadas ficam sem arquivo correspondente."""
+    if not os.path.exists(caminho):
+        print(f"Aviso: o SQLite pode ter dados parciais de '{nome_arquivo}': "
+              f"a base ainda não existe em '{caminho}' para realinhar.")
+        return False
+    return _processar_upload_base(nome_arquivo, caminho)
+
+
+def _exigir_sqlite_realinhado(nome_arquivo: str, caminho: str, causa: Exception) -> None:
+    """Realinha o SQLite com o alvo depois de um upload que já gravou tabelas.
+
+    Se o realinhamento não passar, o banco pode ter ficado com dados de um
+    arquivo que nunca entrou na rede. Engolir isso faria o usuário ler o erro
+    como "só a planilha foi recusada": a rota corta aqui, invalida os caches
+    (que seguiriam servindo o estado anterior) e diz que a consistência não pôde
+    ser confirmada."""
+    if _realinhar_sqlite_com_o_alvo(nome_arquivo, caminho):
+        return
+    engine.invalidar_cache()
+    engine.invalidar_status_bases()
+    raise HTTPException(
+        500, f"Upload de '{nome_arquivo}' falhou ({causa}) e o banco não pôde ser realinhado "
+             "com o arquivo da rede: a consistência entre os dois NÃO pôde ser confirmada. "
+             "O arquivo na rede não foi alterado. Reenvie a base; se o erro repetir, "
+             "acione o suporte antes de usar os dados desta base.")
 
 
 def _rotina_sap_background():
@@ -390,10 +456,9 @@ def substituir_base(nome_arquivo: str, arquivo: UploadFile = File(...),
     garantir_banco()
     caminho = _achar_base(nome_arquivo)
 
-    # Grava num temporário no MESMO diretório do alvo: só depois de importar
-    # essa cópia com sucesso o alvo é substituído (os.replace é atômico dentro
-    # do mesmo volume). Assim um upload inválido ou uma queda no meio da
-    # gravação nunca deixa a base da rede truncada.
+    # Grava num temporário no MESMO diretório do alvo: o alvo só é trocado por
+    # esse arquivo já completo (os.replace é atômico dentro do mesmo volume).
+    # Assim uma queda no meio da gravação nunca deixa a base da rede truncada.
     try:
         descritor, temporario = tempfile.mkstemp(
             dir=os.path.dirname(caminho), prefix=f"{nome_arquivo}.", suffix=".tmp")
@@ -407,24 +472,58 @@ def substituir_base(nome_arquivo: str, arquivo: UploadFile = File(...),
         _descartar_temporario(temporario)
         raise HTTPException(502, f"Erro ao gravar na rede: {e}")
 
-    try:
-        _importar_base_para_sqlite(nome_arquivo, temporario)
-    except Exception as e:
-        _descartar_temporario(temporario)
-        raise HTTPException(
-            422, f"Arquivo recusado: não foi possível importar '{nome_arquivo}' ({e}). "
-                 "A base anterior foi mantida — confira o layout/abas da planilha e envie de novo.")
+    # O import para o SQLite, a troca do Excel e o log da substituição rodam sob
+    # a trava desta base: dois uploads simultâneos da mesma base se enfileiram em
+    # vez de intercalar tabelas e arquivo.
+    #
+    # O alvo só muda no os.replace final, e nunca sai do lugar antes dele: em
+    # qualquer queda o Excel da rede continua legível — no conteúdo antigo ou no
+    # novo. Se o SQLite já tiver recebido dados quando algo falha, ele é
+    # realinhado com o arquivo que ficou no alvo; se nem isso passar, a resposta
+    # avisa que a consistência entre os dois não pôde ser confirmada.
+    with _trava_da_base(caminho):
+        tabelas_tocadas: list = []
+        try:
+            _importar_base_para_sqlite(nome_arquivo, temporario, tabelas_tocadas)
+        except Exception as e:
+            _descartar_temporario(temporario)
+            # Bases multi-tabela (Custo_Modular) podem falhar já com uma tabela
+            # gravada; o realinhamento devolve o SQLite ao conteúdo do alvo. Se
+            # nada foi tocado — arquivo ilegível, aba faltando — não há o que
+            # realinhar, e reimportar por reimportar só arriscaria uma tabela sã.
+            if tabelas_tocadas:
+                _exigir_sqlite_realinhado(nome_arquivo, caminho, e)
+            raise HTTPException(
+                422, f"Arquivo recusado: não foi possível importar '{nome_arquivo}' ({e}). "
+                     "A base na rede não foi alterada — confira o layout/abas da planilha e envie de novo.")
 
-    try:
-        os.replace(temporario, caminho)
-    except OSError as e:
-        _descartar_temporario(temporario)
-        raise HTTPException(502, f"Erro ao substituir '{nome_arquivo}' na rede: {e}. "
-                                 "A base anterior foi mantida — tente novamente.")
+        try:
+            os.replace(temporario, caminho)
+        except OSError as e:
+            _descartar_temporario(temporario)
+            _exigir_sqlite_realinhado(nome_arquivo, caminho, e)
+            raise HTTPException(502, f"Erro ao substituir '{nome_arquivo}' na rede: {e}. "
+                                     "A base na rede não foi alterada — tente novamente.")
 
-    db.salvar_log_arquivo(nome_arquivo, usuario, datetime.datetime.now(), "Substituição")
+        # Auditoria é o último passo, e é best-effort: aqui o Excel e o SQLite
+        # já estão trocados e consistentes. Falhar a resposta agora faria o
+        # usuário reenviar uma base que já entrou — o upload é confirmado, com
+        # aviso de que ficou sem rastro em log_arquivos.
+        try:
+            auditoria_gravada = db.salvar_log_arquivo(
+                nome_arquivo, usuario, datetime.datetime.now(), "Substituição")
+        except Exception as e:
+            print(f"Erro ao salvar log de arquivo: {e}")
+            auditoria_gravada = False
+
+    # Invalidação sempre depois da publicação, gravada a auditoria ou não: os
+    # caches seguiriam servindo a base anterior.
     engine.invalidar_cache()
     engine.invalidar_status_bases()
+    if not auditoria_gravada:
+        return {"ok": True, "aviso": f"'{nome_arquivo}' foi substituída na rede e no banco, mas o "
+                                     "registro de auditoria não pôde ser gravado: esta substituição "
+                                     "não vai aparecer no histórico de arquivos. Avise o suporte."}
     return {"ok": True}
 
 

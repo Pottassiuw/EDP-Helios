@@ -281,12 +281,13 @@ dataset, montada sem tabela nova nem migração de schema — só compõe um
 string a partir de colunas que já existem:
 
 ```
-f"{max_alt}|{qtd_alt}|{max_arq}|{qtd_notas}"
+f"{max_alt}|{qtd_alt}|{max_arq}|{qtd_notas}|{schema}"
 ```
 
 onde `max_alt`/`qtd_alt` vêm de `MAX(Data_Hora)`/`COUNT(*)` em
-`log_alteracoes`, `max_arq` de `MAX(Data_Hora)` em `log_arquivos`, e
-`qtd_notas` de `COUNT(*)` em `notas`.
+`log_alteracoes`, `max_arq` de `MAX(Data_Hora)` em `log_arquivos`,
+`qtd_notas` de `COUNT(*)` em `notas`, e `schema` de
+`PRAGMA schema_version`.
 
 O que essa string cobre:
 
@@ -311,6 +312,24 @@ O que essa string cobre:
   que falhar (ex.: coluna renomeada pelo robô SAP) não bumpa a versão do
   dataset nem dispara o aviso de "dados atualizados" no frontend para uma
   base que na prática não mudou.
+- **Importação de base sem auditoria** — `salvar_log_arquivo` é
+  best-effort (ver "Auditoria best-effort" abaixo): se o INSERT em
+  `log_arquivos` não passar, `max_arq` fica igual ao de antes do upload.
+  Como uma substituição de base não mexe em `log_alteracoes` nem no
+  `COUNT(*)` de `notas`, a versão inteira ficaria idêntica — e o ETag
+  junto, fazendo `GET /notas` responder `304` para um cliente que ainda
+  serve a base ANTIGA. O componente `schema` fecha esse buraco: toda
+  gravação de base passa por `salvar_base_dataframe`, que usa
+  `to_sql(if_exists="replace")` — o DROP + CREATE incrementa
+  `PRAGMA schema_version` no cabeçalho do arquivo `.db`, de forma
+  persistente entre conexões. Assim a versão do dataset é **independente
+  de `log_arquivos`** sem precisar de tabela nova nem migração no schema
+  compartilhado (que o robô SAP também usa). Regressão:
+  `test_upload_base_com_auditoria_perdida_ainda_muda_o_etag_das_notas`
+  aquece `GET /notas`, guarda o ETag, faz a auditoria falhar em silêncio,
+  publica um upload válido e exige que o ETag antigo **não** revalide.
+  `schema_version` só anda em DDL, então `CREATE TABLE IF NOT EXISTS` de
+  um banco já inicializado não bumpa a versão à toa.
 
 Limitação conhecida: uma escrita direta no `.db` (fora do CRUD deste
 módulo — ex.: script manual tocando `notas`/`log_*` no arquivo SQLite)
@@ -437,16 +456,89 @@ mascarar o erro original) e a rota devolve erro de verdade:
 | Não dá para criar/gravar o temporário na rede | `502` |
 | Arquivo ilegível, aba faltando, erro ao gravar no SQLite | `422` (mensagem inclui a causa e diz que a base anterior foi mantida) |
 | `os.replace` falha ao trocar o alvo | `502` |
+| O SQLite já tinha recebido tabelas e o realinhamento com o alvo não passou | `500` — a mensagem diz que a consistência entre arquivo e banco **não pôde ser confirmada** |
+| `salvar_log_arquivo` falha, já com Excel e SQLite publicados | `200` com `aviso` — ver "Auditoria best-effort" abaixo |
 
 `_processar_upload_base` continua existindo com a mesma assinatura booleana —
 é o que `_rotina_sap_background` usa, onde uma base que falha só não entra em
 `log_arquivos` e as outras seguem. Ele agora é um wrapper fino sobre
 `_importar_base_para_sqlite`, que levanta em vez de devolver `False`.
 
-Consequência conhecida: se o import passar e o `os.replace` falhar, o SQLite
-já tem os dados novos enquanto o Excel da rede continua no conteúdo antigo. O
-`502` expõe isso ao usuário, que reenvia; o import é idempotente
-(`salvar_base_dataframe` substitui a tabela).
+**Trava por base.** O import, o `os.replace` e o `salvar_log_arquivo` rodam
+dentro de `_trava_da_base(caminho)` — um `threading.Lock` por caminho de base.
+Dois uploads simultâneos da MESMA base se enfileiram (vence o último, com Excel
+e SQLite coerentes entre si); uploads de bases diferentes seguem em paralelo.
+`test_uploads_concorrentes_da_mesma_base_nao_cruzam` congela o primeiro upload
+exatamente entre o import e o `os.replace` e exige que o segundo fique preso na
+trava nessa janela — neutralizar a trava faz o teste falhar.
+
+**Leitura antes de escrita.** `_importar_base_para_sqlite` conclui a leitura de
+**todas** as abas do workbook antes da primeira gravação — inclusive nas bases
+multi-tabela, onde `Custo_Modular.xlsx` lê `Modulares` e a fatia sazonal do mesmo
+arquivo antes de gravar `base_custo_modular` e `base_sazonal`. Uma planilha que
+só revela o defeito na segunda leitura é recusada com `422` sem ter tocado o
+SQLite, e sem deixar realinhamento pendente.
+`test_upload_base_multi_aba_le_o_workbook_inteiro_antes_de_gravar` faz a segunda
+leitura levantar e exige zero gravações e `tabelas_tocadas` vazia.
+
+**Realinhamento do SQLite.** Como o Excel só muda no `os.replace` final, uma
+falha depois de o SQLite já ter recebido dados deixaria as tabelas com o
+conteúdo de um arquivo que nunca entrou na rede. Nos dois pontos de falha
+posteriores à primeira gravação — import que quebra no meio e `os.replace` que
+falha — a rota chama `_realinhar_sqlite_com_o_alvo`, que reimporta o arquivo que
+ficou no alvo. O caso que exige isso é o das bases multi-tabela:
+`Custo_Modular.xlsx` grava `base_custo_modular` e `base_sazonal` do mesmo Excel,
+então uma falha na segunda gravação deixaria a primeira com dados novos.
+
+**Só realinha se o SQLite foi tocado.** `_importar_base_para_sqlite` recebe uma
+lista `tabelas_tocadas` e registra cada tabela **antes** de gravá-la —
+`salvar_base_dataframe` usa `to_sql(if_exists="replace")`, que dropa a tabela
+antiga, então uma gravação que levanta já pode ter mexido no banco. Se a lista
+volta vazia (arquivo ilegível, aba faltando: o parse morre antes de qualquer
+escrita), a rota **não** realinha: reimportar o alvo dropa e recria tabelas que
+estavam sãs, e uma falha nessa releitura destruiria dados que o upload recusado
+nem chegou a tocar.
+
+**Realinhamento que falha não é engolido.** `_realinhar_sqlite_com_o_alvo`
+devolve `bool`; `_exigir_sqlite_realinhado` transforma o `False` em `500`. Isso
+cobre os dois casos em que ninguém consegue provar que o banco voltou ao
+conteúdo do alvo: a reimportação também falhou, ou o alvo nem existe (primeiro
+upload que quebrou no meio, sem arquivo de onde realinhar). Nesse `500` a rota
+invalida `engine.invalidar_cache()` e `engine.invalidar_status_bases()` antes de
+levantar — os caches estariam servindo o estado anterior, que pode não ser mais
+o do banco — e a mensagem diz explicitamente que a consistência **não pôde ser
+confirmada** e que a base não deve ser usada até o suporte olhar.
+
+Ou seja: o arquivo na rede é sempre preservado, mas o SQLite só tem preservação
+garantida quando o realinhamento passa (`422`/`502`). Quando ele não passa, a
+promessa é outra — e é `500`, não sucesso disfarçado.
+
+**Auditoria best-effort, mas visível.** `db.salvar_log_arquivo` é o último passo
+do upload e continua best-effort: nada é desfeito porque o registro de auditoria
+não gravou. O que mudou é que ele agora devolve `bool` — `True` só quando a linha
+entrou em `log_arquivos` —, e captura inclusive a falha em `get_db_connection`
+(banco fora do ar) em vez de deixar vazar. As chamadas que ignoram o retorno
+(`_rotina_sap_background`, `metas.py`) seguem válidas sem mudança.
+
+Nesse ponto o Excel e o SQLite já foram trocados e estão consistentes entre si.
+Responder erro aqui seria um `500` falso: faria o usuário reenviar uma base que
+já entrou. Então `substituir_base`:
+
+- trata `False` **e** uma exceção defensiva de `salvar_log_arquivo` como
+  "auditoria indisponível" (o `try/except` cobre um call site que ainda levante,
+  ex.: mock/monkeypatch ou uma regressão futura);
+- **sempre** invalida `engine.invalidar_cache()` e `engine.invalidar_status_bases()`
+  depois da publicação, gravada a auditoria ou não — senão a tela seguiria no
+  conteúdo antigo;
+- responde `200` com `{"ok": true, "aviso": "..."}`, dizendo que a base foi
+  substituída na rede e no banco mas **não vai aparecer no histórico de
+  arquivos**, e que o suporte deve ser avisado. Sem auditoria, `aviso`; com
+  auditoria, o corpo continua sendo só `{"ok": true}`.
+
+A revalidação do frontend não depende dessa auditoria: quem garante que o ETag
+muda é o `PRAGMA schema_version` dentro de `obter_versao_dataset()` (ver "Versão
+do dataset"). Nada disso muda o comportamento **antes** da publicação — os
+caminhos de `422`/`502`/`500` acima são idênticos.
 
 ### Regra de executado em Relatórios
 

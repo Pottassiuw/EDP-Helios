@@ -1211,8 +1211,18 @@ def obter_data_ultima_alteracao():
         conn.close()
 
 
-def salvar_log_arquivo(nome_arquivo, usuario, data_hora, acao) -> None:
-    conn = get_db_connection()
+def salvar_log_arquivo(nome_arquivo, usuario, data_hora, acao) -> bool:
+    """Registra a auditoria de um arquivo. Retorna se a linha foi gravada.
+
+    Continua best-effort — nenhuma importação é desfeita porque a auditoria
+    falhou —, mas quem chama precisa poder avisar o usuário de que o upload
+    entrou sem rastro. Falhar ao abrir o banco conta como não gravou.
+    """
+    try:
+        conn = get_db_connection()
+    except Exception as e:
+        print(f"Erro ao salvar log de arquivo: {e}")
+        return False
     cursor = conn.cursor()
     try:
         cursor.execute('''
@@ -1220,8 +1230,10 @@ def salvar_log_arquivo(nome_arquivo, usuario, data_hora, acao) -> None:
             VALUES (?, ?, ?, ?)
         ''', (nome_arquivo, usuario, data_hora, acao))
         conn.commit()
+        return True
     except Exception as e:
         print(f"Erro ao salvar log de arquivo: {e}")
+        return False
     finally:
         conn.close()
 
@@ -1389,6 +1401,13 @@ def obter_versao_dataset() -> str:
     Muda quando: edição/exclusão/undo (log_alteracoes), criação (COUNT de
     notas — criação não passa pelo log), importação de base (log_arquivos).
     É a moeda de revalidação do cache do engine e do ETag de GET /notas.
+
+    `PRAGMA schema_version` entra como rede de segurança das importações de
+    base: `salvar_base_dataframe` recria a tabela (`to_sql` com
+    `if_exists="replace"`), e cada DROP/CREATE incrementa esse contador no
+    cabeçalho do arquivo. Assim uma base trocada continua mudando a versão
+    mesmo se o log de arquivos — que é best-effort — não tiver gravado; sem
+    isso o navegador receberia 304 e seguiria servindo a base antiga.
     """
     conn = get_db_connection()
     try:
@@ -1396,9 +1415,10 @@ def obter_versao_dataset() -> str:
         qtd_alt = conn.execute("SELECT COUNT(*) FROM log_alteracoes").fetchone()[0]
         max_arq = conn.execute("SELECT MAX(Data_Hora) FROM log_arquivos").fetchone()[0]
         qtd_notas = conn.execute("SELECT COUNT(*) FROM notas").fetchone()[0]
+        schema = conn.execute("PRAGMA schema_version").fetchone()[0]
     finally:
         conn.close()
-    return f"{max_alt}|{qtd_alt}|{max_arq}|{qtd_notas}"
+    return f"{max_alt}|{qtd_alt}|{max_arq}|{qtd_notas}|{schema}"
 
 
 # ==============================================================================
