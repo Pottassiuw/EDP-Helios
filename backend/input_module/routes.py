@@ -305,15 +305,22 @@ def _importar_base_para_sqlite(nome_arquivo: str, caminho: str,
     A leitura do arquivo inteiro vem antes da primeira gravação, inclusive nas
     bases multi-tabela: uma planilha inválida é recusada sem tocar o SQLite.
 
-    Cada tabela entra em `tabelas_tocadas` ANTES de ser gravada: `salvar_base_dataframe`
-    usa `to_sql(if_exists="replace")`, que dropa a tabela antiga, então uma gravação
-    que levanta já pode ter mexido no SQLite. Quem trata o erro precisa saber
-    disso para não confundir "nem começou" com "parou no meio"."""
+    Uma tabela entra em `tabelas_tocadas` quando a gravação chegou a começar:
+    `salvar_base_dataframe` usa `to_sql(if_exists="replace")`, que dropa a tabela
+    antiga, então um `to_sql` que levanta já pode ter mexido no SQLite. Banco que
+    nem abriu (`db.GravacaoNaoIniciadaErro`) fica de fora: não há o que desfazer,
+    e quem trata o erro não pode confundir "nem começou" com "parou no meio"."""
     tocadas = [] if tabelas_tocadas is None else tabelas_tocadas
 
     def gravar(nome_tabela: str, df) -> None:
+        try:
+            db.salvar_base_dataframe(nome_tabela, df)
+        except db.GravacaoNaoIniciadaErro:
+            raise
+        except Exception:
+            tocadas.append(nome_tabela)
+            raise
         tocadas.append(nome_tabela)
-        db.salvar_base_dataframe(nome_tabela, df)
 
     map_simples = {
         "Indicador base conjunto - Limite Aneel.xlsx": "base_indicador_continuidade",
