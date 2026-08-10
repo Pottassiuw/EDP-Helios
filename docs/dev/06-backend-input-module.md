@@ -491,13 +491,14 @@ ficou no alvo. O caso que exige isso é o das bases multi-tabela:
 então uma falha na segunda gravação deixaria a primeira com dados novos.
 
 **Só realinha se o SQLite foi tocado.** `_importar_base_para_sqlite` recebe uma
-lista `tabelas_tocadas` e registra cada tabela **antes** de gravá-la —
-`salvar_base_dataframe` usa `to_sql(if_exists="replace")`, que dropa a tabela
-antiga, então uma gravação que levanta já pode ter mexido no banco. Se a lista
-volta vazia (arquivo ilegível, aba faltando: o parse morre antes de qualquer
-escrita), a rota **não** realinha: reimportar o alvo dropa e recria tabelas que
-estavam sãs, e uma falha nessa releitura destruiria dados que o upload recusado
-nem chegou a tocar.
+lista `tabelas_tocadas`. `salvar_base_dataframe` separa a abertura da conexão do
+`to_sql(if_exists="replace")`: se o banco nem abre, levanta
+`GravacaoNaoIniciadaErro` e a tabela fica fora da lista, pois nenhuma escrita
+começou; depois que a conexão abre, a tabela é registrada **antes** do `to_sql`,
+que pode dropar a tabela antiga antes de levantar. Se a lista volta vazia
+(arquivo ilegível, aba faltando ou banco inalcançável antes da conexão), a rota
+**não** realinha: reimportar o alvo dropa e recria tabelas que estavam sãs, e uma
+falha nessa releitura destruiria dados que o upload recusado nem chegou a tocar.
 
 **Realinhamento que falha não é engolido.** `_realinhar_sqlite_com_o_alvo`
 devolve `bool`; `_exigir_sqlite_realinhado` transforma o `False` em `500`. Isso

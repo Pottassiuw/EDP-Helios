@@ -989,11 +989,11 @@ def test_salvar_base_dataframe_separa_conexao_de_gravacao(banco_temporario, monk
     def conexao_somente_leitura():
         return sqlite3.connect(f"file:{db.obter_caminho_banco()}?mode=ro", uri=True)
 
+    # Conexão que abre e só falha no DROP/CREATE do `to_sql`: a gravação começou,
+    # então o erro NÃO é GravacaoNaoIniciadaErro (que não é OperationalError).
     monkeypatch.setattr(db, "get_db_connection", conexao_somente_leitura)
-    with pytest.raises(sqlite3.OperationalError) as falha:
+    with pytest.raises(sqlite3.OperationalError, match="readonly"):
         db.salvar_base_dataframe("base_clientes", df)
-    assert not isinstance(falha.value, db.GravacaoNaoIniciadaErro), \
-        "a conexão abriu: a gravação começou e pode ter dropado a tabela"
 
 
 # ── Task 14: cache do engine revalidado por versão do dataset ───────────
@@ -1542,6 +1542,32 @@ def test_upload_base_ilegivel_nao_toca_o_sqlite(cliente, monkeypatch, tmp_path):
 
     assert r.status_code == 422
     assert gravacoes == [], "o SQLite foi reescrito sem que o upload tivesse gravado nada"
+    assert _conjuntos_no_sqlite() == ["POA"]
+
+
+def test_upload_base_com_banco_inalcancavel_nao_realinha_o_sqlite(cliente, monkeypatch, tmp_path):
+    """Banco que não abre não conta como gravação parcial.
+
+    A tabela continua com o conteúdo do alvo — não há o que desfazer. Realinhar
+    aqui dropava e recriava (`to_sql(if_exists="replace")`) uma tabela sã, e uma
+    falha nessa releitura destruiria dados que o upload nem chegou a tocar."""
+    from input_module import db
+    _base_apoio_ja_importada(monkeypatch, tmp_path)
+    tentativas = []
+
+    def banco_fora_do_ar(nome_tabela, _df):
+        tentativas.append(nome_tabela)
+        raise db.GravacaoNaoIniciadaErro("Banco indisponível ao salvar tabela base_clientes")
+
+    monkeypatch.setattr(db, "salvar_base_dataframe", banco_fora_do_ar)
+
+    r = cliente.post("/api/input/bases/Clientes_Conjunto.xlsx",
+                     headers=CABECALHO_USER,
+                     files={"arquivo": ("novo.xlsx", _bytes_clientes("SUZ"))})
+
+    assert r.status_code == 422
+    assert "consistência" not in r.json()["detail"]
+    assert tentativas == ["base_clientes"], "o realinhamento reimportou uma tabela intocada"
     assert _conjuntos_no_sqlite() == ["POA"]
 
 

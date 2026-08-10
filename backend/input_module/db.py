@@ -29,6 +29,14 @@ class BancoRedeIndisponivelErro(RuntimeError):
     """
 
 
+class GravacaoNaoIniciadaErro(RuntimeError):
+    """O banco não pôde ser aberto — a gravação não chegou a começar.
+
+    Separa "não deu para escrever" de "escrevi pela metade": quem trata o erro
+    precisa saber se há algo para desfazer antes de mexer em dados sãos.
+    """
+
+
 def obter_caminho_banco() -> str:
     return config.caminho_banco_notas()
 
@@ -1254,8 +1262,17 @@ def salvar_base_dataframe(nome_tabela: str, df: pd.DataFrame) -> None:
 
     Segue o perfil ativo, como todo o resto: em produção as bases do SAP vivem
     no banco compartilhado, que é onde o robô SAP também as grava.
+
+    Abrir a conexão é tratado à parte de propósito: `if_exists="replace"` dropa
+    a tabela antiga, então uma falha durante o `to_sql` pode já ter mexido no
+    banco, enquanto uma conexão que nem abriu não tocou em nada. Quem precisa
+    dessa diferença captura `GravacaoNaoIniciadaErro`.
     """
-    conn = get_db_connection()
+    try:
+        conn = get_db_connection()
+    except Exception as e:
+        raise GravacaoNaoIniciadaErro(
+            f"Banco indisponível ao salvar tabela {nome_tabela}: {e}") from e
     try:
         df.to_sql(nome_tabela, conn, if_exists="replace", index=False)
     except Exception as e:
