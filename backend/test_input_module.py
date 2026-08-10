@@ -952,6 +952,50 @@ def test_versao_dataset_muda_com_escritas(banco_temporario):
     assert db.obter_versao_dataset() != v2
 
 
+def test_salvar_log_arquivo_retorna_se_gravou(banco_temporario, monkeypatch):
+    """O log de arquivos é best-effort, mas quem chama precisa saber se gravou.
+
+    Sem esse retorno, uma auditoria perdida é indistinguível de uma gravada — e
+    a rota de upload responde "ok" para um upload que ninguém consegue rastrear.
+    Falha ao abrir o banco conta como não gravou, não como estouro."""
+    from input_module import db
+    import datetime
+    agora = datetime.datetime.now()
+    assert db.salvar_log_arquivo("Base.xlsx", "ana", agora, "Substituição") is True
+
+    def banco_fora_do_ar():
+        raise sqlite3.OperationalError("unable to open database file")
+
+    monkeypatch.setattr(db, "get_db_connection", banco_fora_do_ar)
+    assert db.salvar_log_arquivo("Base.xlsx", "ana", agora, "Substituição") is False
+
+
+def test_salvar_base_dataframe_separa_conexao_de_gravacao(banco_temporario, monkeypatch):
+    """Banco que nem abriu é uma falha diferente de gravação que quebrou.
+
+    `to_sql(if_exists="replace")` dropa a tabela antiga, então uma falha DURANTE
+    a gravação pode ter mexido no banco; uma conexão que não abriu não tocou em
+    nada. Sem essa distinção quem trata o erro não sabe se tem o que desfazer."""
+    from input_module import db
+    df = pd.DataFrame({"CONJUNTO_DESC": ["POA"]})
+
+    def banco_fora_do_ar():
+        raise sqlite3.OperationalError("unable to open database file")
+
+    monkeypatch.setattr(db, "get_db_connection", banco_fora_do_ar)
+    with pytest.raises(db.GravacaoNaoIniciadaErro):
+        db.salvar_base_dataframe("base_clientes", df)
+
+    def conexao_somente_leitura():
+        return sqlite3.connect(f"file:{db.obter_caminho_banco()}?mode=ro", uri=True)
+
+    # Conexão que abre e só falha no DROP/CREATE do `to_sql`: a gravação começou,
+    # então o erro NÃO é GravacaoNaoIniciadaErro (que não é OperationalError).
+    monkeypatch.setattr(db, "get_db_connection", conexao_somente_leitura)
+    with pytest.raises(sqlite3.OperationalError, match="readonly"):
+        db.salvar_base_dataframe("base_clientes", df)
+
+
 # ── Task 14: cache do engine revalidado por versão do dataset ───────────
 def test_get_dataset_revalida_por_versao(banco_temporario, monkeypatch):
     from input_module import db, engine, service
@@ -1426,6 +1470,519 @@ def test_bases_lista_download_upload(cliente, monkeypatch, tmp_path):
     assert logs[0]["Acao"] == "Substituição"
     # Base desconhecida -> 404
     assert cliente.get("/api/input/bases/nao_existe.xlsx/download").status_code == 404
+
+
+def _bytes_clientes(conjunto: str) -> bytes:
+    """Bytes de um Clientes_Conjunto.xlsx válido com um único conjunto."""
+    buffer = io.BytesIO()
+    pd.DataFrame({"CONJUNTO_DESC": [conjunto], "QTDE_CONJUNTO": [10]}).to_excel(buffer, index=False)
+    return buffer.getvalue()
+
+
+def _base_apoio_temporaria(monkeypatch, tmp_path):
+    """Aponta BASES_APOIO para um Clientes_Conjunto.xlsx válido em tmp_path."""
+    from input_module import config
+    caminho = tmp_path / "Clientes_Conjunto.xlsx"
+    caminho.write_bytes(_bytes_clientes("POA"))
+    monkeypatch.setattr(config, "BASES_APOIO", {"Clientes por Conjunto": str(caminho)})
+    return caminho
+
+
+def _base_apoio_ja_importada(monkeypatch, tmp_path):
+    """Base de apoio em tmp_path com o MESMO conteúdo já refletido no SQLite."""
+    from input_module import db
+    caminho = _base_apoio_temporaria(monkeypatch, tmp_path)
+    db.salvar_base_dataframe("base_clientes", pd.read_excel(caminho))
+    return caminho
+
+
+def _conjuntos_no_sqlite() -> list:
+    from input_module import db
+    return db.carregar_base_dataframe("base_clientes")["CONJUNTO_DESC"].tolist()
+
+
+def test_upload_base_invalida_preserva_arquivo_anterior(cliente, monkeypatch, tmp_path):
+    """Arquivo que não é um Excel válido é rejeitado ANTES de tocar o alvo."""
+    caminho = _base_apoio_temporaria(monkeypatch, tmp_path)
+    original = caminho.read_bytes()
+    antes = set(tmp_path.iterdir())
+
+    r = cliente.post("/api/input/bases/Clientes_Conjunto.xlsx",
+                     headers=CABECALHO_USER,
+                     files={"arquivo": ("novo.xlsx", b"isto nao e um xlsx")})
+
+    assert r.status_code == 422
+    assert "Clientes_Conjunto.xlsx" in r.json()["detail"]
+    assert caminho.read_bytes() == original
+    assert set(tmp_path.iterdir()) == antes
+    assert cliente.get("/api/input/logs/arquivos").json()["registros"] == []
+
+
+def test_upload_base_ilegivel_nao_toca_o_sqlite(cliente, monkeypatch, tmp_path):
+    """Parse que falha ANTES de qualquer gravação deixa o SQLite saudável quieto.
+
+    Sem nada gravado não há o que realinhar, e reimportar o alvo só para "voltar
+    ao normal" dropa e recria (`to_sql` com `if_exists="replace"`) uma tabela que
+    estava certa — uma falha nessa releitura destruiria dados que o upload
+    recusado nem chegou a tocar."""
+    from input_module import db
+    _base_apoio_ja_importada(monkeypatch, tmp_path)
+    salvar_real = db.salvar_base_dataframe
+    gravacoes = []
+
+    def espiar_gravacao(nome_tabela, df):
+        gravacoes.append(nome_tabela)
+        salvar_real(nome_tabela, df)
+
+    monkeypatch.setattr(db, "salvar_base_dataframe", espiar_gravacao)
+
+    r = cliente.post("/api/input/bases/Clientes_Conjunto.xlsx",
+                     headers=CABECALHO_USER,
+                     files={"arquivo": ("novo.xlsx", b"isto nao e um xlsx")})
+
+    assert r.status_code == 422
+    assert gravacoes == [], "o SQLite foi reescrito sem que o upload tivesse gravado nada"
+    assert _conjuntos_no_sqlite() == ["POA"]
+
+
+def test_upload_base_com_banco_inalcancavel_nao_realinha_o_sqlite(cliente, monkeypatch, tmp_path):
+    """Banco que não abre não conta como gravação parcial.
+
+    A tabela continua com o conteúdo do alvo — não há o que desfazer. Realinhar
+    aqui dropava e recriava (`to_sql(if_exists="replace")`) uma tabela sã, e uma
+    falha nessa releitura destruiria dados que o upload nem chegou a tocar."""
+    from input_module import db
+    _base_apoio_ja_importada(monkeypatch, tmp_path)
+    tentativas = []
+
+    def banco_fora_do_ar(nome_tabela, _df):
+        tentativas.append(nome_tabela)
+        raise db.GravacaoNaoIniciadaErro("Banco indisponível ao salvar tabela base_clientes")
+
+    monkeypatch.setattr(db, "salvar_base_dataframe", banco_fora_do_ar)
+
+    r = cliente.post("/api/input/bases/Clientes_Conjunto.xlsx",
+                     headers=CABECALHO_USER,
+                     files={"arquivo": ("novo.xlsx", _bytes_clientes("SUZ"))})
+
+    assert r.status_code == 422
+    assert "consistência" not in r.json()["detail"]
+    assert tentativas == ["base_clientes"], "o realinhamento reimportou uma tabela intocada"
+    assert _conjuntos_no_sqlite() == ["POA"]
+
+
+def test_upload_base_falha_no_meio_preserva_arquivo_anterior(cliente, monkeypatch, tmp_path):
+    """Excel válido cuja gravação no SQLite falha no meio não substitui o alvo.
+
+    Aqui o SQLite está fora do ar para gravação, então nem o realinhamento passa:
+    a gravação que levantou pode ter dropado a tabela, e ninguém consegue provar
+    que o banco voltou ao conteúdo do alvo — a resposta tem que dizer isso."""
+    from input_module import db
+    caminho = _base_apoio_temporaria(monkeypatch, tmp_path)
+    original = caminho.read_bytes()
+
+    novo = io.BytesIO()
+    pd.DataFrame({"CONJUNTO_DESC": ["SUZ"], "QTDE_CONJUNTO": [99]}).to_excel(novo, index=False)
+
+    def falhar(*_args, **_kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(db, "salvar_base_dataframe", falhar)
+    antes = set(tmp_path.iterdir())
+
+    r = cliente.post("/api/input/bases/Clientes_Conjunto.xlsx",
+                     headers=CABECALHO_USER,
+                     files={"arquivo": ("novo.xlsx", novo.getvalue())})
+
+    assert r.status_code == 500
+    assert "database is locked" in r.json()["detail"]
+    assert "consistência" in r.json()["detail"]
+    assert caminho.read_bytes() == original
+    assert set(tmp_path.iterdir()) == antes
+    assert cliente.get("/api/input/logs/arquivos").json()["registros"] == []
+
+
+def test_upload_base_bem_sucedido_substitui_o_alvo(cliente, monkeypatch, tmp_path):
+    """Só depois do import bem-sucedido o conteúdo novo aparece no alvo."""
+    caminho = _base_apoio_temporaria(monkeypatch, tmp_path)
+
+    novo = io.BytesIO()
+    pd.DataFrame({"CONJUNTO_DESC": ["SUZ"], "QTDE_CONJUNTO": [99]}).to_excel(novo, index=False)
+    antes = set(tmp_path.iterdir())
+
+    r = cliente.post("/api/input/bases/Clientes_Conjunto.xlsx",
+                     headers=CABECALHO_USER,
+                     files={"arquivo": ("novo.xlsx", novo.getvalue())})
+
+    assert r.status_code == 200
+    assert pd.read_excel(caminho)["CONJUNTO_DESC"].tolist() == ["SUZ"]
+    assert set(tmp_path.iterdir()) == antes
+
+
+def test_upload_base_ainda_ausente_na_rede_cria_o_arquivo(cliente, monkeypatch, tmp_path):
+    """Base gerenciada que ainda não existe na rede: o upload a cria.
+
+    Sem alvo para guardar de lado não há nada a preservar — o upload é a
+    primeira versão da base, não um erro de rede."""
+    from input_module import config
+    caminho = tmp_path / "Clientes_Conjunto.xlsx"
+    monkeypatch.setattr(config, "BASES_APOIO", {"Clientes por Conjunto": str(caminho)})
+    antes = set(tmp_path.iterdir())
+
+    r = cliente.post("/api/input/bases/Clientes_Conjunto.xlsx",
+                     headers=CABECALHO_USER,
+                     files={"arquivo": ("novo.xlsx", _bytes_clientes("SUZ"))})
+
+    assert r.status_code == 200
+    assert pd.read_excel(caminho)["CONJUNTO_DESC"].tolist() == ["SUZ"]
+    assert _conjuntos_no_sqlite() == ["SUZ"]
+    assert set(tmp_path.iterdir()) == antes | {caminho}
+    assert cliente.get("/api/input/logs/arquivos").json()["registros"][0]["Acao"] == "Substituição"
+
+
+def test_upload_base_falha_no_replace_preserva_excel_e_sqlite(cliente, monkeypatch, tmp_path):
+    """Falha ao trocar o arquivo não pode deixar o SQLite com a base nova."""
+    caminho = _base_apoio_ja_importada(monkeypatch, tmp_path)
+    original = caminho.read_bytes()
+    antes = set(tmp_path.iterdir())
+
+    def replace_falha(*_args, **_kwargs):
+        raise OSError("a rede caiu no meio da troca")
+
+    monkeypatch.setattr(os, "replace", replace_falha)
+
+    r = cliente.post("/api/input/bases/Clientes_Conjunto.xlsx",
+                     headers=CABECALHO_USER,
+                     files={"arquivo": ("novo.xlsx", _bytes_clientes("SUZ"))})
+
+    assert r.status_code == 502
+    assert caminho.read_bytes() == original
+    assert _conjuntos_no_sqlite() == ["POA"]
+    assert set(tmp_path.iterdir()) == antes
+    assert cliente.get("/api/input/logs/arquivos").json()["registros"] == []
+
+
+def test_upload_base_nunca_deixa_o_alvo_ausente(cliente, monkeypatch, tmp_path):
+    """O alvo só muda no `os.replace` final — nunca sai do lugar antes disso.
+
+    Enquanto o import para o SQLite roda, o Excel da rede tem que continuar
+    legível com o conteúdo antigo: uma queda do processo nessa janela deixa a
+    base anterior no lugar, e não um alvo ausente que ninguém recupera."""
+    from input_module import db
+    caminho = _base_apoio_ja_importada(monkeypatch, tmp_path)
+    original = caminho.read_bytes()
+    antes = set(tmp_path.iterdir())
+    salvar_real = db.salvar_base_dataframe
+    replace_real = os.replace
+    alvo_durante_import = []
+    origens_dos_replaces = []
+
+    def espiar_replace(origem, destino, *args, **kwargs):
+        origens_dos_replaces.append(str(origem))
+        return replace_real(origem, destino, *args, **kwargs)
+
+    def espiar_gravacao(nome_tabela, df):
+        alvo_durante_import.append(caminho.read_bytes() if caminho.exists() else None)
+        salvar_real(nome_tabela, df)
+
+    monkeypatch.setattr(os, "replace", espiar_replace)
+    monkeypatch.setattr(db, "salvar_base_dataframe", espiar_gravacao)
+
+    r = cliente.post("/api/input/bases/Clientes_Conjunto.xlsx",
+                     headers=CABECALHO_USER,
+                     files={"arquivo": ("novo.xlsx", _bytes_clientes("SUZ"))})
+
+    assert r.status_code == 200
+    assert alvo_durante_import == [original], "o alvo mudou (ou sumiu) antes do import terminar"
+    assert str(caminho) not in origens_dos_replaces, "o alvo foi movido do lugar"
+    assert pd.read_excel(caminho)["CONJUNTO_DESC"].tolist() == ["SUZ"]
+    assert set(tmp_path.iterdir()) == antes
+
+
+def _bytes_custo_modular(item: str) -> bytes:
+    """Bytes de um Custo_Modular.xlsx válido (aba 'Modulares')."""
+    buffer = io.BytesIO()
+    df = pd.DataFrame({"ITEM": [item, item, item], "VALOR": [1, 2, 3]})
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Modulares")
+    return buffer.getvalue()
+
+
+def test_upload_base_multi_aba_com_import_parcial_realinha_o_sqlite(cliente, monkeypatch, tmp_path):
+    """Custo_Modular grava DUAS tabelas a partir do mesmo Excel.
+
+    Se a segunda gravação falhar, a primeira não pode ficar com dados de um
+    arquivo que nunca entrou na rede: o SQLite volta a refletir o alvo."""
+    from input_module import config, db, routes
+    caminho = tmp_path / "Custo_Modular.xlsx"
+    caminho.write_bytes(_bytes_custo_modular("ANTIGO"))
+    monkeypatch.setattr(config, "BASES_APOIO", {"Custo Modular": str(caminho)})
+    routes._importar_base_para_sqlite("Custo_Modular.xlsx", str(caminho))
+    original = caminho.read_bytes()
+    antes = set(tmp_path.iterdir())
+
+    salvar_real = db.salvar_base_dataframe
+    ja_falhou = []
+
+    def falhar_uma_vez_na_sazonal(nome_tabela, df):
+        if nome_tabela == "base_sazonal" and not ja_falhou:
+            ja_falhou.append(nome_tabela)
+            raise sqlite3.OperationalError("database is locked")
+        salvar_real(nome_tabela, df)
+
+    monkeypatch.setattr(db, "salvar_base_dataframe", falhar_uma_vez_na_sazonal)
+
+    r = cliente.post("/api/input/bases/Custo_Modular.xlsx",
+                     headers=CABECALHO_USER,
+                     files={"arquivo": ("novo.xlsx", _bytes_custo_modular("NOVO"))})
+
+    assert r.status_code == 422
+    assert caminho.read_bytes() == original
+    assert db.carregar_base_dataframe("base_custo_modular")["ITEM"].tolist() == ["ANTIGO"] * 3
+    assert set(tmp_path.iterdir()) == antes
+    assert cliente.get("/api/input/logs/arquivos").json()["registros"] == []
+
+
+def test_upload_base_multi_aba_le_o_workbook_inteiro_antes_de_gravar(monkeypatch, tmp_path):
+    """Custo_Modular lê duas abas do MESMO Excel.
+
+    Uma falha de leitura na segunda aba tem que acontecer antes de o SQLite ser
+    tocado: um arquivo que nem foi lido por inteiro não pode ter gravado tabela
+    nenhuma, nem deixar o realinhamento pós-falha com o que desfazer."""
+    from input_module import db, routes
+    caminho = tmp_path / "Custo_Modular.xlsx"
+    leituras = []
+    gravacoes = []
+
+    def ler_e_falhar_na_segunda_aba(*args, **kwargs):
+        leituras.append(kwargs.get("skiprows"))
+        if len(leituras) > 1:
+            raise OSError("aba ilegível")
+        return pd.DataFrame({"ITEM": ["NOVO"], "VALOR": [1]})
+
+    monkeypatch.setattr(routes.pd, "read_excel", ler_e_falhar_na_segunda_aba)
+    monkeypatch.setattr(db, "salvar_base_dataframe",
+                        lambda nome_tabela, df: gravacoes.append(nome_tabela))
+
+    tabelas_tocadas: list = []
+    with pytest.raises(OSError):
+        routes._importar_base_para_sqlite(
+            "Custo_Modular.xlsx", str(caminho), tabelas_tocadas)
+
+    assert leituras == [None, 1], "as duas abas têm que ser lidas antes da 1ª gravação"
+    assert gravacoes == [], "gravou no SQLite com o workbook ainda por ler"
+    assert tabelas_tocadas == []
+
+
+def _espiar_invalidacoes(monkeypatch) -> list:
+    """Registra as invalidações de cache que a rota dispara."""
+    from input_module import engine
+    invalidacoes = []
+    monkeypatch.setattr(engine, "invalidar_cache", lambda: invalidacoes.append("cache"))
+    monkeypatch.setattr(engine, "invalidar_status_bases",
+                        lambda: invalidacoes.append("status_bases"))
+    return invalidacoes
+
+
+def test_upload_base_com_realinhamento_falho_avisa_consistencia_incerta(
+        cliente, monkeypatch, tmp_path):
+    """Realinhamento que também falha não pode ser engolido.
+
+    Sobra um SQLite com metade dos dados de um arquivo que nunca entrou na rede.
+    A resposta tem que dizer que a consistência não pôde ser confirmada, e os
+    caches — que ainda servem o estado anterior — têm que ser invalidados."""
+    from input_module import config, db, routes
+    caminho = tmp_path / "Custo_Modular.xlsx"
+    caminho.write_bytes(_bytes_custo_modular("ANTIGO"))
+    monkeypatch.setattr(config, "BASES_APOIO", {"Custo Modular": str(caminho)})
+    routes._importar_base_para_sqlite("Custo_Modular.xlsx", str(caminho))
+    original = caminho.read_bytes()
+    antes = set(tmp_path.iterdir())
+
+    salvar_real = db.salvar_base_dataframe
+
+    def gravacao_instavel(nome_tabela, df):
+        """A sazonal nunca grava; no realinhamento (conteúdo ANTIGO) a modular
+        também falha — o banco fica com a modular do arquivo recusado."""
+        if nome_tabela == "base_sazonal" or df["ITEM"].iloc[0] == "ANTIGO":
+            raise sqlite3.OperationalError("database is locked")
+        salvar_real(nome_tabela, df)
+
+    monkeypatch.setattr(db, "salvar_base_dataframe", gravacao_instavel)
+    invalidacoes = _espiar_invalidacoes(monkeypatch)
+
+    r = cliente.post("/api/input/bases/Custo_Modular.xlsx",
+                     headers=CABECALHO_USER,
+                     files={"arquivo": ("novo.xlsx", _bytes_custo_modular("NOVO"))})
+
+    assert r.status_code == 500
+    assert "consistência" in r.json()["detail"]
+    assert "database is locked" in r.json()["detail"]
+    assert invalidacoes == ["cache", "status_bases"]
+    # O banco realmente ficou com dados que não estão no alvo — é isso que a
+    # resposta 500 está avisando.
+    assert db.carregar_base_dataframe("base_custo_modular")["ITEM"].tolist() == ["NOVO"] * 3
+    assert caminho.read_bytes() == original
+    assert set(tmp_path.iterdir()) == antes
+    assert cliente.get("/api/input/logs/arquivos").json()["registros"] == []
+
+
+def test_upload_base_ausente_com_import_parcial_avisa_consistencia_incerta(
+        cliente, monkeypatch, tmp_path):
+    """Primeiro upload que quebra no meio não tem alvo de onde realinhar.
+
+    Sem arquivo na rede, as tabelas já gravadas ficam órfãs — a rota não pode
+    responder como se só a planilha tivesse sido recusada."""
+    from input_module import config, db
+    caminho = tmp_path / "Custo_Modular.xlsx"
+    monkeypatch.setattr(config, "BASES_APOIO", {"Custo Modular": str(caminho)})
+    antes = set(tmp_path.iterdir())
+
+    salvar_real = db.salvar_base_dataframe
+
+    def falhar_sempre_na_sazonal(nome_tabela, df):
+        if nome_tabela == "base_sazonal":
+            raise sqlite3.OperationalError("database is locked")
+        salvar_real(nome_tabela, df)
+
+    monkeypatch.setattr(db, "salvar_base_dataframe", falhar_sempre_na_sazonal)
+    invalidacoes = _espiar_invalidacoes(monkeypatch)
+
+    r = cliente.post("/api/input/bases/Custo_Modular.xlsx",
+                     headers=CABECALHO_USER,
+                     files={"arquivo": ("novo.xlsx", _bytes_custo_modular("NOVO"))})
+
+    assert r.status_code == 500
+    assert "consistência" in r.json()["detail"]
+    assert invalidacoes == ["cache", "status_bases"]
+    assert not caminho.exists()
+    assert set(tmp_path.iterdir()) == antes
+    assert cliente.get("/api/input/logs/arquivos").json()["registros"] == []
+
+
+def _conjunto_do_xlsx(caminho):
+    """Conjunto dentro de um Clientes_Conjunto.xlsx, ou None se não for um."""
+    try:
+        return pd.read_excel(caminho)["CONJUNTO_DESC"].iloc[0]
+    except Exception:
+        return None
+
+
+def test_uploads_concorrentes_da_mesma_base_nao_cruzam(cliente, monkeypatch, tmp_path):
+    """Dois uploads simultâneos da mesma base não podem cruzar Excel e SQLite.
+
+    O primeiro upload é congelado exatamente na janela crítica — SQLite já
+    gravado, `os.replace` ainda não feito — e o segundo é disparado ali dentro.
+    A trava por alvo tem que barrar o segundo nessa janela; sem ela, ele importa
+    AAA→BBB no SQLite e troca o Excel antes de o primeiro trocar o dele, e o
+    par final fica de uploads diferentes."""
+    caminho = _base_apoio_ja_importada(monkeypatch, tmp_path)
+    replace_real = os.replace
+    primeiro_na_janela = threading.Event()
+    liberar_primeiro = threading.Event()
+    esperas_do_primeiro = []
+
+    def congelar_primeiro_no_replace(origem, destino, *args, **kwargs):
+        if _conjunto_do_xlsx(origem) == "AAA":
+            primeiro_na_janela.set()
+            esperas_do_primeiro.append(liberar_primeiro.wait(timeout=30))
+        return replace_real(origem, destino, *args, **kwargs)
+
+    monkeypatch.setattr(os, "replace", congelar_primeiro_no_replace)
+
+    respostas = {}
+
+    def enviar(conjunto: str) -> None:
+        respostas[conjunto] = cliente.post(
+            "/api/input/bases/Clientes_Conjunto.xlsx", headers=CABECALHO_USER,
+            files={"arquivo": ("novo.xlsx", _bytes_clientes(conjunto))})
+
+    primeiro = threading.Thread(target=enviar, args=("AAA",))
+    primeiro.start()
+    assert primeiro_na_janela.wait(timeout=30), "primeiro upload não chegou na janela crítica"
+
+    segundo = threading.Thread(target=enviar, args=("BBB",))
+    segundo.start()
+    # Observação, não sincronização: o segundo já entrou e tem que estar preso na
+    # trava enquanto o primeiro segura a janela. Sem trava ele termina aqui.
+    segundo.join(timeout=1.0)
+    assert segundo.is_alive(), "o segundo upload passou por cima da janela do primeiro"
+    assert _conjuntos_no_sqlite() == ["AAA"], "o segundo upload gravou no SQLite dentro da janela"
+
+    liberar_primeiro.set()
+    primeiro.join(timeout=30)
+    segundo.join(timeout=30)
+    assert not primeiro.is_alive() and not segundo.is_alive()
+
+    assert esperas_do_primeiro == [True]
+    assert respostas["AAA"].status_code == 200
+    assert respostas["BBB"].status_code == 200
+    # Serializados, o último upload inteiro vence nos dois lados.
+    assert pd.read_excel(caminho)["CONJUNTO_DESC"].tolist() == ["BBB"]
+    assert _conjuntos_no_sqlite() == ["BBB"]
+
+
+def test_upload_base_com_auditoria_perdida_ainda_muda_o_etag_das_notas(
+        cliente, monkeypatch, tmp_path):
+    """A revalidação de GET /notas não pode depender do log de auditoria.
+
+    O log de arquivos é best-effort: se ele não gravar, a versão do dataset
+    (derivada dele) fica idêntica à de antes do upload e o ETag também. O
+    navegador então continua recebendo 304 e servindo a base ANTIGA, sem nada
+    na tela indicando que os dados mudaram."""
+    from input_module import db
+    _base_apoio_ja_importada(monkeypatch, tmp_path)
+    quente = cliente.get("/api/input/notas")
+    assert quente.status_code == 200
+    etag_antigo = quente.headers["etag"]
+
+    # Best-effort que não gravou: é exatamente o que a auditoria faz hoje quando
+    # o INSERT falha — não levanta, só não deixa rastro.
+    monkeypatch.setattr(db, "salvar_log_arquivo", lambda *_a, **_k: None)
+
+    r = cliente.post("/api/input/bases/Clientes_Conjunto.xlsx",
+                     headers=CABECALHO_USER,
+                     files={"arquivo": ("novo.xlsx", _bytes_clientes("SUZ"))})
+
+    assert r.status_code == 200
+    assert _conjuntos_no_sqlite() == ["SUZ"]
+    assert cliente.get("/api/input/logs/arquivos").json()["registros"] == []
+
+    depois = cliente.get("/api/input/notas", headers={"If-None-Match": etag_antigo})
+    assert depois.status_code != 304, "GET /notas revalidou como inalterado depois de um upload"
+    assert depois.headers["etag"] != etag_antigo
+
+
+def test_upload_base_com_auditoria_que_levanta_nao_desfaz_a_publicacao(
+        cliente, monkeypatch, tmp_path):
+    """Auditoria que estoura DEPOIS da publicação não vira um 500 falso.
+
+    Nesse ponto o Excel e o SQLite já estão trocados e consistentes: responder
+    500 faria o usuário reenviar uma base que já entrou. A resposta é 200 com
+    aviso explícito de que só a auditoria falhou, e os caches são invalidados
+    do mesmo jeito — senão a tela segue no conteúdo antigo."""
+    from input_module import db
+    caminho = _base_apoio_ja_importada(monkeypatch, tmp_path)
+    antes = set(tmp_path.iterdir())
+
+    def auditoria_fora_do_ar(*_a, **_k):
+        raise sqlite3.OperationalError("unable to open database file")
+
+    monkeypatch.setattr(db, "salvar_log_arquivo", auditoria_fora_do_ar)
+    invalidacoes = _espiar_invalidacoes(monkeypatch)
+
+    r = cliente.post("/api/input/bases/Clientes_Conjunto.xlsx",
+                     headers=CABECALHO_USER,
+                     files={"arquivo": ("novo.xlsx", _bytes_clientes("SUZ"))})
+
+    assert r.status_code == 200
+    corpo = r.json()
+    assert corpo["ok"] is True
+    assert "auditoria" in corpo["aviso"].lower()
+    assert invalidacoes == ["cache", "status_bases"]
+    assert pd.read_excel(caminho)["CONJUNTO_DESC"].tolist() == ["SUZ"]
+    assert _conjuntos_no_sqlite() == ["SUZ"]
+    assert set(tmp_path.iterdir()) == antes
 
 
 def test_backups_lista_e_download(cliente):
