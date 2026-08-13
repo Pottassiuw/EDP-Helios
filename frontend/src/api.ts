@@ -273,6 +273,24 @@ export async function listarAlimentadores(): Promise<import("./features/coffee/t
   return body.registros;
 }
 
+export async function listarMunicipios(): Promise<import("./features/coffee/types").Municipio[]> {
+  const res = await coffeeFetch(BASE + "/coffee/municipios", {
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) throw await erroComDetail(res, "GET /municipios");
+  const body = await res.json() as { registros: import("./features/coffee/types").Municipio[] };
+  return body.registros;
+}
+
+export async function listarTiposEquipamento(): Promise<import("./features/coffee/types").TipoEquipamento[]> {
+  const res = await coffeeFetch(BASE + "/coffee/tipos-equipamento", {
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) throw await erroComDetail(res, "GET /tipos-equipamento");
+  const body = await res.json() as { registros: import("./features/coffee/types").TipoEquipamento[] };
+  return body.registros;
+}
+
 export async function consultarNota(
   id: number,
 ): Promise<import("./features/coffee/types").CoffeeConsulta> {
@@ -368,6 +386,8 @@ export const EDPApi = {
   alterarLocalInstalacao,
   alterarAlimentador,
   listarAlimentadores,
+  listarMunicipios,
+  listarTiposEquipamento,
   coffeeUrl,
   mapsUrl,
   openCoffee,

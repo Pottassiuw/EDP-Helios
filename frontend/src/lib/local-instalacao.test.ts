@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { regraLocalInstalacao } from './local-instalacao';
+import {
+  comporLocalInstalacao,
+  dividirLocalInstalacao,
+  regraLocalInstalacao,
+} from './local-instalacao';
 
 describe('regraLocalInstalacao', () => {
   it('reconhece os identificadores já observados na fonte', () => {
@@ -20,5 +24,44 @@ describe('regraLocalInstalacao', () => {
     expect(regraLocalInstalacao('chk_poste')).toBe(false);
     expect(regraLocalInstalacao('chk_trafo')).toBe(false);
     expect(regraLocalInstalacao('')).toBe(false);
+  });
+});
+
+describe('dividirLocalInstalacao', () => {
+  it('quebra o valor de 13 caracteres em município, tipo e número', () => {
+    expect(dividirLocalInstalacao('701-CF-12345678')).toEqual({
+      municipio: '701',
+      tipo: 'CF',
+      numero: '12345678',
+    });
+  });
+
+  it('não falha com valores incompletos ou vazios', () => {
+    expect(dividirLocalInstalacao('701CF')).toEqual({
+      municipio: '701',
+      tipo: 'CF',
+      numero: '',
+    });
+    expect(dividirLocalInstalacao(null)).toEqual({ municipio: '', tipo: '', numero: '' });
+    expect(dividirLocalInstalacao(undefined)).toEqual({ municipio: '', tipo: '', numero: '' });
+  });
+});
+
+describe('comporLocalInstalacao', () => {
+  it('junta as 3 partes na string de 13 caracteres', () => {
+    expect(comporLocalInstalacao({ municipio: '701', tipo: 'CF', numero: '12345678' }))
+      .toBe('701CF12345678');
+  });
+
+  it('completa o número com zeros à esquerda quando incompleto', () => {
+    expect(comporLocalInstalacao({ municipio: '701', tipo: 'CF', numero: '1234' }))
+      .toBe('701CF00001234');
+    expect(comporLocalInstalacao({ municipio: '701', tipo: 'CF', numero: '' }))
+      .toBe('701CF00000000');
+  });
+
+  it('é a inversa de dividirLocalInstalacao pra valores já completos', () => {
+    const original = '701CF12345678';
+    expect(comporLocalInstalacao(dividirLocalInstalacao(original))).toBe(original);
   });
 });

@@ -5,13 +5,17 @@ import { ArrowRight, RefreshCw, Save, ShieldCheck } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Eyebrow } from '@/components/branded/section';
 import {
-  formatarLocalInstalacao,
-  localInstalacaoValido,
-} from '@/lib/local-instalacao';
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
+import { Eyebrow } from '@/components/branded/section';
+import { formatarLocalInstalacao } from '@/lib/local-instalacao';
 import type { CoffeeConsulta } from '../coffee/types';
-import { useLocalInstalacaoCorrection } from './use-local-instalacao-correction';
+import {
+  MUNICIPIO_MANUAL_VALUE,
+  useLocalInstalacaoCorrection,
+  useTiposEquipamento,
+} from './use-local-instalacao-correction';
 
 interface LocalInstalacaoCorrectionProps {
   noteId: string;
@@ -29,7 +33,7 @@ export function LocalInstalacaoCorrection({
   onEncaminhar,
 }: LocalInstalacaoCorrectionProps): React.JSX.Element {
   const fluxo = useLocalInstalacaoCorrection(noteId, localTriagem, consulta);
-  const valido = localInstalacaoValido(fluxo.proposto);
+  const tiposEquipamento = useTiposEquipamento();
   const ocupado = fluxo.consultando || fluxo.salvando;
 
   return (
@@ -74,23 +78,88 @@ export function LocalInstalacaoCorrection({
         </div>
       </div>
 
-      <label className="mt-[12px] block">
+      <div className="mt-[12px]">
         <span className="text-[12px] font-medium">Novo local de instalação</span>
-        <div className="mt-[5px] flex flex-wrap items-center gap-[8px]">
-          <Input
-            aria-label="Novo local de instalação"
-            aria-invalid={!valido && fluxo.proposto.length > 0}
-            value={fluxo.rascunho}
-            disabled={ocupado}
-            onChange={(event) => fluxo.alterarRascunho(event.target.value)}
-            placeholder="701-CF-12345678"
-            className="max-w-[260px] font-mono"
-          />
-          <Button
-            size="sm"
-            disabled={!fluxo.podeSalvar}
-            onClick={fluxo.salvar}
-          >
+        <div className="mt-[5px] flex flex-wrap items-end gap-[8px]">
+          <label className="flex flex-col gap-[3px]">
+            <span className="font-mono text-[9.5px] uppercase tracking-[.1em] text-text-mute">
+              Município
+            </span>
+            {fluxo.municipioManual ? (
+              <div className="flex items-center gap-[6px]">
+                <Input
+                  aria-label="Código do município"
+                  value={fluxo.municipio}
+                  disabled={ocupado}
+                  maxLength={3}
+                  onChange={(event) => fluxo.alterarMunicipioManual(event.target.value)}
+                  placeholder="045"
+                  className="w-[70px] font-mono"
+                />
+                <Button variant="ghost" size="sm" disabled={ocupado} onClick={fluxo.voltarParaLista}>
+                  Usar lista
+                </Button>
+              </div>
+            ) : (
+              <Select
+                value={fluxo.municipio || undefined}
+                disabled={ocupado || fluxo.municipios.isLoading}
+                onValueChange={fluxo.escolherMunicipio}
+              >
+                <SelectTrigger className="w-[230px] font-mono" aria-label="Município">
+                  <SelectValue placeholder={fluxo.municipios.isLoading ? 'Carregando…' : 'Selecione o município'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {(fluxo.municipios.data ?? []).map((m) => (
+                    <SelectItem key={m.codigo} value={m.codigo}>
+                      {m.codigo} — {m.nome}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value={MUNICIPIO_MANUAL_VALUE}>✎ Outro código (digitar)</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
+          </label>
+
+          <label className="flex flex-col gap-[3px]">
+            <span className="font-mono text-[9.5px] uppercase tracking-[.1em] text-text-mute">
+              Tipo de equipamento
+            </span>
+            <Select
+              value={fluxo.tipo || undefined}
+              disabled={ocupado || tiposEquipamento.isLoading}
+              onValueChange={fluxo.alterarTipo}
+            >
+              <SelectTrigger className="w-[150px] font-mono" aria-label="Tipo de equipamento">
+                <SelectValue placeholder={tiposEquipamento.isLoading ? 'Carregando…' : 'Tipo'} />
+              </SelectTrigger>
+              <SelectContent>
+                {(tiposEquipamento.data ?? []).map((t) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    {t.id}{t.descricao ? ` — ${t.descricao}` : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </label>
+
+          <label className="flex flex-col gap-[3px]">
+            <span className="font-mono text-[9.5px] uppercase tracking-[.1em] text-text-mute">
+              Número
+            </span>
+            <Input
+              aria-label="Número do local de instalação"
+              value={fluxo.numero}
+              disabled={ocupado}
+              inputMode="numeric"
+              maxLength={8}
+              onChange={(event) => fluxo.alterarNumero(event.target.value)}
+              placeholder="12345678"
+              className="w-[110px] font-mono"
+            />
+          </label>
+
+          <Button size="sm" disabled={!fluxo.podeSalvar} onClick={fluxo.salvar}>
             <Save /> {fluxo.salvando ? 'Salvando…' : 'Salvar no COFFEE'}
           </Button>
           <Button
@@ -103,9 +172,9 @@ export function LocalInstalacaoCorrection({
           </Button>
         </div>
         <span className="mt-[5px] block font-mono text-[10.5px] text-text-mute">
-          3 cidade · 2 tipo · 8 número · {fluxo.proposto.length}/13 caracteres
+          Prévia: {formatarLocalInstalacao(fluxo.proposto) || '—'} · número completado com zeros à esquerda até 8 dígitos
         </span>
-      </label>
+      </div>
 
       {fluxo.erro && (
         <div role="alert" className="mt-[10px] text-[12px] text-red">

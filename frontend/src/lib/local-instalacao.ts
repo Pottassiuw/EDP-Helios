@@ -33,6 +33,32 @@ export function localInstalacaoValido(value: string): boolean {
   return LOCAL_INSTALACAO_RE.test(value);
 }
 
+export interface LocalInstalacaoPartes {
+  municipio: string;
+  tipo: string;
+  numero: string;
+}
+
+/** Quebra a string normalizada de 13 caracteres nas 3 partes editáveis
+ * (código do município, tipo de equipamento, número). Aceita valores
+ * incompletos ou inválidos sem falhar — cada parte fica vazia se faltar. */
+export function dividirLocalInstalacao(value: string | null | undefined): LocalInstalacaoPartes {
+  const clean = normalizarLocalInstalacao(value ?? '');
+  return {
+    municipio: clean.slice(0, 3),
+    tipo: clean.slice(3, 5),
+    numero: clean.slice(5, 13),
+  };
+}
+
+/** Junta as 3 partes na string de 13 caracteres aceita pelo COFFEE. O número
+ * é completado com zeros à esquerda até 8 dígitos — usuário pode digitar só
+ * a parte significativa. */
+export function comporLocalInstalacao({ municipio, tipo, numero }: LocalInstalacaoPartes): string {
+  const numeroNormalizado = normalizarLocalInstalacao(numero).slice(0, 8).padStart(8, '0');
+  return normalizarLocalInstalacao(municipio) + normalizarLocalInstalacao(tipo) + numeroNormalizado;
+}
+
 interface EdicaoLocalEntrada {
   consultado: boolean;
   ocupado: boolean;

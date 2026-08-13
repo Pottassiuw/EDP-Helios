@@ -8,7 +8,10 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from pydantic import BaseModel
 
-from coffee_module import alimentadores, classify, client, config, db, exportacao, jobs, operation_service
+from coffee_module import (
+    alimentadores, classify, client, config, db, exportacao, jobs,
+    municipios, operation_service, tipos_equipamento,
+)
 
 _PERF_ATIVO = os.environ.get("EDP_PERF", "").strip() not in ("", "0", "false")
 _LOCAL_INSTALACAO_RE = re.compile(r"^\d{3}[A-Z0-9]{2}\d{8}$")
@@ -349,6 +352,16 @@ def local_instalacao(pedido: LocalPedido):
 @router.get("/alimentadores")
 def listar_alimentadores():
     return {"registros": alimentadores.listar()}
+
+
+@router.get("/municipios")
+def listar_municipios():
+    return {"registros": municipios.listar()}
+
+
+@router.get("/tipos-equipamento")
+def listar_tipos_equipamento():
+    return {"registros": tipos_equipamento.listar()}
 
 
 @router.post("/alimentador")

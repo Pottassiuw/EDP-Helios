@@ -466,6 +466,39 @@ def test_listar_alimentadores_carrega_do_csv():
     assert not alimentadores.alimentador_valido("NAO_EXISTE_999")
 
 
+def test_listar_municipios_carrega_do_csv():
+    from coffee_module import municipios
+    registros = municipios.listar()
+    assert len(registros) == 28
+    assert {"codigo", "nome"} <= registros[0].keys()
+    assert len(registros[0]["codigo"]) == 3
+    assert municipios.municipio_valido(registros[0]["codigo"])
+    assert not municipios.municipio_valido("999")
+
+
+def test_listar_tipos_equipamento_carrega_do_csv():
+    from coffee_module import tipos_equipamento
+    registros = tipos_equipamento.listar()
+    assert len(registros) == 15
+    assert {"id", "descricao"} <= registros[0].keys()
+    assert tipos_equipamento.tipo_equipamento_valido(registros[0]["id"])
+    assert not tipos_equipamento.tipo_equipamento_valido("NAO_EXISTE")
+
+
+def test_rota_municipios_expoe_registros(coffee_cliente):
+    resposta = coffee_cliente.get("/api/coffee/municipios")
+    assert resposta.status_code == 200
+    registros = resposta.json()["registros"]
+    assert len(registros) == 28
+
+
+def test_rota_tipos_equipamento_expoe_registros(coffee_cliente):
+    resposta = coffee_cliente.get("/api/coffee/tipos-equipamento")
+    assert resposta.status_code == 200
+    registros = resposta.json()["registros"]
+    assert len(registros) == 15
+
+
 def test_rota_alimentador_confirma_e_atualiza(coffee_cliente, monkeypatch):
     from coffee_module import client
     chamadas = []

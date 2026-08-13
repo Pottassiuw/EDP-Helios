@@ -102,6 +102,16 @@ export interface Alimentador {
   cidade: string;
 }
 
+export interface Municipio {
+  codigo: string;
+  nome: string;
+}
+
+export interface TipoEquipamento {
+  id: string;
+  descricao: string;
+}
+
 export interface PropostaPlano {
   Numero_Nota: number;
   Local_Instalacao: string;
