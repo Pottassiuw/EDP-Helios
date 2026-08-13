@@ -1,0 +1,53 @@
+name: Decisão de produto ou operação
+description: Registre uma escolha que bloqueia, orienta ou altera a implementação.
+title: "[Decisão] "
+labels:
+  - question
+  - needs-decision
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use este formulário para decisões explícitas. O repositório é público: não inclua credenciais, dados pessoais, caminhos internos, dados de produção ou detalhes exploráveis de segurança.
+  - type: textarea
+    id: decision
+    attributes:
+      label: Decisão necessária
+      description: Qual escolha precisa ser feita e quais Issues ela desbloqueia?
+    validations:
+      required: true
+  - type: textarea
+    id: options
+    attributes:
+      label: Alternativas e trade-offs
+      description: Compare alternativas, incluindo impacto operacional, risco e manutenção.
+    validations:
+      required: true
+  - type: textarea
+    id: recommendation
+    attributes:
+      label: Recomendação técnica
+      description: Informe a recomendação, justificativa e impacto de não decidir.
+  - type: input
+    id: owner
+    attributes:
+      label: Responsável pela decisão
+      description: Quem confirma a escolha?
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Registro de aceite
+      description: Após a decisão, registre alternativa escolhida, justificativa e Issues desbloqueadas.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Confirmações
+      options:
+        - label: Não incluí informações sensíveis no tracker público.
+          required: true
+        - label: Identifiquei as Issues e o lote afetados.
+          required: true

@@ -1,0 +1,60 @@
+name: Trabalho de produto ou melhoria
+description: Proponha uma funcionalidade, melhoria de desempenho, qualidade ou documentação.
+title: "[Feature] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Descreva apenas informações seguras para um tracker público. Não inclua credenciais, dados pessoais, caminhos internos ou dados de produção.
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objetivo e valor
+      description: Qual problema será resolvido e para quem?
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Escopo e não escopo
+      placeholder: |
+        Inclui: ...
+        Não inclui: ...
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Critérios de aceite
+      description: Liste resultados observáveis e verificáveis.
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependências, riscos e decisões
+      description: Cite Issues, decisões de produto, acesso ou dependências técnicas.
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Prioridade sugerida
+      options:
+        - P0 - Critical
+        - P1 - High
+        - P2 - Performance
+        - P3 - Quality
+        - Decision
+        - Coordination
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Confirmações
+      options:
+        - label: Pesquisei Issues existentes para evitar duplicidade.
+          required: true
+        - label: Removi ou anonimizei conteúdo sensível.
+          required: true

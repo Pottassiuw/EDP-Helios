@@ -113,3 +113,10 @@ Porte do painel Streamlit do departamento (spec em
 cd backend && python -m pytest test_upload.py test_input_module.py   # backend
 cd frontend && npm run build                    # type-check (tsc) + build
 ```
+
+## Entrega no GitHub
+
+O fluxo de entrega usa Issue → branch isolada → Pull Request → revisão →
+merge em `develop`. As regras operacionais, gates e estados do Project estão
+em [CONTRIBUTING.md](CONTRIBUTING.md) e no manual
+[docs/dev/13-github-delivery-workflow.md](docs/dev/13-github-delivery-workflow.md).
