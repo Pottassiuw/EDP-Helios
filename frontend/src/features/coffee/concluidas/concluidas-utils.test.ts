@@ -5,7 +5,7 @@ import { notaMatches } from './concluidas-utils';
 function nota(overrides: Partial<CoffeeNota>): CoffeeNota {
   return {
     pk: 101,
-    id_sap: '900123',
+    id_sap: 900123,
     classificacao: 'corrigida',
     dados_json: { cidade: 'Recife', tipo_local_instalacao: 'Poste', local_instalacao_numero: '42' },
     ...overrides,
@@ -22,7 +22,7 @@ describe('notaMatches', () => {
   });
 
   it('não casa quando nenhum termo em lote corresponde', () => {
-    expect(notaMatches(nota({ pk: 101, id_sap: '900123' }), '55\n909')).toBe(false);
+    expect(notaMatches(nota({ pk: 101, id_sap: 900123 }), '55\n909')).toBe(false);
   });
 
   it('trata query vazia como sem filtro', () => {
