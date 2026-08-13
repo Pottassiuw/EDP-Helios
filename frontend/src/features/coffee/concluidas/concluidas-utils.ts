@@ -5,8 +5,11 @@ export function completionDate(nota: CoffeeNota): string {
 }
 
 export function notaMatches(nota: CoffeeNota, query: string): boolean {
-  const normalizedQuery = query.trim().toLocaleLowerCase('pt-BR');
-  if (!normalizedQuery) return true;
+  const terms = query
+    .toLocaleLowerCase('pt-BR')
+    .split(/[\s,;]+/)
+    .filter(Boolean);
+  if (terms.length === 0) return true;
 
   const fields = nota.dados_json ?? {};
   const local = [
@@ -17,7 +20,9 @@ export function notaMatches(nota: CoffeeNota, query: string): boolean {
     .filter((value) => value != null)
     .join('');
 
-  return [nota.pk, nota.id_sap, local].some((value) => (
-    String(value).toLocaleLowerCase('pt-BR').includes(normalizedQuery)
-  ));
+  const haystack = [nota.pk, nota.id_sap, local]
+    .map((value) => String(value).toLocaleLowerCase('pt-BR'))
+    .join(' ');
+
+  return terms.some((term) => haystack.includes(term));
 }
