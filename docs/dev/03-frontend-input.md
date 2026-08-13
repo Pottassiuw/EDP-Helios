@@ -19,6 +19,7 @@ enquanto o usuário está com a tela aberta.
 | `frontend/src/features/input/manage.tsx` | Sub-aba "Gerenciar": cinco modos (Edição Rápida, Edição em Lote, Exclusão, Cadastrar Nota, Colar Planilha) sobre a base principal, cada um operando via `NotesTable`. |
 | `frontend/src/features/input/ramal.tsx` | Equivalente a `manage.tsx` para a base "Ramal" (dataset separado, `useRamalData`), com um modo "Visão Geral" a mais (via `DataGrid`). |
 | `frontend/src/features/input/filters.tsx` | Componente `Filters`: busca global por número de nota, switch rápido para o ano de 2026 e filtros avançados por campo (texto, faixa numérica, multi-seleção), unificado no nível de `input-section.tsx` e compartilhado entre as abas. |
+| `frontend/src/features/input/empty-state.tsx` | Contrato compartilhado de estados vazios para base sem registros ou resultado sem correspondências após filtros, incluindo ação opcional de limpar filtros. |
 | `frontend/src/features/input/reports.tsx` | Sub-aba "Relatórios" (Painel Executivo): Permite navegar entre três relatórios interativos: "Auditoria de Prazos" (KPIs, cronograma, gráfico de rosca SVG), "Visão Financeira (Custos)" (totais, regional e status em barras de progresso) e "Em Planejamento (Status 10)" (backlog de planejamento, priorização e distribuição regional). Todos usam filtros avançados via `MultiSelect` e exportação customizada para Excel. |
 | `frontend/src/features/input/logs.tsx` | Sub-aba "Logs": três sub-abas (Alterações nas Notas, Bases de Apoio, Linha do Tempo), cada uma consumindo um endpoint próprio via `useQuery`. |
 | `frontend/src/features/input/settings.tsx` | Sub-aba "Configurações": nome do usuário (log de auditoria), responsáveis por conjunto, status/substituição das bases de apoio, lista de backups locais para download. |
@@ -33,6 +34,29 @@ enquanto o usuário está com a tela aberta.
 | `frontend/src/features/input/ui.ts` | Constantes de estilo compartilhadas: `CLASSE_SELECT_MONO` para `SelectContent` mono-styling, usada por `filters.tsx`, `manage.tsx` e `ramal.tsx`. Nota: `MesExecucaoPicker` (agora em `components/branded/`) declara sua própria instância internamente. |
 | `frontend/src/components/branded/mes-execucao-picker.tsx` | `MesExecucaoPicker`: dropdown do campo "Mês de Execução Planejado", movido para `components/branded/` para reutilização entre features (Input e futura integração COFFEE). |
 | `frontend/src/features/input/colagem-planilha.tsx` | `ColagemPlanilha`: bloco presentacional do modo "Colar Planilha" (cabeçalho de colunas + textarea + preview), reaproveitado por `manage.tsx` e `ramal.tsx`. |
+
+## Contrato de estado vazio e feedback dinâmico
+
+`empty-state.tsx` define o contrato tipado compartilhado por Visão Geral,
+Gerenciar e Ramal. `getInputEmptyState(sourceCount, visibleCount)` retorna
+exatamente `'dataset'` quando `sourceCount === 0`, `'filter'` quando a base tem
+registros mas `visibleCount === 0`, e `null` quando há linhas visíveis. Visão
+Geral e Gerenciar usam `dados.registros.length` como `sourceCount`; Ramal usa a
+quantidade da base Ramal antes de aplicar os filtros compartilhados.
+
+`InputEmptyStateProps` é uma união discriminada: `{ state: 'dataset';
+onClearFilters?: never }` ou `{ state: 'filter'; onClearFilters?: () => void }`.
+Assim, o estado de base realmente vazia nunca oferece uma ação de filtros. O
+estado filtrado mostra "Limpar filtros" somente quando o pai fornece o callback.
+`InputSection` é o dono dessa ação e redefine o estado para
+`FILTROS_INICIAIS`; os consumidores apenas a repassam. Quando o helper retorna
+`null`, as instâncias existentes de `NotesTable`/`DataGrid` continuam montadas
+sem alteração em seleção ou navegação por teclado.
+
+Feedback dinâmico usa o live region implícito do próprio papel, sem
+`aria-live` redundante: carregamento e sincronização usam `role="status"`;
+falhas de carregamento/backend e `Banner tipo="err"` usam `role="alert"`;
+`Banner tipo="ok"` usa `role="status"`.
 
 ## Fluxo: Overview e sub-navegação
 

@@ -12,6 +12,7 @@ import { useRecarregarInput } from './use-input-data';
 import { useAutoVinculos } from './use-auto-vinculos';
 import { Button } from '@/components/ui/button';
 import { Eyebrow, StatNumber, SegTabs } from '@/components/branded/section';
+import { getInputEmptyState, InputEmptyState } from './empty-state';
 
 type Visualizacao = 'hierarquica' | 'plana';
 const VISUALIZACOES: { id: Visualizacao; rotulo: string }[] = [
@@ -67,11 +68,13 @@ interface OverviewProps {
   dados: InputDataset;
   estado: FiltersState;
   onIrParaSincronizacao?: () => void;
+  onClearFilters?: () => void;
 }
 
 export function Overview({
   dados,
   estado,
+  onClearFilters,
 }: OverviewProps): React.JSX.Element {
   const [exportando, setExportando] = React.useState(false);
   const [agruparGavetinhas, setAgruparGavetinhas] = React.useState(true);
@@ -96,6 +99,7 @@ export function Overview({
   }
 
   const filtrado = filtrados.length !== dados.registros.length;
+  const emptyState = getInputEmptyState(dados.registros.length, filtrados.length);
 
   return (
     <div className="p-6 flex flex-col gap-6 max-w-full">
@@ -168,7 +172,11 @@ export function Overview({
       </div>
 
       <div className="rounded-lg border border-line bg-surface overflow-hidden shadow-sm">
-        {agruparGavetinhas ? (
+        {emptyState ? (
+          emptyState === 'filter'
+            ? <InputEmptyState state="filter" onClearFilters={onClearFilters} />
+            : <InputEmptyState state="dataset" />
+        ) : agruparGavetinhas ? (
           <NotesTable
             registros={filtrados}
             todosOsRegistros={dados.registros}

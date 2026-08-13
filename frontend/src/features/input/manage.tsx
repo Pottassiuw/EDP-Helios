@@ -26,6 +26,7 @@ import { ConfirmModal } from '../coffee/confirm-modal';
 import { Rateio } from './rateio';
 import { HierarquiaCard } from './hierarquia-card';
 import { Ramal } from './ramal';
+import { getInputEmptyState, InputEmptyState } from './empty-state';
 
 type Modo = 'rapida' | 'lote' | 'rateio' | 'exclusao' | 'cadastro' | 'colagem';
 const MODOS: { id: Modo; rotulo: string }[] = [
@@ -55,9 +56,10 @@ const NOTA_VAZIA: Record<string, string> = {
 interface ManageProps {
   dados: InputDataset;
   estadoFiltros: FiltersState;
+  onClearFilters?: () => void;
 }
 
-export function Manage({ dados, estadoFiltros }: ManageProps): React.JSX.Element {
+export function Manage({ dados, estadoFiltros, onClearFilters }: ManageProps): React.JSX.Element {
   const recarregar = useRecarregarInput();
   const usuarioAtual = getUsuario();
   const { mapa: bloqueios, recarregar: recarregarBloqueios } = useBloqueios();
@@ -76,6 +78,7 @@ export function Manage({ dados, estadoFiltros }: ManageProps): React.JSX.Element
 
   const filtrados = React.useMemo(
     () => filtrarRegistros(dados.registros, estadoFiltros), [dados.registros, estadoFiltros]);
+  const emptyState = getInputEmptyState(dados.registros.length, filtrados.length);
   const previewColagem = React.useMemo(
     () => parseColagemTsv(textoColagem, COLUNAS_COLAGEM), [textoColagem]);
 
@@ -300,7 +303,7 @@ export function Manage({ dados, estadoFiltros }: ManageProps): React.JSX.Element
       </div>
 
       {base === 'ramal' ? (
-        <Ramal dadosPrincipais={dados} estadoFiltros={estadoFiltros} />
+        <Ramal dadosPrincipais={dados} estadoFiltros={estadoFiltros} onClearFilters={onClearFilters} />
       ) : (
         <React.Fragment>
           <div className="flex items-center gap-4 bg-surface p-3 rounded-lg border border-line shadow-sm">
@@ -388,7 +391,11 @@ export function Manage({ dados, estadoFiltros }: ManageProps): React.JSX.Element
               )}
 
               <div className="rounded-lg border border-line bg-surface overflow-hidden shadow-sm">
-                <NotesTable registros={filtrados} todosOsRegistros={dados.registros} colunas={COLUNAS}
+                {emptyState ? (
+                  emptyState === 'filter'
+                    ? <InputEmptyState state="filter" onClearFilters={onClearFilters} />
+                    : <InputEmptyState state="dataset" />
+                ) : <NotesTable registros={filtrados} todosOsRegistros={dados.registros} colunas={COLUNAS}
                             selecionados={comSelecao ? selecionados : undefined}
                             onToggleSelecionado={comSelecao ? toggleSelecionado : undefined}
                             onToggleTodos={comSelecao ? toggleTodos : undefined}
@@ -399,7 +406,7 @@ export function Manage({ dados, estadoFiltros }: ManageProps): React.JSX.Element
                             agruparGavetinhas={agruparGavetinhas}
                             bloqueios={bloqueios}
                             usuarioAtual={usuarioAtual}
-                            onIniciarEdicao={modo === 'rapida' ? onIniciarEdicao : undefined} />
+                            onIniciarEdicao={modo === 'rapida' ? onIniciarEdicao : undefined} />}
               </div>
             </React.Fragment>
           )}

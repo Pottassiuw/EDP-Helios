@@ -73,6 +73,7 @@ export function InputSection({
 
   useSincronizacaoAutomatica(dados?.meta.versao);
   const basesAusentes = dados?.meta.bases.filter((b) => !b.encontrada) ?? [];
+  const clearFilters = React.useCallback(() => setEstadoFiltros(FILTROS_INICIAIS), []);
 
   return (
     <div className="input-scope flex-1 min-w-0 flex flex-col overflow-hidden h-full">
@@ -133,21 +134,21 @@ export function InputSection({
       )}
 
       {isLoading && (
-        <div className="p-8 flex items-center justify-center gap-2 text-text-dim text-sm">
+        <div role="status" className="p-8 flex items-center justify-center gap-2 text-text-dim text-sm">
           <Loader2 className="h-4 w-4 animate-spin text-accent" />
           <span>Carregando notas...</span>
         </div>
       )}
 
       {error != null && !dados && (
-        <div className="m-6 p-4 rounded-md bg-red/10 border border-red/20 text-red text-sm flex items-center gap-2">
+        <div role="alert" className="m-6 p-4 rounded-md bg-red/10 border border-red/20 text-red text-sm flex items-center gap-2">
           <AlertTriangle className="h-4 w-4 shrink-0" />
           <span>Backend indisponível. O módulo Input exige o backend rodando na porta 8000. Detalhe: {String((error as Error).message)}</span>
         </div>
       )}
 
       {error != null && dados && (
-        <div className="mx-6 mt-2 px-3 py-1.5 rounded-md bg-amber/10 border border-amber/20 text-amber text-xs">
+        <div role="alert" className="mx-6 mt-2 px-3 py-1.5 rounded-md bg-amber/10 border border-amber/20 text-amber text-xs">
           Backend indisponível — mostrando dados salvos{dataUpdatedAt ? ` de ${new Date(dataUpdatedAt).toLocaleString('pt-BR')}` : ''}.
         </div>
       )}
@@ -158,10 +159,11 @@ export function InputSection({
             dados={dados}
             estado={estadoFiltros}
             onIrParaSincronizacao={onIrParaSincronizacao}
+            onClearFilters={clearFilters}
           />
         )}
-        {dados && sub === 'gerenciar' && <Manage dados={dados} estadoFiltros={estadoFiltros} />}
-        {dados && sub === 'ramal' && <Ramal dadosPrincipais={dados} estadoFiltros={estadoFiltros} />}
+        {dados && sub === 'gerenciar' && <Manage dados={dados} estadoFiltros={estadoFiltros} onClearFilters={clearFilters} />}
+        {dados && sub === 'ramal' && <Ramal dadosPrincipais={dados} estadoFiltros={estadoFiltros} onClearFilters={clearFilters} />}
         {dados && sub === 'relatorios' && <Reports dados={dados} estadoFiltros={estadoFiltros} />}
         {dados && sub === 'logs' && <Logs />}
         {dados && sub === 'config' && <Settings dados={dados} />}

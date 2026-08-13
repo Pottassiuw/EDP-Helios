@@ -101,7 +101,7 @@ export function Banner({ tipo, className, children }: {
 }): React.JSX.Element {
   return (
     <div
-      role="status"
+      role={tipo === 'err' ? 'alert' : 'status'}
       className={cn(
         'flex items-center gap-[10px] rounded-app-sm border-l-[3px] px-[14px] py-[10px] text-[13px]',
         BANNER_TIPO[tipo],
