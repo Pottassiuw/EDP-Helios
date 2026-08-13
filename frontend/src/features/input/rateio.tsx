@@ -11,6 +11,12 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { SegTabs, SectionPage, Eyebrow } from '@/components/branded/section';
 import {
+  ehNotaAtiva,
+  ehNotaMaeValida,
+  extrairValorUnidadeMedida,
+  limparNotaMae,
+} from './rateio-lib';
+import {
   Search,
   Sparkles,
   RotateCcw,
@@ -28,47 +34,6 @@ interface RateioProps {
   dados: InputDataset;
   estadoFiltros?: FiltersState;
   recarregar: () => Promise<void>;
-}
-
-function ehNotaAtiva(status: string | number | null | undefined): boolean {
-  if (status === null || status === undefined) return false;
-  const stUpper = String(status).trim().toUpperCase();
-  const blacklist = ["ENCE CANC", "SUPR CANC", "ENCE EXEC", "SUPR", "999", "998", "997", "55", "99"];
-  if (blacklist.includes(stUpper)) return false;
-  if (stUpper.startsWith("55") || stUpper.startsWith("99")) return false;
-  return true;
-}
-
-function ehNotaMaeValida(val: string | number | null | undefined): boolean {
-  if (val === null || val === undefined) return false;
-  const valStr = String(val).trim();
-  if (/^\d+$/.test(valStr)) {
-    return parseInt(valStr, 10) > 0;
-  }
-  return false;
-}
-
-function limparNotaMae(val: string | number | null | undefined): string {
-  if (val === null || val === undefined) return '';
-  try {
-    const parsed = parseFloat(String(val).trim());
-    return Number.isNaN(parsed) ? '' : String(Math.floor(parsed));
-  } catch {
-    return '';
-  }
-}
-
-function extrairValorUnidadeMedida(medida: string | null | undefined): [number, 'km' | 'un' | null] {
-  if (!medida || medida === '-') return [0, null];
-  const medLower = medida.toLowerCase().replace(',', '.');
-  const matchNum = medLower.match(/([\d.]+)/);
-  if (!matchNum) return [0, null];
-  const val = parseFloat(matchNum[1]);
-  if (Number.isNaN(val)) return [0, null];
-  let un: 'km' | 'un' | null = null;
-  if (medLower.includes('km')) un = 'km';
-  else if (medLower.includes('un')) un = 'un';
-  return [val, un];
 }
 
 interface RelatorioItem {
