@@ -34,6 +34,13 @@ def test_classificacao_gerada():
     assert classify.classificar(17247854, 17247854) == "gerada"
 
 
+def test_classificacao_duplicada():
+    assert classify.classificar(config.SAP_DUPLICATA, None) == "duplicada"
+    assert classify.classificar(config.SAP_DUPLICATA, config.SAP_PENDENTE) == "duplicada"
+    # sentinel de duplicata nunca deve cair no ramo de "SAP real" (corrigida/gerada)
+    assert classify.classificar(config.SAP_DUPLICATA, 17247854) == "duplicada"
+
+
 @pytest.fixture
 def coffee_tmp(monkeypatch, tmp_path):
     """Aponta o módulo para dados temporários, chave fake, e inicializa o banco."""
@@ -450,6 +457,77 @@ def test_rota_local_rejeita_sucesso_nao_confirmado(coffee_cliente, monkeypatch):
     assert "não confirmou" in resposta.json()["detail"]
 
 
+def test_listar_alimentadores_carrega_do_csv():
+    from coffee_module import alimentadores
+    registros = alimentadores.listar()
+    assert len(registros) > 1000
+    assert {"id", "cidade"} <= registros[0].keys()
+    assert alimentadores.alimentador_valido(registros[0]["id"])
+    assert not alimentadores.alimentador_valido("NAO_EXISTE_999")
+
+
+def test_rota_alimentador_confirma_e_atualiza(coffee_cliente, monkeypatch):
+    from coffee_module import client
+    chamadas = []
+    monkeypatch.setattr(client, "alterar_alimentador",
+                         lambda i, a: chamadas.append((i, a)) or True)
+    monkeypatch.setattr(
+        client, "buscar_nota",
+        lambda i: {"pk": int(i), "id_sap": 17247854, "arquivado": False,
+                   "local_instalacao": "701CF12345678",
+                   "fields": {"id_sap": 17247854, "alimentador": "AFC01"}},
+    )
+
+    resposta = coffee_cliente.post("/api/coffee/alimentador", json={"id": 1, "alimentador": "AFC01"})
+
+    assert resposta.json() == {"ok": True, "alimentador": "AFC01"}
+    assert (1, "AFC01") in chamadas
+
+
+def test_rota_alimentador_rejeita_id_desconhecido_sem_chamar_coffee(coffee_cliente, monkeypatch):
+    from coffee_module import client
+    chamadas = []
+    monkeypatch.setattr(client, "alterar_alimentador", lambda i, a: chamadas.append((i, a)) or True)
+
+    resposta = coffee_cliente.post("/api/coffee/alimentador", json={"id": 1, "alimentador": "NAO_EXISTE_999"})
+
+    assert resposta.status_code == 400
+    assert chamadas == []
+
+
+def test_rota_alimentador_rejeita_sucesso_nao_confirmado(coffee_cliente, monkeypatch):
+    from coffee_module import client
+    monkeypatch.setattr(client, "alterar_alimentador", lambda i, a: True)
+    monkeypatch.setattr(
+        client, "buscar_nota",
+        lambda i: {"pk": int(i), "id_sap": 17247854, "arquivado": False,
+                   "local_instalacao": "701CF12345678",
+                   "fields": {"id_sap": 17247854, "alimentador": "OUTRO01"}},
+    )
+
+    resposta = coffee_cliente.post("/api/coffee/alimentador", json={"id": 1, "alimentador": "AFC01"})
+
+    assert resposta.status_code == 409
+    assert "não confirmou" in resposta.json()["detail"]
+
+
+def test_rota_consultar_expoe_referencia_eletrica_alimentador_e_campos_crus(coffee_cliente, monkeypatch):
+    from coffee_module import client
+    monkeypatch.setattr(
+        client, "buscar_nota",
+        lambda i: {"pk": int(i), "id_sap": 17247854, "arquivado": False,
+                   "local_instalacao": "718ET00026773",
+                   "fields": {"id_sap": 17247854, "referencia_fisica": "SER-11",
+                              "referencia_eletrica": "ELE-22", "alimentador": "AFC01"}},
+    )
+    r = coffee_cliente.get("/api/coffee/consultar/355617")
+    body = r.json()
+    assert body["referencia_fisica"] == "SER-11"
+    assert body["referencia_eletrica"] == "ELE-22"
+    assert body["alimentador"] == "AFC01"
+    assert body["campos"]["referencia_eletrica"] == "ELE-22"
+
+
 def test_rota_local_nao_encaminha_nota_sozinha(coffee_cliente, monkeypatch):
     from coffee_module import client, db
 
@@ -730,6 +808,18 @@ def test_obter_nota_ignora_arquivada(monkeypatch, tmp_path):
     assert db.obter_nota(4242) is not None
     db.arquivar_nota(4242)
     assert db.obter_nota(4242) is None
+
+
+def test_desarquivar_nota_reverte_arquivar_nota(monkeypatch, tmp_path):
+    """desarquivar_nota devolve a nota arquivada localmente pra visibilidade normal."""
+    monkeypatch.setenv("COFFEE_DATA_DIR", str(tmp_path))
+    from coffee_module import db
+    db.inicializar_banco()
+    db.upsert_nota(4242, 12345678, {"prioridade": 3, "observacoes": "Trocar poste"})
+    db.arquivar_nota(4242)
+    assert db.obter_nota(4242) is None
+    db.desarquivar_nota(4242)
+    assert db.obter_nota(4242) is not None
 
 
 # ---------------------------------------------------------------------------

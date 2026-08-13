@@ -16,6 +16,8 @@ import { KpiDrawer } from './kpi-drawer';
 import { detectarNoveExtra } from './malha-fina';
 import { MalhaFinaPanel } from './malha-fina-panel';
 import { LocalInstalacaoCorrection } from './local-instalacao-correction';
+import { NotaFichaCompleta } from './nota-ficha-completa';
+import { useConsultaCoffee } from './use-consulta-coffee';
 import { usePersistedState } from '../../hooks/use-persisted-state';
 import { toast } from 'sonner';
 import { Eyebrow } from '@/components/branded/section';
@@ -85,7 +87,7 @@ export interface DashboardProps {
   dupResolved: Set<string>;
   onToggleComplete: (id: string) => void;
   onMarkMany: (ids: string[], action: "done" | "reopen") => void;
-  onMarkDuplicate: (id: string) => void;
+  onMarkDuplicate: (id: string, justificativa?: string) => void;
   onSendToCoffee: (ids: string[], sourceId?: string) => void;
 }
 
@@ -489,7 +491,7 @@ interface DetailProps {
   dup: boolean;
   encaminhamento?: TriageForwarding;
   onToggleDone: (id: string) => void;
-  onMarkDuplicate: (id: string) => void;
+  onMarkDuplicate: (id: string, justificativa?: string) => void;
   onSendToCoffee: (ids: string[], sourceId?: string) => void;
 }
 
@@ -501,22 +503,35 @@ function Detail({ sel, done, dup, encaminhamento, onToggleDone, onMarkDuplicate,
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [fs]);
+  // Owner único da consulta COFFEE do detalhe: NotaFichaCompleta e
+  // LocalInstalacaoCorrection recebem o mesmo resultado por prop, em vez de
+  // cada uma observar a query por conta própria.
+  const consulta = useConsultaCoffee(sel?.id ?? "");
   if (!sel) return <div className="bg-bg-2" />;
   const v = (x: string | number | null | undefined, fb = "—"): string => {
     const s = x == null ? "" : String(x);
     return s === "" || s === "-" ? fb : s;
   };
-  const fields: Array<[string, string]> = [
-    ["Tipo de nota", v(sel.tipo_nota)], ["Referência", v(sel.referencia)], ["Problema", v(sel.problema || sel.descricao)],
-    ["Gerada por", sel.gerador
+  const coffee = consulta.data;
+  const fields: Array<{ label: string; value: string; wide?: boolean }> = [
+    { label: "Tipo de nota", value: v(sel.tipo_nota) },
+    { label: "Referência", value: v(sel.referencia) },
+    { label: "Problema", value: v(sel.problema || sel.descricao), wide: true },
+    { label: "Observação", value: v(sel.observacao ?? coffee?.observacao), wide: true },
+    { label: "Referência física", value: v(sel.raw.referencia_fisica || coffee?.referencia_fisica) },
+    { label: "Referência elétrica", value: v(coffee?.referencia_eletrica) },
+    { label: "Local instal.", value: v(sel.local_instalacao) },
+    { label: "Poste", value: v(sel.poste) },
+    { label: "Alimentador", value: v(sel.raw.alimentador || coffee?.alimentador) },
+    { label: "ID SAP", value: v(sel.id_sap || (coffee?.id_sap != null ? String(coffee.id_sap) : undefined)) },
+    { label: "Gerada por", wide: true, value: sel.gerador
       ? sel.gerador.matricula
         ? `${sel.gerador.nome} · ${sel.gerador.matricula}${sel.gerador.cadastrado === false ? " (não cadastrado)" : ""}`
         : sel.gerador.nome
-      : v(sel.colaborador)],
-    ["Estado", v(sel.uf)], ["Setor", v(sel.setor)],
-    ["Local instal.", v(sel.local_instalacao)], ["Poste", v(sel.poste)], ["ID SAP", v(sel.id_sap)],
-    ["Imagens", v(sel.imagens_recebidas) + " / " + v(sel.imagens_totais)],
-    ["Latitude", v(sel.latitude)], ["Longitude", v(sel.longitude)],
+      : v(sel.colaborador) },
+    { label: "Estado", value: v(sel.uf) }, { label: "Setor", value: v(sel.setor) },
+    { label: "Imagens", value: v(sel.imagens_recebidas) + " / " + v(sel.imagens_totais) },
+    { label: "Latitude", value: v(sel.latitude) }, { label: "Longitude", value: v(sel.longitude) },
   ];
   const otherErrors = sel.errors.filter((e) => e.rule !== "chk_duplicata");
   const hasLocalError = notaRequerCorrecaoLocal(sel);
@@ -564,12 +579,29 @@ function Detail({ sel, done, dup, encaminhamento, onToggleDone, onMarkDuplicate,
           </section>
         )}
 
+        <section>
+          <Eyebrow asChild><div className="mb-[11px]">Identificação & localização</div></Eyebrow>
+          <div className="gap-[1px] rounded-app-sm overflow-hidden border border-line grid [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))] bg-line">
+            {fields.map((f) => (
+              <div key={f.label} className="kv" style={f.wide ? { gridColumn: "span 2" } : undefined}>
+                <small>{f.label}</small>
+                <div className="font-mono text-[12.5px] break-words [overflow-wrap:anywhere]">{f.value}</div>
+              </div>
+            ))}
+          </div>
+          {sel.latitude && sel.longitude && (
+            <Button asChild variant="outline" size="sm" className="text-blue mt-[12px]" style={{ borderColor: "var(--status-blue-border)" }}>
+              <a target="_blank" rel="noopener" href={EDPApi.mapsUrl(sel.latitude, sel.longitude)}><MapPin /> Abrir no Google Maps</a>
+            </Button>
+          )}
+        </section>
+
         {hasLocalError && (
           <LocalInstalacaoCorrection
-            key={sel.id}
             noteId={sel.id}
             localTriagem={sel.local_instalacao}
             encaminhada={done}
+            consulta={consulta}
             onEncaminhar={() => onToggleDone(sel.id)}
           />
         )}
@@ -591,19 +623,8 @@ function Detail({ sel, done, dup, encaminhamento, onToggleDone, onMarkDuplicate,
           ) : !hasDup ? <Badge variant="tagOk"><span className="w-[6px] h-[6px] rounded-full bg-current" />Conforme — nenhuma falha encontrada</Badge>
             : <div className="text-[12.5px] text-text-dim">Sem outras falhas além da duplicata.</div>}
         </section>
-        <section>
-          <Eyebrow asChild><div className="mb-[11px]">Identificação & localização</div></Eyebrow>
-          <div className="gap-[1px] rounded-app-sm overflow-hidden border border-line grid [grid-template-columns:repeat(3,1fr)] bg-line">
-            {fields.map(([k, val]) => (
-              <div key={k} className="kv"><small>{k}</small><div className="font-mono text-[12.5px]">{val}</div></div>
-            ))}
-          </div>
-          {sel.latitude && sel.longitude && (
-            <Button asChild variant="outline" size="sm" className="text-blue mt-[12px]" style={{ borderColor: "var(--status-blue-border)" }}>
-              <a target="_blank" rel="noopener" href={EDPApi.mapsUrl(sel.latitude, sel.longitude)}><MapPin /> Abrir no Google Maps</a>
-            </Button>
-          )}
-        </section>
+
+        <NotaFichaCompleta noteId={sel.id} consulta={consulta} />
       </div>
     </div>
   );

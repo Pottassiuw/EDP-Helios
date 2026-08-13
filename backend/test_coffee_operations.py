@@ -478,6 +478,22 @@ def test_reconsulta_reenvia_fila_com_erro_e_avanca_para_pronta(
     assert item["operacao_id"] == job_id
 
 
+def test_job_consulta_reporta_contagem_por_etapa(coffee_operation_tmp, monkeypatch):
+    def buscar(ident):
+        ident = int(ident)
+        if ident == 901:
+            return _nota(ident, config.SAP_PENDENTE, alimentador="ABC01")
+        return _nota(ident, None, alimentador="ABC01")
+
+    monkeypatch.setattr(client, "buscar_nota", buscar)
+
+    job_id = jobs.iniciar_consulta_operacao([900, 901], "avulsa")
+    job = _aguardar(job_id)
+
+    assert job["estado"] == "concluido"
+    assert job["por_etapa"] == {"pronta": 1, "aguardando_sap": 1, "processando": 0, "ignorada": 0}
+
+
 def test_consulta_move_sem_sap_para_pronta(coffee_operation_tmp):
     operation_service.adicionar_entradas([101], "avulsa", "job-a")
     etapa = operation_service.aplicar_consulta(
@@ -485,6 +501,85 @@ def test_consulta_move_sem_sap_para_pronta(coffee_operation_tmp):
     )
     assert etapa == "pronta"
     assert db.listar_itens_operacao()[0]["etapa"] == "pronta"
+
+
+# ---------------------------------------------------------------------------
+# Paralelismo limitado (fila grande não pode mais ser 1-nota-por-vez serial)
+# ---------------------------------------------------------------------------
+
+def test_consulta_operacao_processa_lote_grande_em_paralelo(
+    monkeypatch, tmp_path_factory,
+):
+    """MAX_WORKERS=4 processa um lote bem mais rápido que MAX_WORKERS=1 —
+    grupo de controle serial vs paralelo, sem hardcodar tempo absoluto (a
+    velocidade real de I/O do SQLite varia por máquina; o que importa é que
+    o pool concorrente esteja de fato em uso, não parado no papel)."""
+    monkeypatch.setattr(config, "COFFEE_API_KEY", "fake-key")
+    monkeypatch.setattr(config, "DELAY_BUSCA", 0)
+    monkeypatch.setattr(config, "DELAY_GERACAO", 0)
+    ids = list(range(700, 712))  # 12 notas
+
+    def buscar_lenta(ident):
+        time.sleep(0.05)
+        return _nota(int(ident), None, alimentador="ABC01")
+
+    monkeypatch.setattr(client, "buscar_nota", buscar_lenta)
+
+    def rodar_lote(max_workers: int) -> float:
+        # Banco novo a cada rodada: inicializar_banco() é CREATE TABLE IF NOT
+        # EXISTS (não limpa dados) — reusar o mesmo já deixaria a 2ª rodada
+        # sem itens "fila" pra consultar (adicionar_entradas pula quem não
+        # está mais em fila-com-erro).
+        monkeypatch.setenv("COFFEE_DATA_DIR", str(tmp_path_factory.mktemp("coffee")))
+        db.inicializar_banco()
+        monkeypatch.setattr(config, "MAX_WORKERS", max_workers)
+        inicio = time.time()
+        job_id = jobs.iniciar_consulta_operacao(ids, "avulsa")
+        job = _aguardar(job_id, limite=10.0)
+        assert job["estado"] == "concluido"
+        assert job["feitas"] == len(ids)
+        return time.time() - inicio
+
+    duracao_serial = rodar_lote(1)
+    duracao_paralela = rodar_lote(4)
+
+    assert duracao_paralela < duracao_serial * 0.7, (
+        f"serial={duracao_serial:.2f}s paralelo={duracao_paralela:.2f}s — "
+        "pool concorrente não está rendendo ganho real"
+    )
+    prontas = [item for item in db.listar_itens_operacao() if item["etapa"] == "pronta"]
+    assert len(prontas) == len(ids)
+
+
+def test_geracao_operacao_falha_de_uma_nota_nao_trava_as_outras(
+    coffee_operation_tmp, monkeypatch,
+):
+    """Uma nota que estoura erro no meio do lote não pode impedir as demais
+    de terminar — cada item trata seu próprio erro (defense-in-depth do pool)."""
+    ids = [801, 802, 803, 804]
+    for ident in ids:
+        operation_service.adicionar_entradas([ident], "avulsa", "seed")
+        operation_service.aplicar_consulta(ident, _nota(ident, None), "avulsa", "seed")
+
+    def buscar_com_uma_falha(ident):
+        if int(ident) == 802:
+            raise RuntimeError("COFFEE indisponível pra essa nota")
+        return _nota(int(ident), None, alimentador="ABC01")
+
+    monkeypatch.setattr(client, "buscar_nota", buscar_com_uma_falha)
+    monkeypatch.setattr(client, "definir_sap", lambda ident, sap: True)
+    monkeypatch.setattr(client, "desarquivar", lambda ident: True)
+
+    job_id = jobs.iniciar_geracao_operacao(ids)
+    job = _aguardar(job_id)
+
+    assert job["estado"] == "concluido"  # "parcial" (com erros) já sai mapeado assim por obter_job
+    assert job["feitas"] == len(ids)
+    assert [erro["pk"] for erro in job["erros"]] == [802]
+    itens = {item["nota_pk"]: item["etapa"] for item in db.listar_itens_operacao()}
+    assert itens[802] == "pronta"  # falha devolve a nota pra pronta, não trava em processando
+    for ok_pk in (801, 803, 804):
+        assert itens[ok_pk] == "aguardando_sap"  # geradas com sucesso: aguardando o SAP real
 
 
 def test_consulta_move_placeholder_para_aguardando(coffee_operation_tmp):

@@ -50,7 +50,7 @@ ser ocultados pelo próprio Django conforme as opções declaradas no modelo.
 |---|---|---|---|
 | Leitura de todos os campos | `json_all/{id}` | Implementada por `GET /api/coffee/consultar/{id}` | Usar para consultar e confirmar, sem persistir durante a simples consulta. |
 | Local de instalação | `local_instalacao/{id}/{local}` | **Implementada em Verificar e no Inspector** | Escrita geral suportada. Formato: 3 cidade + 2 tipo + 8 número. |
-| Alimentador | dispatcher `alimentador` | Não implementada na UI | Próxima candidata, mas somente após integrar o lookup de alimentadores e confirmar o valor por releitura; não aceitar texto livre. |
+| Alimentador | dispatcher `alimentador` | **Implementada em Verificar** (ficha completa da nota) | Escrita suportada via `Select` populado por lookup estático (`coffee_module/alimentadores.py`, 1199 alimentadores); nunca aceita texto livre, confirma por releitura. |
 | Trafo | dispatcher `trafo` | Não implementada na UI | Próxima candidata, mas somente após integrar cidade/lookup de trafos e confirmação; não aceitar número livre sem contexto. |
 | ID SAP | `sap/{id}/{sap}` | Implementada apenas no fluxo interno de geração | Não expor como edição manual; o job controla placeholder, geração e transição. |
 | Arquivamento | `desarquivar/{id}` | Implementada apenas no fluxo interno de geração | Não expor como correção de campo isolada. |
@@ -58,12 +58,21 @@ ser ocultados pelo próprio Django conforme as opções declaradas no modelo.
 
 ## UX implementada em Verificar
 
-O painel **Corrigir local no COFFEE** aparece em **Verificar**, no topo do
-detalhe da nota selecionada, antes da lista de falhas. Ele reconhece os dois
-identificadores usados pela fonte: `chk_local_instal` e
-`chk_local_instalacao`:
+O painel **Corrigir local no COFFEE** aparece em **Verificar**, no detalhe da
+nota selecionada, logo depois do bloco **Identificação & localização** — não
+mais antes dele. Consulta o valor atual pela mesma query COFFEE compartilhada
+do detalhe (`useConsultaCoffee`, ver
+[`01-frontend-verificar.md`](01-frontend-verificar.md)), não abre uma consulta
+própria. O nome da regra (`rule`) é literalmente o nome da coluna `chk_*` da
+fonte — não uma lista fixa que o Helios controla. Por isso
+`regraLocalInstalacao` (`frontend/src/lib/local-instalacao.ts`) não compara
+contra um conjunto fechado de strings: normaliza acento e caixa
+(`chk_local_de_instalação` → `chk_local_de_instalacao`) e reconhece qualquer
+chave que contenha `local` e `instal`, incluindo variantes com "de"
+(`chk_local_de_instalacao`) nunca vistas antes:
 
-1. consulta automaticamente o valor atual via `json_all`;
+1. consulta automaticamente o valor atual via `json_all` (consulta
+   compartilhada do detalhe, sem refazer a chamada a cada painel montado);
 2. compara visualmente o valor da triagem com o valor atual do COFFEE;
 3. bloqueia a escrita até a consulta terminar;
 4. o frontend normaliza para maiúsculas e remove separadores;
@@ -71,8 +80,11 @@ identificadores usados pela fonte: `chk_local_instal` e
 6. salva pela integração existente de local;
 7. o backend reconsulta e rejeita sucesso sem confirmação;
 8. o frontend faz uma segunda releitura e só então libera **Encaminhar para
-   operação**;
-9. **Abrir COFFEE** permanece como fallback explícito.
+   operação**.
+
+O painel não tem mais botão **Abrir COFFEE** — era redundante com a correção
+direta neste mesmo fluxo. Abrir a nota no COFFEE continua disponível no
+cabeçalho do detalhe.
 
 Editar não encaminha a nota implicitamente. Se ainda não existe card na
 Operação, a rota atualiza apenas o espelho local. Se o card já existe, sua ficha
@@ -85,7 +97,8 @@ Inspector COFFEE; não há duas implementações concorrentes.
 ## Fora do escopo atual
 
 - scraping autenticado, automação do Admin, cookies, sessão Microsoft ou CSRF;
-- edição livre de alimentador/trafo sem lookup de domínio;
+- edição livre de trafo sem lookup de domínio (alimentador já tem lookup e
+  está implementado; trafo segue como próxima candidata);
 - edição de componente, sintoma, prioridade, referências, postes, observações e
   critérios de risco sem endpoint oficial;
 - geração automática logo após salvar o local;

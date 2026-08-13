@@ -35,6 +35,9 @@ export interface CoffeeJob {
   ja_corrigidas?: number[];
   geradas?: number[];
   divergentes?: Array<{ id: number; local_atual: string | null }>;
+  /** Só presente em jobs de consulta avulsa/operação: quantas notas terminaram
+   * em cada etapa do quadro. */
+  por_etapa?: Partial<Record<'pronta' | 'aguardando_sap' | 'processando' | 'ignorada', number>>;
   iniciado_em: string;
   atualizado_em?: string;
 }
@@ -85,8 +88,18 @@ export interface CoffeeConsulta {
   arquivado: boolean | null;
   poste: string | null;
   referencia: string | null;
+  referencia_fisica: string | null;
+  referencia_eletrica: string | null;
+  alimentador: string | null;
   problema: string | null;
   observacao: string | null;
+  /** Campos crus do json_all, pra ficha completa mostrar tudo sem o backend projetar campo a campo. */
+  campos: Record<string, unknown>;
+}
+
+export interface Alimentador {
+  id: string;
+  cidade: string;
 }
 
 export interface PropostaPlano {

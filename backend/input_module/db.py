@@ -49,9 +49,12 @@ def get_db_connection() -> sqlite3.Connection:
         config.data_dir().mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(caminho, timeout=30, check_same_thread=False)
     # WAL não funciona em compartilhamento SMB (precisa de memória
-    # compartilhada); o SQLite mantém o journal de rollback e o PRAGMA vira
-    # no-op. Em produção a serialização vem do timeout de 30s.
-    conn.execute("PRAGMA journal_mode = WAL;")
+    # compartilhada). Algumas configurações de share recusam o PRAGMA de
+    # cara com "OperationalError: locking protocol" em vez de virar no-op —
+    # por isso nem tentamos em produção. A serialização em produção vem do
+    # timeout de 30s.
+    if not config.em_producao():
+        conn.execute("PRAGMA journal_mode = WAL;")
     return conn
 
 

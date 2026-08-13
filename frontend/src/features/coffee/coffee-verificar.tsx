@@ -25,7 +25,7 @@ export interface TriageHandoff {
   onRetry: () => void;
   onToggleComplete: (id: string) => void;
   onMarkMany: (ids: string[], action: "done" | "reopen") => void;
-  onMarkDuplicate: (id: string) => void;
+  onMarkDuplicate: (id: string, justificativa?: string) => void;
   onSendToCoffee: (ids: string[], sourceId?: string) => void;
 }
 

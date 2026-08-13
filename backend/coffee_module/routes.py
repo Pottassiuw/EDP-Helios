@@ -8,7 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from pydantic import BaseModel
 
-from coffee_module import classify, client, config, db, exportacao, jobs, operation_service
+from coffee_module import alimentadores, classify, client, config, db, exportacao, jobs, operation_service
 
 _PERF_ATIVO = os.environ.get("EDP_PERF", "").strip() not in ("", "0", "false")
 _LOCAL_INSTALACAO_RE = re.compile(r"^\d{3}[A-Z0-9]{2}\d{8}$")
@@ -77,6 +77,11 @@ class ExportarConcluidasPedido(BaseModel):
 class LocalPedido(BaseModel):
     id: int
     local: str
+
+
+class AlimentadorPedido(BaseModel):
+    id: int
+    alimentador: str
 
 
 class OperacaoIdsPedido(BaseModel):
@@ -231,8 +236,14 @@ def consultar(id: int):
         "arquivado": nota["arquivado"],
         "poste": fields.get("postes") or fields.get("poste"),
         "referencia": fields.get("referencia_fisica") or fields.get("referencia_eletrica"),
+        "referencia_fisica": fields.get("referencia_fisica"),
+        "referencia_eletrica": fields.get("referencia_eletrica"),
+        "alimentador": fields.get("alimentador"),
         "problema": " · ".join(problema_partes) or None,
         "observacao": observacao,
+        # Indicadores completos: repassa os campos crus do json_all pra tela
+        # de ficha mostrar tudo, sem o backend ter que projetar campo a campo.
+        "campos": fields,
     }
 
 
@@ -333,6 +344,63 @@ def local_instalacao(pedido: LocalPedido):
         True,
     )
     return {"ok": True, "local_instalacao": nota["local_instalacao"]}
+
+
+@router.get("/alimentadores")
+def listar_alimentadores():
+    return {"registros": alimentadores.listar()}
+
+
+@router.post("/alimentador")
+def alimentador(pedido: AlimentadorPedido):
+    _garantir_banco()
+    if not alimentadores.alimentador_valido(pedido.alimentador):
+        raise HTTPException(status_code=400, detail="Alimentador não reconhecido.")
+    try:
+        client.alterar_alimentador(pedido.id, pedido.alimentador)
+    except Exception as exc:  # noqa: BLE001
+        db.registrar_log(
+            "acao_usuario", "alterar_alimentador", pedido.id,
+            {"id": pedido.id, "alimentador": pedido.alimentador}, False,
+        )
+        raise HTTPException(
+            status_code=502, detail="Não foi possível alterar o alimentador na API COFFEE.",
+        ) from exc
+    try:
+        nota = client.buscar_nota(pedido.id)
+    except Exception as exc:  # noqa: BLE001
+        db.registrar_log(
+            "acao_usuario", "alterar_alimentador", pedido.id,
+            {"id": pedido.id, "alimentador": pedido.alimentador}, False,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "O alimentador foi alterado na API COFFEE, mas a nota não pôde "
+                "ser reconsultada. Tente consultar novamente."
+            ),
+        ) from exc
+
+    confirmado = nota["fields"].get("alimentador")
+    if confirmado != pedido.alimentador:
+        db.registrar_log(
+            "acao_usuario", "alterar_alimentador", nota["pk"],
+            {"id": pedido.id, "solicitado": pedido.alimentador, "confirmado": confirmado}, False,
+        )
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "O COFFEE não confirmou o alimentador solicitado. "
+                "Consulte a nota novamente antes de tentar outra alteração."
+            ),
+        )
+
+    db.upsert_nota(nota["pk"], nota["id_sap"], nota["fields"])
+    db.registrar_log(
+        "acao_usuario", "alterar_alimentador", nota["pk"],
+        {"id": pedido.id, "alimentador": pedido.alimentador}, True,
+    )
+    return {"ok": True, "alimentador": confirmado}
 
 
 @router.get("/operacao")

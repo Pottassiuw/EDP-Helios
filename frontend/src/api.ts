@@ -201,11 +201,21 @@ export async function toggleComplete(id: string): Promise<ToggleResult> {
   return res.json() as Promise<ToggleResult>;
 }
 
-export async function markDuplicate(id: string): Promise<DuplicateResult> {
+export async function markDuplicate(id: string, justificativa?: string): Promise<DuplicateResult> {
   const res = await fetch(BASE + "/duplicata/" + encodeURIComponent(id), {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ justificativa: justificativa || null }),
   });
   if (!res.ok) throw new Error("POST /duplicata -> " + res.status);
+  return res.json() as Promise<DuplicateResult>;
+}
+
+export async function desfazerDuplicata(id: string): Promise<DuplicateResult> {
+  const res = await fetch(BASE + "/duplicata/" + encodeURIComponent(id) + "/desfazer", {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error("POST /duplicata/desfazer -> " + res.status);
   return res.json() as Promise<DuplicateResult>;
 }
 
@@ -234,6 +244,33 @@ export async function alterarLocalInstalacao(
   });
   if (!res.ok) throw await erroComDetail(res, "POST /local-instalacao");
   return res.json() as Promise<AlterarLocalInstalacaoResultado>;
+}
+
+export interface AlterarAlimentadorResultado {
+  ok: true;
+  alimentador: string;
+}
+
+export async function alterarAlimentador(
+  id: number,
+  alimentador: string,
+): Promise<AlterarAlimentadorResultado> {
+  const res = await coffeeFetch(BASE + "/coffee/alimentador", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, alimentador }),
+  });
+  if (!res.ok) throw await erroComDetail(res, "POST /alimentador");
+  return res.json() as Promise<AlterarAlimentadorResultado>;
+}
+
+export async function listarAlimentadores(): Promise<import("./features/coffee/types").Alimentador[]> {
+  const res = await coffeeFetch(BASE + "/coffee/alimentadores", {
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) throw await erroComDetail(res, "GET /alimentadores");
+  const body = await res.json() as { registros: import("./features/coffee/types").Alimentador[] };
+  return body.registros;
 }
 
 export async function consultarNota(
@@ -325,9 +362,12 @@ export const EDPApi = {
   fetchData,
   toggleComplete,
   markDuplicate,
+  desfazerDuplicata,
   marcarGerar,
   consultarNota,
   alterarLocalInstalacao,
+  alterarAlimentador,
+  listarAlimentadores,
   coffeeUrl,
   mapsUrl,
   openCoffee,

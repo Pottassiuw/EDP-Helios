@@ -38,9 +38,23 @@ renderiza uma de cinco seções por `SegTabs`:
 
 ## Operação: Kanban persistido
 
-O botão **Adicionar notas** abre o composer na própria página. IDs separados
-por espaço, vírgula, ponto e vírgula ou linha são analisados antes de enviar;
-somente números positivos e únicos seguem para `POST /api/coffee/operacao/consultar`.
+O botão **Adicionar notas** abre o composer na própria página
+(`operacao-composer.tsx`): textarea grande (8 linhas, `resize-y`,
+`overflow-y-auto` até a altura máxima), texto auxiliar sobre o formato e
+contadores de válidos/repetidos/inválidos/já-na-operação enquanto o usuário
+digita. IDs separados por espaço, vírgula, ponto e vírgula ou linha são
+analisados antes de enviar; somente números positivos e únicos seguem para
+`POST /api/coffee/operacao/consultar`. O composer só limpa o texto e fecha
+depois que a consulta é *aceita* pelo backend — uma falha mantém o conteúdo
+e mostra o erro embutido no painel, sem fechar silenciosamente. Ctrl+Enter
+consulta; Enter sozinho só quebra linha (é uma textarea).
+
+Depois que o job de consulta termina, um toast resume o resultado real
+(`resumo-job.ts: resumoJobConsulta`) — quantas notas ficaram prontas,
+aguardando SAP, em processamento, foram ignoradas (já em estado final) ou
+falharam — em vez de só "Consulta iniciada". O backend expõe essa contagem
+em `por_etapa` no snapshot do job de consulta (`jobs.py:
+_rodar_consulta_operacao`).
 
 O Kanban não permite arrastar cards. A API e a máquina de estados definem a
 etapa de cada item:
@@ -60,7 +74,9 @@ interrompidos e itens que estavam em processamento voltam a Prontas com erro
 recuperável.
 
 O estado legado do antigo modal, `sessionStorage['edp_coffee_gerar_rows']`, é
-migrado na primeira montagem de Operação. A chave só é removida depois de a
+migrado na primeira montagem de Operação. A migração é observável: um toast
+avisa que a migração começou e outro confirma quantas notas foram migradas
+(ou o erro, se a consulta falhar). A chave só é removida depois de a
 consulta ser aceita; se a mutation falhar, os dados ficam na sessão para uma
 tentativa futura.
 

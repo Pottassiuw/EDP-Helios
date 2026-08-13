@@ -1,13 +1,13 @@
 import React from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
-import { EDPApi } from '../../api';
 import {
   analisarEdicaoLocal,
   formatarLocalInstalacao,
   normalizarLocalInstalacao,
 } from '../../lib/local-instalacao';
+import type { CoffeeConsulta } from '../coffee/types';
 import { OPERACAO_KEY } from '../coffee/operacao/use-coffee-operacao';
 import { COFFEE_CONSULTA_KEY } from '../coffee/coffee-query-keys';
 import { REVISAO_KEY } from '../coffee/use-nota-revisao';
@@ -30,6 +30,7 @@ export function consultaLocalEstaAtualizada({
 export function useLocalInstalacaoCorrection(
   noteId: string,
   localTriagem: string,
+  consulta: UseQueryResult<CoffeeConsulta>,
 ) {
   const queryClient = useQueryClient();
   const id = /^\d+$/.test(noteId) ? Number(noteId) : null;
@@ -37,18 +38,13 @@ export function useLocalInstalacaoCorrection(
     formatarLocalInstalacao(localTriagem),
   );
 
-  const consulta = useQuery({
-    queryKey: id === null
-      ? ['coffee', 'consulta', 'id-invalido', noteId]
-      : COFFEE_CONSULTA_KEY(id),
-    queryFn: async () => {
-      if (id === null) throw new Error('ID ONR inválido.');
-      return EDPApi.consultarNota(id);
-    },
-    enabled: id !== null,
-    staleTime: 30 * 60 * 1000,
-    refetchOnMount: 'always',
-  });
+  // Ajusta o rascunho durante o render quando a nota selecionada muda —
+  // evita remount (`key`) só pra resetar estado de formulário por nota.
+  const [noteIdAnterior, setNoteIdAnterior] = React.useState(noteId);
+  if (noteId !== noteIdAnterior) {
+    setNoteIdAnterior(noteId);
+    setRascunho(formatarLocalInstalacao(localTriagem));
+  }
 
   const mutacao = useMutation({
     mutationFn: async (local: string) => {
@@ -76,9 +72,9 @@ export function useLocalInstalacaoCorrection(
     consulta.data?.local_instalacao ?? '',
   );
   React.useEffect(() => {
-    if (consulta.data) {
-      setRascunho(formatarLocalInstalacao(consulta.data.local_instalacao));
-    }
+    if (!consulta.data) return;
+    const formatado = formatarLocalInstalacao(consulta.data.local_instalacao);
+    setRascunho((atual) => (atual === formatado ? atual : formatado));
   }, [consulta.data]);
 
   const proposto = normalizarLocalInstalacao(rascunho);

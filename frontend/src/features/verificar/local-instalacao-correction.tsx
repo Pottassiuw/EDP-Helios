@@ -1,7 +1,7 @@
 import React from 'react';
-import { ArrowRight, Coffee, RefreshCw, Save, ShieldCheck } from 'lucide-react';
+import type { UseQueryResult } from '@tanstack/react-query';
+import { ArrowRight, RefreshCw, Save, ShieldCheck } from 'lucide-react';
 
-import { EDPApi } from '../../api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,12 +10,14 @@ import {
   formatarLocalInstalacao,
   localInstalacaoValido,
 } from '@/lib/local-instalacao';
+import type { CoffeeConsulta } from '../coffee/types';
 import { useLocalInstalacaoCorrection } from './use-local-instalacao-correction';
 
 interface LocalInstalacaoCorrectionProps {
   noteId: string;
   localTriagem: string;
   encaminhada: boolean;
+  consulta: UseQueryResult<CoffeeConsulta>;
   onEncaminhar: () => void;
 }
 
@@ -23,9 +25,10 @@ export function LocalInstalacaoCorrection({
   noteId,
   localTriagem,
   encaminhada,
+  consulta,
   onEncaminhar,
 }: LocalInstalacaoCorrectionProps): React.JSX.Element {
-  const fluxo = useLocalInstalacaoCorrection(noteId, localTriagem);
+  const fluxo = useLocalInstalacaoCorrection(noteId, localTriagem, consulta);
   const valido = localInstalacaoValido(fluxo.proposto);
   const ocupado = fluxo.consultando || fluxo.salvando;
 
@@ -121,13 +124,6 @@ export function LocalInstalacaoCorrection({
         <span className="mr-auto text-[11.5px] text-text-dim">
           Próximo passo: encaminhar a nota para a Operação.
         </span>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => EDPApi.openCoffee(noteId)}
-        >
-          <Coffee /> Abrir COFFEE
-        </Button>
         <Button
           size="sm"
           disabled={!fluxo.confirmado || encaminhada}

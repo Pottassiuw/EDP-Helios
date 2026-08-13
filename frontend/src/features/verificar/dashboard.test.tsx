@@ -1,6 +1,10 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { EDPApi } from '../../api';
+import type { CoffeeConsulta } from '../coffee/types';
 import type { Note } from '../../types';
 
 vi.hoisted(() => {
@@ -27,7 +31,26 @@ vi.mock('./local-instalacao-correction', () => ({
   ),
 }));
 
+vi.mock('./nota-ficha-completa', () => ({
+  NotaFichaCompleta: () => <section>Ficha completa (COFFEE)</section>,
+}));
+
 import { Dashboard, idsEncaminhaveisEmLote } from './dashboard';
+
+function consultaVazia(): CoffeeConsulta {
+  return {
+    pk: 1, id_sap: null, local_instalacao: null, classificacao: 'gerada', arquivado: false,
+    poste: null, referencia: null, referencia_fisica: null, referencia_eletrica: null,
+    alimentador: null, problema: null, observacao: null, campos: {},
+  };
+}
+
+function withQuery(node: ReactElement): string {
+  const queryClient = new QueryClient();
+  return renderToStaticMarkup(
+    <QueryClientProvider client={queryClient}>{node}</QueryClientProvider>,
+  );
+}
 
 function nota(overrides: Partial<Note>): Note {
   return {
@@ -70,10 +93,15 @@ describe('Dashboard — filtro por inspetor', () => {
     sessionStorage.removeItem('edp_verify_gerador');
     sessionStorage.removeItem('edp_verify_inspetor');
     sessionStorage.removeItem('edp_verify_situacao');
+    vi.spyOn(EDPApi, 'consultarNota').mockResolvedValue(consultaVazia());
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('sem seleção, mostra notas de todos os geradores', () => {
-    const html = renderToStaticMarkup(
+    const html = withQuery(
       <Dashboard showKpis={false} notes={notes} completed={new Set()} encaminhamentos={{}} encaminhadasHoje={[]} dupResolved={new Set()}
                  onToggleComplete={noop} onMarkMany={noop} onMarkDuplicate={noop} onSendToCoffee={noop} />
     );
@@ -88,7 +116,7 @@ describe('Dashboard — filtro por inspetor', () => {
 
   it('filtra as notas pelo estado de encaminhamento', () => {
     sessionStorage.setItem('edp_verify_situacao', JSON.stringify('falha_operacional'));
-    const html = renderToStaticMarkup(
+    const html = withQuery(
       <Dashboard showKpis={false} notes={notes} completed={new Set(['100', '200'])}
                  encaminhamentos={{
                    '100': { situacao: 'encaminhada', etapa: 'pronta', erro: null, encaminhada_em: null, encaminhada_por: 'ana', retornada_em: null, retornada_por: null, retorno_justificativa: null },
@@ -104,7 +132,7 @@ describe('Dashboard — filtro por inspetor', () => {
 
   it('com inspetores ES/SP selecionado (via sessionStorage persistido), exclui notas de não inspetores', () => {
     sessionStorage.setItem('edp_verify_gerador', JSON.stringify('inspectors'));
-    const html = renderToStaticMarkup(
+    const html = withQuery(
       <Dashboard showKpis={false} notes={notes} completed={new Set()} encaminhamentos={{}} encaminhadasHoje={[]} dupResolved={new Set()}
                  onToggleComplete={noop} onMarkMany={noop} onMarkDuplicate={noop} onSendToCoffee={noop} />
     );
@@ -116,7 +144,7 @@ describe('Dashboard — filtro por inspetor', () => {
   it('permite filtrar um inspetor após selecionar o escopo ES/SP', () => {
     sessionStorage.setItem('edp_verify_gerador', JSON.stringify('inspectors'));
     sessionStorage.setItem('edp_verify_inspetor', JSON.stringify('204565'));
-    const html = renderToStaticMarkup(
+    const html = withQuery(
       <Dashboard showKpis={false} notes={notes} completed={new Set()} encaminhamentos={{}} encaminhadasHoje={[]} dupResolved={new Set()}
                  onToggleComplete={noop} onMarkMany={noop} onMarkDuplicate={noop} onSendToCoffee={noop} />
     );
@@ -130,7 +158,7 @@ describe('Dashboard — filtro por inspetor', () => {
   });
 
   it('mostra "Gerada por" na fila mesmo sem filtro de inspetor ativo, para nota não-inspetor', () => {
-    const html = renderToStaticMarkup(
+    const html = withQuery(
       <Dashboard showKpis={false} notes={notes} completed={new Set()} encaminhamentos={{}} encaminhadasHoje={[]} dupResolved={new Set()}
                  onToggleComplete={noop} onMarkMany={noop} onMarkDuplicate={noop} onSendToCoffee={noop} />
     );
@@ -139,7 +167,7 @@ describe('Dashboard — filtro por inspetor', () => {
   });
 
   it('mostra "Gerada por" na fila para nota de inspetor, sem precisar do filtro ativo', () => {
-    const html = renderToStaticMarkup(
+    const html = withQuery(
       <Dashboard showKpis={false} notes={notes} completed={new Set()} encaminhamentos={{}} encaminhadasHoje={[]} dupResolved={new Set()}
                  onToggleComplete={noop} onMarkMany={noop} onMarkDuplicate={noop} onSendToCoffee={noop} />
     );
@@ -147,7 +175,7 @@ describe('Dashboard — filtro por inspetor', () => {
   });
 
   it('nota cadastrada não recebe a marca de "matrícula não cadastrada" na fila', () => {
-    const html = renderToStaticMarkup(
+    const html = withQuery(
       <Dashboard showKpis={false} notes={notes} completed={new Set()} encaminhamentos={{}} encaminhadasHoje={[]} dupResolved={new Set()}
                  onToggleComplete={noop} onMarkMany={noop} onMarkDuplicate={noop} onSendToCoffee={noop} />
     );
@@ -167,14 +195,14 @@ describe('Dashboard — filtro por inspetor', () => {
       id: '600', gerador: { matricula: '777777', nome: 'Sem Registro', uf: 'SP', inspetor: false, cadastrado: false },
     });
 
-    const htmlCadastrada = renderToStaticMarkup(
+    const htmlCadastrada = withQuery(
       <Dashboard showKpis={false} notes={[cadastrada]} completed={new Set()} encaminhamentos={{}} encaminhadasHoje={[]} dupResolved={new Set()}
                  onToggleComplete={noop} onMarkMany={noop} onMarkDuplicate={noop} onSendToCoffee={noop} />
     );
     expect(htmlCadastrada).toContain('Fabricio Dias · 204565');
     expect(htmlCadastrada).not.toContain('Fabricio Dias · 204565 (não cadastrado)');
 
-    const htmlNaoCadastrada = renderToStaticMarkup(
+    const htmlNaoCadastrada = withQuery(
       <Dashboard showKpis={false} notes={[naoCadastrada]} completed={new Set()} encaminhamentos={{}} encaminhadasHoje={[]} dupResolved={new Set()}
                  onToggleComplete={noop} onMarkMany={noop} onMarkDuplicate={noop} onSendToCoffee={noop} />
     );
@@ -190,7 +218,7 @@ describe('Dashboard — filtro por inspetor', () => {
         in_sheet: true, match: [], latitude: null, longitude: null,
       }],
     });
-    const html = renderToStaticMarkup(
+    const html = withQuery(
       <Dashboard showKpis={false} notes={[comCandidata]} completed={new Set()} encaminhamentos={{}} encaminhadasHoje={[]} dupResolved={new Set()}
                  onToggleComplete={noop} onMarkMany={noop} onMarkDuplicate={noop} onSendToCoffee={noop} />
     );
@@ -244,15 +272,15 @@ describe('Dashboard — filtro por inspetor', () => {
       status: 'erro',
     });
 
-    const htmlLocal = renderToStaticMarkup(
+    const htmlLocal = withQuery(
       <Dashboard showKpis={false} notes={[comFalhaLocal]} completed={new Set()} encaminhamentos={{}} encaminhadasHoje={[]} dupResolved={new Set()}
                  onToggleComplete={noop} onMarkMany={noop} onMarkDuplicate={noop} onSendToCoffee={noop} />
     );
-    const htmlAlias = renderToStaticMarkup(
+    const htmlAlias = withQuery(
       <Dashboard showKpis={false} notes={[comAliasLegado]} completed={new Set()} encaminhamentos={{}} encaminhadasHoje={[]} dupResolved={new Set()}
                  onToggleComplete={noop} onMarkMany={noop} onMarkDuplicate={noop} onSendToCoffee={noop} />
     );
-    const htmlOutra = renderToStaticMarkup(
+    const htmlOutra = withQuery(
       <Dashboard showKpis={false} notes={[comOutraFalha]} completed={new Set()} encaminhamentos={{}} encaminhadasHoje={[]} dupResolved={new Set()}
                  onToggleComplete={noop} onMarkMany={noop} onMarkDuplicate={noop} onSendToCoffee={noop} />
     );
@@ -265,5 +293,24 @@ describe('Dashboard — filtro por inspetor', () => {
     expect(htmlAlias).toContain('Corrigir local no COFFEE');
     expect(htmlAlias.match(/Encaminhar/g)).toHaveLength(1);
     expect(htmlOutra).not.toContain('Corrigir local no COFFEE');
+  });
+
+  it('oferece correção direta para uma variante "de" com acento nunca vista antes', () => {
+    const comVarianteDesconhecida = nota({
+      id: '803',
+      errors: [{
+        rule: 'chk_local_de_instalação',
+        rule_name: 'Local de Instalação',
+        value: '701CF123456789',
+      }],
+      status: 'erro',
+    });
+
+    const html = withQuery(
+      <Dashboard showKpis={false} notes={[comVarianteDesconhecida]} completed={new Set()} encaminhamentos={{}} encaminhadasHoje={[]} dupResolved={new Set()}
+                 onToggleComplete={noop} onMarkMany={noop} onMarkDuplicate={noop} onSendToCoffee={noop} />
+    );
+
+    expect(html).toContain('Corrigir local no COFFEE');
   });
 });

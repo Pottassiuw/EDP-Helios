@@ -2,6 +2,8 @@
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
+from typing import Callable
 
 from coffee_module import client, config, db, operation_service
 
@@ -23,6 +25,42 @@ def _salvar(job_id: str, snapshot: dict) -> None:
 def _concluir(job_id: str, snapshot: dict) -> None:
     snapshot["estado"] = "parcial" if snapshot["erros"] else "concluida"
     _salvar(job_id, snapshot)
+
+
+def _rodar_em_paralelo(
+    job_id: str,
+    snapshot: dict,
+    ids: list,
+    trace: str | None,
+    usuario: str | None,
+    processar_um: Callable[[object], None],
+    delay: float,
+) -> None:
+    """Processa `ids` com paralelismo limitado (`config.MAX_WORKERS`).
+
+    Sequencial (1 nota por vez) não escala com filas grandes: uma nota
+    lenta/travada prendia o worker inteiro atrás dela. `processar_um` trata
+    seus próprios erros de domínio (ex.: `aplicar_falha` com a etapa de
+    retorno certa) e deve relançar a exceção — este helper só cuida da
+    contabilização (feitas/erros) de forma segura entre threads.
+    """
+    def _tarefa(ident: object) -> None:
+        db.definir_trace(trace)
+        db.definir_usuario(usuario)
+        try:
+            processar_um(ident)
+        except Exception as exc:  # noqa: BLE001 - uma falha nao derruba o lote
+            with _LOCK:
+                snapshot["erros"].append({"pk": ident, "msg": str(exc)})
+        finally:
+            with _LOCK:
+                snapshot["feitas"] += 1
+                db.salvar_operacao(job_id, snapshot)
+            time.sleep(delay)
+
+    with ThreadPoolExecutor(max_workers=config.MAX_WORKERS) as pool:
+        list(pool.map(_tarefa, ids))
+    _concluir(job_id, snapshot)
 
 
 def obter_job(job_id: str) -> dict | None:
@@ -107,23 +145,20 @@ def _rodar_consulta_operacao(
     trace: str | None,
     usuario: str | None,
 ) -> None:
-    db.definir_trace(trace)
-    db.definir_usuario(usuario)
-    for ident in ids:
+    snapshot["por_etapa"] = {"pronta": 0, "aguardando_sap": 0, "processando": 0, "ignorada": 0}
+
+    def processar(ident: int) -> None:
         try:
             nota = client.buscar_nota(ident)
-            operation_service.aplicar_consulta(
-                int(ident), nota, origem, job_id
-            )
-        except Exception as exc:  # noqa: BLE001 - uma falha nao derruba o lote
-            mensagem = str(exc)
-            operation_service.aplicar_falha(int(ident), "fila", mensagem)
-            snapshot["erros"].append({"pk": ident, "msg": mensagem})
-        finally:
-            snapshot["feitas"] += 1
-            _salvar(job_id, snapshot)
-        time.sleep(config.DELAY_BUSCA)
-    _concluir(job_id, snapshot)
+            etapa = operation_service.aplicar_consulta(int(ident), nota, origem, job_id)
+        except Exception as exc:  # noqa: BLE001 - relançada pro _rodar_em_paralelo contabilizar
+            operation_service.aplicar_falha(int(ident), "fila", str(exc))
+            raise
+        chave = etapa if etapa in snapshot["por_etapa"] else "ignorada"
+        with _LOCK:
+            snapshot["por_etapa"][chave] += 1
+
+    _rodar_em_paralelo(job_id, snapshot, ids, trace, usuario, processar, config.DELAY_BUSCA)
 
 
 def iniciar_geracao(
@@ -253,30 +288,21 @@ def _rodar_geracao_operacao(
     trace: str | None,
     usuario: str | None,
 ) -> None:
-    db.definir_trace(trace)
-    db.definir_usuario(usuario)
-    for ident in pks:
+    def processar(ident: int) -> None:
         try:
             resultado = _executar_geracao(ident)
             if resultado["aguardando_sap"]:
-                operation_service.aplicar_geracao_sucesso(
-                    resultado["pk"], job_id
-                )
+                operation_service.aplicar_geracao_sucesso(resultado["pk"], job_id)
             else:
                 db.remover_item_operacao(resultado["pk"])
             if resultado["arquivada"] is not None:
-                snapshot.setdefault("arquivadas", []).append(
-                    resultado["arquivada"]
-                )
-        except Exception as exc:  # noqa: BLE001 - uma falha nao derruba o lote
-            mensagem = str(exc)
-            operation_service.aplicar_falha(int(ident), "pronta", mensagem)
-            snapshot["erros"].append({"pk": ident, "msg": mensagem})
-        finally:
-            snapshot["feitas"] += 1
-            _salvar(job_id, snapshot)
-        time.sleep(config.DELAY_GERACAO)
-    _concluir(job_id, snapshot)
+                with _LOCK:
+                    snapshot.setdefault("arquivadas", []).append(resultado["arquivada"])
+        except Exception as exc:  # noqa: BLE001 - relançada pro _rodar_em_paralelo contabilizar
+            operation_service.aplicar_falha(int(ident), "pronta", str(exc))
+            raise
+
+    _rodar_em_paralelo(job_id, snapshot, pks, trace, usuario, processar, config.DELAY_GERACAO)
 
 
 def iniciar_atualizacao_sap(
@@ -301,22 +327,16 @@ def _rodar_atualizacao_sap(
     trace: str | None,
     usuario: str | None,
 ) -> None:
-    db.definir_trace(trace)
-    db.definir_usuario(usuario)
-    for pk in pks:
+    def processar(pk: int) -> None:
         try:
             nota = client.buscar_nota(pk)
             origem = db.origem_atual(nota["pk"]) or "verificar"
             operation_service.aplicar_consulta(pk, nota, origem, job_id)
-        except Exception as exc:  # noqa: BLE001 - uma falha nao derruba o lote
-            mensagem = str(exc)
-            operation_service.aplicar_falha(pk, "aguardando_sap", mensagem)
-            snapshot["erros"].append({"pk": pk, "msg": mensagem})
-        finally:
-            snapshot["feitas"] += 1
-            _salvar(job_id, snapshot)
-        time.sleep(config.DELAY_BUSCA)
-    _concluir(job_id, snapshot)
+        except Exception as exc:  # noqa: BLE001 - relançada pro _rodar_em_paralelo contabilizar
+            operation_service.aplicar_falha(pk, "aguardando_sap", str(exc))
+            raise
+
+    _rodar_em_paralelo(job_id, snapshot, pks, trace, usuario, processar, config.DELAY_BUSCA)
 
 
 def iniciar_correcao_local(

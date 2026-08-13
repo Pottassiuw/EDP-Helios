@@ -3,6 +3,10 @@ import type { DuplicateCompareProps, DuplicateField, ComparableFields } from '..
 import { EDPApi } from '../../api';
 import { Eyebrow } from '@/components/branded/section';
 import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
 import { Coffee } from 'lucide-react';
 import { ExternalCandidateCard } from './duplicate-compare-externa';
 import {
@@ -114,8 +118,41 @@ export function DuplicateScoreEvidence({ note, candidate, suffix }: {
   );
 }
 
+function MarcarDuplicataModal({ aberto, onClose, onConfirmar }: {
+  aberto: boolean;
+  onClose: () => void;
+  onConfirmar: (justificativa: string) => void;
+}): React.JSX.Element {
+  const [justificativa, setJustificativa] = React.useState('');
+
+  function confirmar(): void {
+    onConfirmar(justificativa.trim());
+    setJustificativa('');
+  }
+
+  return (
+    <Dialog open={aberto} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="w-[440px]">
+        <DialogHeader>
+          <DialogTitle>Marcar como duplicata</DialogTitle>
+          <DialogDescription>
+            A nota é arquivada no COFFEE e sai da fila de encaminhamento. Justificativa é opcional.
+          </DialogDescription>
+        </DialogHeader>
+        <Textarea value={justificativa} onChange={(e) => setJustificativa(e.target.value)}
+                  placeholder="Por que é duplicata (opcional)" rows={3} />
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose}>Cancelar</Button>
+          <Button size="sm" onClick={confirmar}>Marcar como duplicata</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export const DuplicateCompare: React.FC<DuplicateCompareProps> = ({ note, resolved, onMarkDuplicate, onSendToCoffee }) => {
   const cands = note.duplicates;
+  const [modalAberto, setModalAberto] = React.useState(false);
   if (!cands.length) return null;
   const api = EDPApi;
   const allIds = cands.map((c) => c.id);
@@ -123,6 +160,11 @@ export const DuplicateCompare: React.FC<DuplicateCompareProps> = ({ note, resolv
   return (
     <section>
       <style>{DUPC_STYLE}</style>
+      <MarcarDuplicataModal
+        aberto={modalAberto}
+        onClose={() => setModalAberto(false)}
+        onConfirmar={(justificativa) => { onMarkDuplicate(note.id, justificativa || undefined); setModalAberto(false); }}
+      />
       <div className="flex items-start justify-between gap-[14px] flex-wrap mb-[12px]">
         <div>
           <Eyebrow asChild className="text-indigo"><div>
@@ -134,7 +176,7 @@ export const DuplicateCompare: React.FC<DuplicateCompareProps> = ({ note, resolv
         </div>
         <div className="flex gap-[8px] shrink-0 flex-wrap">
           <Button size="sm" onClick={() => api.openCoffee(allIds)}><Coffee /> Abrir todas no COFFEE</Button>
-          {onSendToCoffee && (
+          {onSendToCoffee && !resolved && (
             <Button variant="outline" size="sm" className="text-amber" style={{ borderColor: "var(--status-amber-border)" }}
                     onClick={() => onSendToCoffee(allIds, note.id)} title="Adiciona as candidatas à fila do COFFEE e navega para lá">
               → Fila COFFEE
@@ -142,7 +184,7 @@ export const DuplicateCompare: React.FC<DuplicateCompareProps> = ({ note, resolv
           )}
           <Button variant={resolved ? "outline" : "default"} size="sm"
                   style={resolved ? undefined : { background: "var(--indigo)", borderColor: "var(--indigo)", color: "var(--on-dark)" }}
-                  onClick={() => onMarkDuplicate(note.id)}>
+                  onClick={() => { if (resolved) onMarkDuplicate(note.id); else setModalAberto(true); }}>
             {resolved ? "↺ Reabrir" : "⧉ Marcar como duplicata"}
           </Button>
         </div>

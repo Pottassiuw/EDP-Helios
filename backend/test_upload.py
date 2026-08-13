@@ -460,3 +460,106 @@ def test_get_data_retorna_503_quando_carteira_indisponivel(monkeypatch):
 
     assert resposta.status_code == 503
     assert "Carteira" in resposta.json()["detail"]
+
+
+def test_marcar_duplicata_grava_sap_sentinel_e_arquiva(monkeypatch):
+    """Marcar duplicata escreve id_sap=99999999 ao vivo no COFFEE, arquiva e tira da fila."""
+    from fastapi.testclient import TestClient
+    import main
+    from coffee_module import config as coffee_config
+
+    chamadas = []
+    nota_fake = {"pk": 355617, "id_sap": coffee_config.SAP_DUPLICATA, "fields": {}}
+
+    monkeypatch.setattr(main._coffee_client, "definir_sap",
+                         lambda id_, sap: chamadas.append(("definir_sap", id_, sap)))
+    monkeypatch.setattr(main._coffee_client, "buscar_nota", lambda id_: nota_fake)
+    monkeypatch.setattr(main._coffee_db, "upsert_nota",
+                         lambda pk, id_sap, fields: chamadas.append(("upsert_nota", pk, id_sap)))
+    monkeypatch.setattr(main._coffee_db, "arquivar_nota",
+                         lambda pk: chamadas.append(("arquivar_nota", pk)))
+    monkeypatch.setattr(main._coffee_db, "remover_item_operacao",
+                         lambda pk: chamadas.append(("remover_item_operacao", pk)))
+    monkeypatch.setattr(main._coffee_db, "marcar_gerar",
+                         lambda pk, a_gerar: chamadas.append(("marcar_gerar", pk, a_gerar)))
+    monkeypatch.setattr(main._coffee_db, "registrar_log",
+                         lambda *a, **k: chamadas.append(("registrar_log", a)))
+    monkeypatch.setattr(main, "save_state", lambda: None)
+
+    resposta = TestClient(main.app).post(
+        "/api/duplicata/355617", json={"justificativa": "mesma ocorrencia da nota 100"}
+    )
+
+    assert resposta.status_code == 200
+    assert ("definir_sap", "355617", coffee_config.SAP_DUPLICATA) in chamadas
+    assert ("arquivar_nota", 355617) in chamadas
+    assert ("remover_item_operacao", 355617) in chamadas
+    assert ("marcar_gerar", 355617, False) in chamadas
+    assert "355617" in main.COMPLETED
+
+
+def test_marcar_duplicata_sem_justificativa_funciona(monkeypatch):
+    """Justificativa é opcional: nenhum corpo/campo vazio não deve falhar."""
+    from fastapi.testclient import TestClient
+    import main
+    from coffee_module import config as coffee_config
+
+    nota_fake = {"pk": 355617, "id_sap": coffee_config.SAP_DUPLICATA, "fields": {}}
+    monkeypatch.setattr(main._coffee_client, "definir_sap", lambda id_, sap: None)
+    monkeypatch.setattr(main._coffee_client, "buscar_nota", lambda id_: nota_fake)
+    monkeypatch.setattr(main._coffee_db, "upsert_nota", lambda pk, id_sap, fields: None)
+    monkeypatch.setattr(main._coffee_db, "arquivar_nota", lambda pk: None)
+    monkeypatch.setattr(main._coffee_db, "remover_item_operacao", lambda pk: None)
+    monkeypatch.setattr(main._coffee_db, "marcar_gerar", lambda pk, a_gerar: None)
+    monkeypatch.setattr(main._coffee_db, "registrar_log", lambda *a, **k: None)
+    monkeypatch.setattr(main, "save_state", lambda: None)
+
+    resposta = TestClient(main.app).post("/api/duplicata/355617")
+    assert resposta.status_code == 200
+
+
+def test_marcar_duplicata_nota_nao_encontrada_retorna_404(monkeypatch):
+    """Nota inexistente no COFFEE vira 404, não 500."""
+    from fastapi.testclient import TestClient
+    import main
+
+    def levantar(id_):
+        raise main._coffee_client.NotaNaoEncontradaErro(id_)
+
+    monkeypatch.setattr(main._coffee_client, "definir_sap", lambda id_, sap: None)
+    monkeypatch.setattr(main._coffee_client, "buscar_nota", levantar)
+
+    resposta = TestClient(main.app).post("/api/duplicata/999999999")
+    assert resposta.status_code == 404
+
+
+def test_desfazer_duplicata_restaura_sap_pendente_e_desarquiva(monkeypatch):
+    """Desfazer duplicata escreve id_sap=10000000 ao vivo e desarquiva localmente."""
+    from fastapi.testclient import TestClient
+    import main
+    from coffee_module import config as coffee_config
+
+    chamadas = []
+    nota_fake = {"pk": 355617, "id_sap": coffee_config.SAP_PENDENTE, "fields": {}}
+
+    monkeypatch.setattr(main._coffee_client, "definir_sap",
+                         lambda id_, sap: chamadas.append(("definir_sap", id_, sap)))
+    monkeypatch.setattr(main._coffee_client, "desarquivar",
+                         lambda id_: chamadas.append(("desarquivar_api", id_)))
+    monkeypatch.setattr(main._coffee_client, "buscar_nota", lambda id_: nota_fake)
+    monkeypatch.setattr(main._coffee_db, "upsert_nota",
+                         lambda pk, id_sap, fields: chamadas.append(("upsert_nota", pk, id_sap)))
+    monkeypatch.setattr(main._coffee_db, "desarquivar_nota",
+                         lambda pk: chamadas.append(("desarquivar_nota", pk)))
+    monkeypatch.setattr(main._coffee_db, "registrar_log",
+                         lambda *a, **k: chamadas.append(("registrar_log", a)))
+    monkeypatch.setattr(main, "save_state", lambda: None)
+    main.COMPLETED.add("355617")
+
+    resposta = TestClient(main.app).post("/api/duplicata/355617/desfazer")
+
+    assert resposta.status_code == 200
+    assert ("definir_sap", "355617", coffee_config.SAP_PENDENTE) in chamadas
+    assert ("desarquivar_api", "355617") in chamadas
+    assert ("desarquivar_nota", 355617) in chamadas
+    assert "355617" not in main.COMPLETED

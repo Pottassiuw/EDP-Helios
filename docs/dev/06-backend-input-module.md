@@ -143,7 +143,11 @@ backups e a operação não publica nem substitui o arquivo compartilhado; a
 origem segue o perfil ativo (banco local no perfil `local`, banco compartilhado
 no perfil `producao`). Em compartilhamentos SMB, o backend mantém o journal de
 rollback e o timeout de 30 segundos documentados em `get_db_connection()`;
-não se deve assumir que WAL funciona sobre SMB.
+não se deve assumir que WAL funciona sobre SMB. `get_db_connection()` nem
+tenta o `PRAGMA journal_mode = WAL` em produção: algumas configurações de
+share recusam o PRAGMA de cara com `OperationalError: locking protocol` em
+vez de virar no-op, o que derrubava qualquer rota que abrisse conexão nessas
+condições (visto em `/api/integracao/resumo-fora-do-plano`).
 
 A sincronização por `sqlite3.Connection.backup()` que existia até `ef19f4f`
 **não pode voltar**: ela sobrescreve o arquivo inteiro da rede e

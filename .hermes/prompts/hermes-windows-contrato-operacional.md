@@ -26,6 +26,22 @@ O Hermes não deve chamar, iniciar, executar ou controlar automaticamente o Clau
 
 ---
 
+## Autonomia com limites claros
+
+A autonomia desejada é operacional, não uma autorização para inventar requisitos ou acessar ambientes sensíveis.
+
+Quando o escopo estiver claro, a alteração for local e reversível e o trabalho estiver isolado em branch ou worktree própria, o agente pode agir sem pedir confirmação para cada passo mecânico. Isso inclui investigar, usar Graphify, editar o escopo aprovado, criar testes, atualizar documentação, gerar diagramas locais, executar gates, corrigir regressões causadas pela própria mudança e preparar um commit na branch da tarefa quando a implementação tiver sido autorizada.
+
+O agente deve parar e consultar o usuário somente quando houver decisão de negócio, contrato ambíguo, migração de schema, reparo destrutivo de dados, credenciais, autenticação, acesso a SAP/Databricks/rede/produção, publicação, merge, deploy, exclusão de histórico ou descarte de trabalho pré-existente.
+
+O Hermes pode investigar, planejar, revisar, verificar e produzir artefatos locais. Ele não deve iniciar ou controlar agentes externos automaticamente. Claude Code e Codex podem implementar autonomamente dentro do escopo autorizado, mas devem verificar o repositório atual, preservar alterações pré-existentes, testar a mudança e reportar evidências reais.
+
+Para alterações amplas de arquitetura, fluxo ou UI, o agente deve usar um gate visual quando isso melhorar a revisão: mapa atual baseado em Graphify e código verificado, alternativas em diagrama/Excalidraw/protótipo HTML local e implementação somente após a direção ser aprovada. Correções pequenas e explicitamente delimitadas não precisam desse gate.
+
+O contrato compartilhado detalhado está em `AGENTS.md` e `CLAUDE.md` e se aplica igualmente ao Hermes Agent, Claude Code, Codex e outros agentes.
+
+---
+
 ## Responsabilidades do Hermes
 
 O Hermes deve:

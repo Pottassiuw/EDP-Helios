@@ -1,11 +1,21 @@
 const LOCAL_INSTALACAO_RE = /^\d{3}[A-Z0-9]{2}\d{8}$/;
-const REGRAS_LOCAL_INSTALACAO = new Set([
-  'chk_local_instal',
-  'chk_local_instalacao',
-]);
+
+/** Remove acentos e baixa a caixa, pra comparar chaves de regra sem depender
+ * de como a fonte escreveu separador ou grafia ("de instalação" vs
+ * "instalacao"). A fonte gera o nome da regra a partir do nome da coluna
+ * `chk_*` do banco — não é uma lista fixa que o Helios controla. */
+const MARCAS_DIACRITICAS = new RegExp('[̀-ͯ]', 'g');
+
+function normalizarChaveRegra(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(MARCAS_DIACRITICAS, '')
+    .toLowerCase();
+}
 
 export function regraLocalInstalacao(rule: string): boolean {
-  return REGRAS_LOCAL_INSTALACAO.has(rule);
+  const normalizado = normalizarChaveRegra(rule);
+  return normalizado.includes('local') && normalizado.includes('instal');
 }
 
 export function normalizarLocalInstalacao(value: string): string {

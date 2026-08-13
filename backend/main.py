@@ -8,6 +8,7 @@ import sqlite3
 import threading
 import time
 import uuid
+from typing import Optional
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -15,9 +16,12 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 load_dotenv(pathlib.Path(__file__).resolve().parent / ".env")
 
+from coffee_module import client as _coffee_client
+from coffee_module import config as _coffee_config
 from coffee_module import db as _coffee_db
 from carteira_module import db as _carteira_db
 from carteira_module import repository as _carteira_repo
@@ -560,9 +564,58 @@ def toggle_complete(note_id: str):
     return {"status": "ok", "completed": note_id in COMPLETED}
 
 
+class DuplicataPedido(BaseModel):
+    justificativa: Optional[str] = None
+
+
 @app.post("/api/duplicata/{note_id}")
-def mark_duplicata(note_id: str):
+def mark_duplicata(note_id: str, pedido: DuplicataPedido | None = None):
+    """Marca a nota como duplicata: id_sap vira o sentinel 99999999 no COFFEE
+    ao vivo (mesmo mecanismo real do SAP_PENDENTE=10000000), a nota é
+    arquivada localmente (some da fila do COFFEE) e sai de qualquer item de
+    operação pendente. Justificativa é opcional, só vai pro log de auditoria.
+    """
+    try:
+        _coffee_client.definir_sap(note_id, _coffee_config.SAP_DUPLICATA)
+        nota = _coffee_client.buscar_nota(note_id)
+    except _coffee_client.NotaNaoEncontradaErro as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502, detail="Não foi possível marcar a nota como duplicata no COFFEE."
+        ) from exc
+    _coffee_db.upsert_nota(nota["pk"], nota["id_sap"], nota["fields"])
+    _coffee_db.arquivar_nota(nota["pk"])
+    _coffee_db.remover_item_operacao(nota["pk"])
+    _coffee_db.marcar_gerar(nota["pk"], False)
+    _coffee_db.registrar_log(
+        "acao_usuario", "marcar_duplicata", nota["pk"],
+        {"id": note_id, "justificativa": (pedido.justificativa if pedido else None) or ""}, True,
+    )
     COMPLETED.add(note_id)
+    save_state()
+    return {"status": "ok"}
+
+
+@app.post("/api/duplicata/{note_id}/desfazer")
+def desfazer_duplicata(note_id: str):
+    """Reverte a marcação de duplicata: id_sap volta a 10000000 (SAP_PENDENTE,
+    ao vivo) e a nota é desarquivada localmente.
+    """
+    try:
+        _coffee_client.definir_sap(note_id, _coffee_config.SAP_PENDENTE)
+        _coffee_client.desarquivar(note_id)
+        nota = _coffee_client.buscar_nota(note_id)
+    except _coffee_client.NotaNaoEncontradaErro as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502, detail="Não foi possível desfazer a duplicata no COFFEE."
+        ) from exc
+    _coffee_db.upsert_nota(nota["pk"], nota["id_sap"], nota["fields"])
+    _coffee_db.desarquivar_nota(nota["pk"])
+    _coffee_db.registrar_log("acao_usuario", "desfazer_duplicata", nota["pk"], {"id": note_id}, True)
+    COMPLETED.discard(note_id)
     save_state()
     return {"status": "ok"}
 

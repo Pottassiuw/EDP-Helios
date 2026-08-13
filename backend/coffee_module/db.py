@@ -479,6 +479,13 @@ def arquivar_nota(pk: int) -> None:
     conn.close()
 
 
+def desarquivar_nota(pk: int) -> None:
+    conn = get_db_connection()
+    conn.execute("UPDATE notas_coffee SET arquivado = 0 WHERE pk = ?", (pk,))
+    conn.commit()
+    conn.close()
+
+
 def listar_notas(status: str | None = None, usuario: str | None = None) -> list:
     conn = get_db_connection()
     sql = f"SELECT {', '.join(_COLUNAS)} FROM notas_coffee"
