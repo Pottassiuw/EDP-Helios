@@ -34,6 +34,54 @@ export function parseBuscaGlobal(texto: string): number[] {
     .map(Number);
 }
 
+interface EntradaIndiceBuscaGlobal {
+  registro: NotaInput;
+  numeroNota: number;
+  notaMae: string;
+  valores: string[];
+}
+
+export type IndiceBuscaGlobal = EntradaIndiceBuscaGlobal[];
+
+const indicesBuscaGlobal = new WeakMap<NotaInput[], IndiceBuscaGlobal>();
+
+/** Índice memoizado pela identidade do dataset, preservando os limites entre campos. */
+export function indiceBuscaGlobal(registros: NotaInput[]): IndiceBuscaGlobal {
+  const existente = indicesBuscaGlobal.get(registros);
+  if (existente) return existente;
+
+  const indice = registros.map((registro) => ({
+    registro,
+    numeroNota: registro.Numero_Nota,
+    notaMae: String(registro.Nota_Mae ?? '').trim(),
+    valores: Object.values(registro).map((valor) => String(valor ?? '').toLowerCase()),
+  }));
+  indicesBuscaGlobal.set(registros, indice);
+  return indice;
+}
+
+/** Busca global por número de nota/mãe ou, como fallback, por qualquer campo textual. */
+export function buscarPorTextoGlobal(registros: NotaInput[], texto: string): NotaInput[] {
+  const query = texto.trim();
+  if (query === '') return registros;
+
+  const indice = indiceBuscaGlobal(registros);
+  const numeros = parseBuscaGlobal(query);
+  if (numeros.length > 0) {
+    const numerosSet = new Set(numeros);
+    const numerosTextoSet = new Set(numeros.map(String));
+    return indice
+      .filter((entrada) =>
+        numerosSet.has(entrada.numeroNota) || numerosTextoSet.has(entrada.notaMae))
+      .map((entrada) => entrada.registro);
+  }
+
+  const queryNormalizada = query.toLowerCase();
+  return indice
+    .filter((entrada) => entrada.valores.some((valor) => valor.includes(queryNormalizada)))
+    .map((entrada) => entrada.registro);
+}
+
 export interface Filtro {
   campo: string;
   tipo: 'texto' | 'multi' | 'faixa';
