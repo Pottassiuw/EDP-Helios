@@ -56,6 +56,7 @@ const DUPC_KEYS: KeyFieldDef[] = [
 ];
 const DUPC_CTX: CtxFieldDef[] = [
   { label: "Observação", get: (x) => x.observacao ?? "" },
+  { label: "Referência elétrica", get: (x) => x.referencia_eletrica ?? "" },
   { label: "Tipo de nota", get: (x) => x.tipo_nota },
   { label: "Setor · UF",   get: (x) => x.setor + " · " + x.uf },
 ];
