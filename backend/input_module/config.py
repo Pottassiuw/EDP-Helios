@@ -45,16 +45,31 @@ def caminho_sap_robot() -> Path:
 
 
 def caminho_controle_recomposicao() -> Path:
-    """Planilha Controle Plano de Recomposição (OneDrive local sincronizado).
+    """Retorna a cópia local do Excel hospedado no SharePoint.
 
-    Default aponta para o perfil do usuário que hospeda o servidor hoje;
-    outra máquina sobrescreve via env CONTROLE_RECOMPOSICAO_PATH.
+    ``CONTROLE_RECOMPOSICAO_PATH`` vence para ambientes que usam outro
+    diretório. No padrão, a pasta sincronizada é montada com o usuário da
+    máquina, evitando deixar o perfil do servidor fixo no código.
     """
-    return Path(os.environ.get(
-        "CONTROLE_RECOMPOSICAO_PATH",
-        r"C:\Users\e713611\EDP\O365_Planejamento_Manutencao_EDP_Brasil - Documentos"
-        r"\PLANO RECOMPOSIÇÃO\SP\2026\Controle Plano de Recomposição 2026.xlsx",
-    ))
+    caminho_configurado = os.environ.get("CONTROLE_RECOMPOSICAO_PATH", "").strip()
+    if caminho_configurado:
+        return Path(caminho_configurado)
+
+    usuario = (
+        os.environ.get("USER")
+        or os.environ.get("USERNAME")
+        or Path.home().name
+    )
+    return (
+        Path("C:/Users")
+        / usuario
+        / "EDP"
+        / "O365_Planejamento_Manutencao_EDP_Brasil - Documentos"
+        / "PLANO RECOMPOSIÇÃO"
+        / "SP"
+        / "2026"
+        / "Controle Plano de Recomposição 2026.xlsx"
+    )
 
 
 # ── Caminhos da rede EDP ─────────────────────────────────────────────────

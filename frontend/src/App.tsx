@@ -34,38 +34,7 @@ const CarteiraSection = React.lazy(() =>
 
 type CssVars = React.CSSProperties & Record<`--${string}`, string>;
 
-const VERIFY_FILTER_KEYS = [
-  "edp_verify_q", "edp_verify_uf", "edp_verify_setor", "edp_verify_urg",
-  "edp_verify_status", "edp_verify_situacao", "edp_verify_rules", "edp_verify_sel",
-];
-function limparFiltrosVerify(): void {
-  try { VERIFY_FILTER_KEYS.forEach((k) => sessionStorage.removeItem(k)); } catch { /* ignore */ }
-}
-
-const TRIAGE_SNAPSHOT_KEY = "edp_triage_snapshot";
 const NUMERIC_ID_RE = /^\d{5,12}$/;
-
-interface TriageSnapshot {
-  notes: Note[];
-  completed: string[];
-  dupResolved: string[];
-  file: string;
-  source: Source;
-  screen: "upload" | "dashboard";
-}
-
-function lerSnapshot(): TriageSnapshot | null {
-  try {
-    const raw = sessionStorage.getItem(TRIAGE_SNAPSHOT_KEY);
-    return raw ? (JSON.parse(raw) as TriageSnapshot) : null;
-  } catch { return null; }
-}
-function gravarSnapshot(s: TriageSnapshot): void {
-  try { sessionStorage.setItem(TRIAGE_SNAPSHOT_KEY, JSON.stringify(s)); } catch { /* ignore */ }
-}
-function limparSnapshot(): void {
-  try { sessionStorage.removeItem(TRIAGE_SNAPSHOT_KEY); } catch { /* ignore */ }
-}
 
 function SectionLoading(): React.JSX.Element {
   return (
@@ -78,13 +47,10 @@ function SectionLoading(): React.JSX.Element {
 
 function AppContent(): React.JSX.Element {
   const { settings, resolvedTheme } = useSettings();
-  const _snap = React.useMemo(() => lerSnapshot(), []);
-  const [screen, setScreen] = React.useState<"upload" | "dashboard">(_snap?.screen ?? "upload");
-  const [notes, setNotes] = React.useState<Note[]>(_snap?.notes ?? []);
-  const [completed, setCompleted] = React.useState<Set<string>>(() => new Set(_snap?.completed ?? []));
-  const [dupResolved, setDupResolved] = React.useState<Set<string>>(() => new Set(_snap?.dupResolved ?? []));
-  const [file, setFile] = React.useState(_snap?.file ?? "");
-  const [source, setSource] = React.useState<Source>(_snap?.source ?? "api");
+  const [notes, setNotes] = React.useState<Note[]>([]);
+  const [completed, setCompleted] = React.useState<Set<string>>(new Set());
+  const [dupResolved, setDupResolved] = React.useState<Set<string>>(new Set());
+  const source: Source = "api";
   const [section, setSection] = usePersistedState<AppSection>("edp_active_section", "relatorios");
   const [storedRelatoriosPage, setStoredRelatoriosPage] =
     usePersistedState<string>("edp_relatorios_page", "dashboard");
@@ -124,11 +90,6 @@ function AppContent(): React.JSX.Element {
   };
 
   React.useEffect(() => {
-    if (screen !== "dashboard" || notes.length === 0) return;
-    gravarSnapshot({ notes, completed: [...completed], dupResolved: [...dupResolved], file, source, screen });
-  }, [notes, completed, dupResolved, file, source, screen]);
-
-  React.useEffect(() => {
     if (storedCoffeeSub !== coffeeSub) setStoredCoffeeSub(coffeeSub);
   }, [coffeeSub, setStoredCoffeeSub, storedCoffeeSub]);
 
@@ -146,40 +107,40 @@ function AppContent(): React.JSX.Element {
     changeSection("carteira");
   }
 
-  const { data: apiData } = useTriageData();
-  // A hidratação da triagem vale uma vez por sessão. Sem a trava, um refetch
-  // do React Query devolve as notas do backend e joga o usuário de volta ao
-  // dashboard logo depois de ele pedir "↑ Nova" para importar outra planilha.
-  const triagemHidratada = React.useRef(false);
+  const triagemQuery = useTriageData();
 
   React.useEffect(() => {
-    if (_snap || triagemHidratada.current) return;
-    if (!apiData?.notes?.length || screen !== "upload") return;
-    triagemHidratada.current = true;
-    setNotes(apiData.notes);
-    setCompleted(apiData.completed);
-    setSource("api");
-    setFile(localStorage.getItem("edp_file") ?? "planilha carregada");
-    setScreen("dashboard");
-  }, [apiData]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!triagemQuery.data) return;
+    setNotes(triagemQuery.data.notes);
+    setCompleted(triagemQuery.data.completed);
+  }, [triagemQuery.data]);
 
-  async function handleUpload(f: File): Promise<void> {
-    triagemHidratada.current = true;
-    limparFiltrosVerify();
-    limparSnapshot();
-    const p = (async () => { await EDPApi.upload(f); return EDPApi.fetchData(); })();
-    toast.promise(p, {
-      loading: "Enviando planilha…",
-      success: "Planilha carregada",
-      error: (e) => `Falha no upload: ${e instanceof Error ? e.message : String(e)}`,
+  const atualizarTriagem = React.useCallback((): void => {
+    const idsAnteriores = new Set(notes.map((note) => note.id));
+    const atualizacao = triagemQuery.refetch({ throwOnError: true });
+    toast.promise(atualizacao, {
+      loading: 'Atualizando Verificar.db…',
+      success: (resultado) => {
+        const notasAtuais = resultado.data?.notes ?? [];
+        const idsAtuais = new Set(notasAtuais.map((note) => note.id));
+        const novas = notasAtuais.filter((note) => !idsAnteriores.has(note.id)).length;
+        const removidas = notes.filter((note) => !idsAtuais.has(note.id)).length;
+        if (novas > 0) {
+          const saida = removidas > 0
+            ? ` ${removidas} ${removidas === 1 ? 'saiu' : 'saíram'} da triagem.`
+            : '';
+          return `Atualização concluída: ${novas} nova${novas === 1 ? '' : 's'} nota${novas === 1 ? '' : 's'}.${saida}`;
+        }
+        if (removidas > 0) {
+          return `Atualização concluída: ${removidas} nota${removidas === 1 ? '' : 's'} ${removidas === 1 ? 'saiu' : 'saíram'} da triagem.`;
+        }
+        return 'Atualização concluída: nenhuma nota nova.';
+      },
+      error: (error: unknown) => (
+        `Falha ao atualizar: ${error instanceof Error ? error.message : String(error)}`
+      ),
     });
-    try {
-      const d = await p;
-      setNotes(d.notes); setCompleted(d.completed); setSource("api");
-      setFile(f.name); localStorage.setItem("edp_file", f.name);
-      setScreen("dashboard");
-    } catch { /* toast já informou o erro */ }
-  }
+  }, [notes, triagemQuery]);
 
   function toggleComplete(id: string): void {
     const reopening = completed.has(id);
@@ -188,37 +149,55 @@ function AppContent(): React.JSX.Element {
     if (reopening) setDupResolved((prev) => { const s = new Set(prev); s.delete(id); return s; });
 
     const numeric = NUMERIC_ID_RE.test(id);
-    const willGenerate = source === "api" && numeric;
-    if (source === "api") {
-      EDPApi.toggleComplete(id).catch((e) => toast.error("Falha ao atualizar nota", { description: e instanceof Error ? e.message : String(e) }));
-      if (numeric) EDPApi.marcarGerar(id, concluding, concluding ? undefined : "Nota reaberta na Verificar")
-        .catch((e) => toast.error(concluding ? "Falha ao marcar para gerar" : "Falha ao tirar da fila de geração", { description: e instanceof Error ? e.message : String(e) }));
+    if (numeric) {
+      EDPApi.marcarGerar(id, concluding, concluding ? undefined : "Nota retirada da correção na Verificar")
+        .then(() => triagemQuery.refetch())
+        .catch((error: unknown) => {
+          setCompleted((current) => {
+            const next = new Set(current);
+            if (concluding) next.delete(id);
+            else next.add(id);
+            return next;
+          });
+          toast.error(
+            concluding ? "Falha ao encaminhar para correção" : "Falha ao retirar da correção",
+            { description: error instanceof Error ? error.message : String(error) },
+          );
+        });
     }
     toast.success(
-      concluding ? `Nota ${id} concluída` : `Nota ${id} reaberta`,
-      { description: willGenerate ? (concluding ? "Marcada para gerar" : "Desmarcada para gerar") : undefined },
+      concluding ? `Nota ${id} encaminhada para correção` : `Nota ${id} reaberta`,
     );
   }
 
-  function markMany(ids: string[], action: "done" | "reopen"): void {
+  async function markMany(ids: string[], action: "done" | "reopen"): Promise<void> {
     const marking = action === "done";
     const targets = ids.filter((id) => completed.has(id) !== marking);
+    if (targets.length === 0) return;
+
     setCompleted((prev) => {
-      const s = new Set(prev);
-      targets.forEach((id) => { if (marking) s.add(id); else s.delete(id); });
-      return s;
+      const next = new Set(prev);
+      targets.forEach((id) => { if (marking) next.add(id); else next.delete(id); });
+      return next;
     });
     const numericTargets = targets.filter((id) => NUMERIC_ID_RE.test(id));
-    if (source === "api") {
-      targets.forEach((id) => EDPApi.toggleComplete(id).catch((e) => toast.error("Falha ao atualizar nota", { description: e instanceof Error ? e.message : String(e) })));
-      numericTargets.forEach((id) => EDPApi.marcarGerar(id, marking, marking ? undefined : "Nota reaberta na Verificar")
-        .catch((e) => toast.error(marking ? "Falha ao marcar para gerar" : "Falha ao tirar da fila de geração", { description: e instanceof Error ? e.message : String(e) })));
+    const resultados = await Promise.allSettled(numericTargets.map((id) => EDPApi.marcarGerar(
+      id,
+      marking,
+      marking ? undefined : "Nota retirada da correção na Verificar",
+    )));
+    const falhas = resultados.filter((resultado) => resultado.status === "rejected");
+    if (falhas.length > 0) {
+      await triagemQuery.refetch();
+      toast.error(
+        `${falhas.length} nota${falhas.length === 1 ? " não foi" : "s não foram"} ${marking ? "encaminhada" : "reaberta"}${falhas.length === 1 ? "" : "s"}.`,
+      );
+      return;
     }
-    if (targets.length === 0) return;
-    const gerarInfo = source === "api" && numericTargets.length > 0
-      ? `${numericTargets.length} ${marking ? "marcada(s) para gerar" : "desmarcada(s)"}`
-      : undefined;
-    toast.success(`${targets.length} nota(s) ${marking ? "concluída(s)" : "reaberta(s)"}`, { description: gerarInfo });
+    if (numericTargets.length > 0) await triagemQuery.refetch();
+    toast.success(
+      `${targets.length} nota${targets.length === 1 ? "" : "s"} ${marking ? "encaminhada" : "reaberta"}${targets.length === 1 ? "" : "s"}.`,
+    );
   }
 
   function sendToCoffeeQueue(ids: string[], sourceId?: string): void {
@@ -235,13 +214,13 @@ function AppContent(): React.JSX.Element {
     if (valid.length > 0) toast.success(`${valid.length} nota(s) enviada(s) para a fila do COFFEE`);
   }
 
-  function markDuplicate(id: string): void {
+  function markDuplicate(id: string, justificativa?: string): void {
     const undo = dupResolved.has(id);
     setDupResolved((prev) => { const s = new Set(prev); if (undo) s.delete(id); else s.add(id); return s; });
     setCompleted((prev) => { const s = new Set(prev); if (undo) s.delete(id); else s.add(id); return s; });
     if (source === "api") {
-      if (undo) EDPApi.toggleComplete(id).catch((e) => toast.error("Falha ao desfazer duplicata", { description: e instanceof Error ? e.message : String(e) }));
-      else EDPApi.markDuplicate(id).catch((e) => toast.error("Falha ao marcar duplicata", { description: e instanceof Error ? e.message : String(e) }));
+      if (undo) EDPApi.desfazerDuplicata(id).catch((e) => toast.error("Falha ao desfazer duplicata", { description: e instanceof Error ? e.message : String(e) }));
+      else EDPApi.markDuplicate(id, justificativa).catch((e) => toast.error("Falha ao marcar duplicata", { description: e instanceof Error ? e.message : String(e) }));
     }
     toast.success(undo ? "Duplicata desfeita" : "Nota marcada como duplicata");
   }
@@ -249,13 +228,18 @@ function AppContent(): React.JSX.Element {
   const triage: TriageHandoff = {
     resolvedTheme,
     showKpis: settings.showKpis,
-    notes, completed, dupResolved, source, file, screen,
+    notes, completed, dupResolved, source,
+    fonte: triagemQuery.data?.fonte ?? null,
+    encaminhamentos: triagemQuery.data?.encaminhamentos ?? {},
+    encaminhadasHoje: triagemQuery.data?.encaminhadasHoje ?? [],
+    isLoading: triagemQuery.isLoading,
+    isRefreshing: triagemQuery.isFetching,
+    error: triagemQuery.error,
+    onRetry: atualizarTriagem,
     onToggleComplete: toggleComplete,
     onMarkMany: markMany,
     onMarkDuplicate: markDuplicate,
     onSendToCoffee: sendToCoffeeQueue,
-    onUpload: handleUpload,
-    onReset: () => { setCoffeeReturn(null); limparSnapshot(); setScreen("upload"); },
   };
 
   return (

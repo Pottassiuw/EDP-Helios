@@ -1,4 +1,5 @@
 """Testes do modulo Carteira (backend). Origem Databricks sempre mockada."""
+import json
 import sqlite3
 
 import pytest
@@ -101,6 +102,28 @@ def test_normalizar_linha_trata_nan_do_pandas_como_ausente():
     )
     assert n["status_sap"] is None
     assert n["dispositivo_protecao"] is None
+
+
+def test_normalizar_linhas_acumula_aviso_estruturado_sem_dados_sensiveis():
+    from carteira_module import mapping
+
+    origem = _origem_exemplo()
+    origem.pop("kit")
+    origem.pop("n_trafo")
+    origem["nomeColaborador"] = "Pessoa sigilosa"
+
+    notas, avisos = mapping.normalizar_linhas([origem])
+
+    assert notas[0]["kit"] is None
+    assert notas[0]["n_trafo"] is None
+    assert avisos == [{
+        "codigo": "equipamentos_indisponiveis",
+        "bloco": "equipamentos",
+        "campos": ["kit", "n_trafo"],
+        "mensagem": "Parte dos dados de equipamentos está indisponível.",
+        "acao": "Sincronize novamente. Se o aviso persistir, verifique a compatibilidade da fonte.",
+    }]
+    assert "Pessoa sigilosa" not in str(avisos)
 
 
 def test_hash_estavel_e_sensivel():
@@ -363,6 +386,7 @@ def test_enriquecimento_por_sap_base_nao_sincronizada(carteira_tmp):
         "estado": "base_nao_sincronizada",
         "dados": None,
         "ausente_na_origem_em": None,
+        "avisos": [],
         "versao": "0",
     }
 
@@ -484,6 +508,123 @@ def test_enriquecimento_por_sap_encontrada_e_tombstone(carteira_tmp):
     assert tombstone["ausente_na_origem_em"] == "2026-07-29T09:00:00"
 
 
+def test_enriquecimento_expoe_avisos_e_preserva_zero_valido(carteira_tmp):
+    from carteira_module import service, sync
+
+    origem = _origem_exemplo(
+        id_onr=1,
+        id_sap="700500",
+        Prioridade_SAP=0,
+    )
+    origem.pop("kit")
+    origem.pop("n_trafo")
+    sync.sincronizar(
+        ler_origem=lambda: [origem],
+        ler_marker=lambda: "M1",
+        agora="2026-07-29T08:00:00",
+    )
+
+    resultado = service.enriquecimento_por_sap(700500)
+
+    assert resultado["dados"]["prioridade_sap"] == 0
+    assert resultado["dados"]["kit"] is None
+    assert resultado["avisos"][0]["campos"] == ["kit", "n_trafo"]
+    assert "Pessoa sigilosa" not in str(resultado["avisos"])
+
+
+def test_enriquecimento_canoniza_avisos_sem_vazar_metadado(carteira_tmp):
+    from carteira_module import db, service
+
+    conn = db.conectar()
+    db.definir_meta(conn, "versao", "1")
+    db.definir_meta(
+        conn,
+        "avisos_enriquecimento",
+        json.dumps([{
+            "codigo": "diagnostico_indisponivel",
+            "bloco": "texto alterado",
+            "campos": ["sintoma"],
+            "mensagem": "conteudo interno",
+            "acao": "instrucao interna",
+        }]),
+    )
+    conn.commit()
+    conn.close()
+
+    resultado = service.enriquecimento_por_sap(700500)
+
+    assert resultado["avisos"] == [{
+        "codigo": "diagnostico_indisponivel",
+        "bloco": "diagnostico",
+        "campos": ["sintoma"],
+        "mensagem": "Os dados de diagnóstico estão indisponíveis.",
+        "acao": (
+            "Sincronize novamente. Se o aviso persistir, verifique a "
+            "compatibilidade da fonte."
+        ),
+    }]
+
+
+def test_sync_skip_preserva_avisos_e_nova_versao_os_limpa(carteira_tmp):
+    from carteira_module import service, sync
+
+    origem_incompativel = _origem_exemplo(id_onr=1, id_sap="700500")
+    origem_incompativel.pop("sintoma")
+    sync.sincronizar(
+        ler_origem=lambda: [origem_incompativel],
+        ler_marker=lambda: "M1",
+        agora="2026-07-29T08:00:00",
+    )
+    versao_com_aviso = service.enriquecimento_por_sap(700500)["versao"]
+
+    sync.sincronizar(
+        ler_origem=lambda: pytest.fail("skip não deve reler a origem"),
+        ler_marker=lambda: "M1",
+        agora="2026-07-29T08:30:00",
+    )
+    apos_skip = service.enriquecimento_por_sap(700500)
+
+    sync.sincronizar(
+        ler_origem=lambda: [_origem_exemplo(id_onr=1, id_sap="700500")],
+        ler_marker=lambda: "M2",
+        agora="2026-07-29T09:00:00",
+    )
+    apos_correcao = service.enriquecimento_por_sap(700500)
+
+    assert apos_skip["avisos"][0]["codigo"] == "diagnostico_indisponivel"
+    assert apos_skip["versao"] == versao_com_aviso
+    assert apos_correcao["avisos"] == []
+    assert apos_correcao["versao"] != versao_com_aviso
+
+
+def test_sync_reprocessa_quando_assinatura_de_esquema_muda(carteira_tmp):
+    from carteira_module import service, sync
+
+    origem_completa = _origem_exemplo(id_onr=1, id_sap="700500")
+    origem_incompativel = dict(origem_completa)
+    origem_incompativel.pop("sintoma")
+
+    sync.sincronizar(
+        ler_origem=lambda: [origem_completa],
+        ler_marker=lambda: "M1",
+        ler_assinatura_esquema=lambda: "esquema-1",
+        agora="2026-07-29T08:00:00",
+    )
+    versao_inicial = service.enriquecimento_por_sap(700500)["versao"]
+
+    resultado_sync = sync.sincronizar(
+        ler_origem=lambda: [origem_incompativel],
+        ler_marker=lambda: "M1",
+        ler_assinatura_esquema=lambda: "esquema-2",
+        agora="2026-07-29T09:00:00",
+    )
+    resultado = service.enriquecimento_por_sap(700500)
+
+    assert resultado_sync["estrategia"] == "completa"
+    assert resultado["avisos"][0]["codigo"] == "diagnostico_indisponivel"
+    assert resultado["versao"] != versao_inicial
+
+
 def test_rota_enriquecimento_por_sap_e_etag(carteira_tmp):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
@@ -520,6 +661,58 @@ def test_rota_enriquecimento_por_sap_e_etag(carteira_tmp):
     assert segunda.status_code == 304
     assert segunda.headers["etag"] == etag
     assert segunda.headers["cache-control"] == "no-cache"
+
+
+def test_rota_enriquecimento_mantem_etag_com_avisos(carteira_tmp):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from carteira_module import routes, sync
+
+    origem = _origem_exemplo(id_onr=1, id_sap="700500")
+    origem.pop("sintoma")
+    sync.sincronizar(
+        ler_origem=lambda: [origem],
+        ler_marker=lambda: "M1",
+        agora="2026-07-29T08:00:00",
+    )
+    app = FastAPI()
+    app.include_router(routes.router)
+    cliente = TestClient(app)
+
+    primeira = cliente.get("/api/carteira/notas/por-sap/700500")
+    etag = primeira.headers["etag"]
+    segunda = cliente.get(
+        "/api/carteira/notas/por-sap/700500",
+        headers={"If-None-Match": etag},
+    )
+
+    assert primeira.json()["avisos"][0]["codigo"] == "diagnostico_indisponivel"
+    assert segunda.status_code == 304
+    assert segunda.headers["etag"] == etag
+
+
+def test_rota_enriquecimento_revalida_etag_de_representacao_legada(carteira_tmp):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from carteira_module import routes, sync
+
+    sync.sincronizar(
+        ler_origem=lambda: [_origem_exemplo(id_onr=1, id_sap="700500")],
+        ler_marker=lambda: "M1",
+        agora="2026-07-29T08:00:00",
+    )
+    app = FastAPI()
+    app.include_router(routes.router)
+    cliente = TestClient(app)
+
+    resposta = cliente.get(
+        "/api/carteira/notas/por-sap/700500",
+        headers={"If-None-Match": 'W/"1"'},
+    )
+
+    assert resposta.status_code == 200
+    assert resposta.headers["etag"] != 'W/"1"'
+    assert resposta.json()["avisos"] == []
 
 
 def test_rota_enriquecimento_sem_dados_retorna_200(carteira_tmp):

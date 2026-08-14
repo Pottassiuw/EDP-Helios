@@ -63,6 +63,16 @@ function SelectNota({
   );
 }
 
+function formatDateTime(value: string | null | undefined): string {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return new Intl.DateTimeFormat('pt-BR', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  }).format(date);
+}
+
 function LegacyDate({ nota }: { nota: CoffeeNota }): React.JSX.Element {
   const fallback = nota.classificacao_em == null;
 
@@ -98,8 +108,8 @@ export function ConcluidasList({
         <span>SAP</span>
         <span>Local</span>
         <span>Resultado</span>
-        <span>Origem</span>
-        <span>Quando</span>
+        <span>Veio de Verificar</span>
+        <span>Corrigida em</span>
       </div>
       {notas.map((nota) => (
         <article key={nota.pk} className="border-b border-line px-[22px] py-3">
@@ -119,8 +129,12 @@ export function ConcluidasList({
               <span className="font-mono">{nota.id_sap ?? '—'}</span>
               <span className="truncate">{local(nota)}</span>
               <span><Resultado nota={nota} /></span>
-              <span>{nota.origem ?? '—'}</span>
-              <span className="text-text-mute"><LegacyDate nota={nota} /></span>
+              <span>{nota.origem === 'verificar' ? formatDateTime(nota.verificar_em) : '—'}</span>
+              <span className="text-text-mute">
+                {nota.classificacao === 'corrigida'
+                  ? formatDateTime(nota.corrigida_em ?? completionDate(nota))
+                  : <LegacyDate nota={nota} />}
+              </span>
             </button>
           </div>
           <div className="flex items-start gap-3 md:hidden">
@@ -141,7 +155,9 @@ export function ConcluidasList({
               </div>
               <p className="mt-2 truncate text-sm">{local(nota)}</p>
               <p className="mt-1 text-xs text-text-mute">
-                SAP {nota.id_sap ?? '—'} · {nota.origem ?? '—'} · <LegacyDate nota={nota} />
+                SAP {nota.id_sap ?? '—'} · {nota.origem === 'verificar'
+                  ? `Verificar ${formatDateTime(nota.verificar_em)} · Corrigida ${formatDateTime(nota.corrigida_em ?? completionDate(nota))}`
+                  : <LegacyDate nota={nota} />}
               </p>
             </button>
           </div>

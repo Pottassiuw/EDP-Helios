@@ -7,5 +7,6 @@ export function useTriageData() {
     queryFn: fetchData,
     retry: false,
     staleTime: 30_000,
+    refetchInterval: 30_000,
   });
 }

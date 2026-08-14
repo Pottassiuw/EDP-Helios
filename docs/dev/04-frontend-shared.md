@@ -283,6 +283,16 @@ Dois outros ganharam customização na Fase 4c:
   `prioNone` trocou `text-text-mute` (2,7:1) por `text-text-dim`
   (4,95:1). As demais (`tagErr`, `tagDone`, `situExec`, `situFora`,
   `situCancel`) já passavam AA e ficaram como estavam.
+- **Tokens de texto cromático** — superfícies verdes usam `text-on-green`
+  (quase-preto, o `on-primary` do DESIGN.md); a `tagDup` índigo usa
+  `text-on-dark` (branco por token). `Button` e a variante destrutiva de
+  `Badge` usam respectivamente `text-primary-foreground` e
+  `text-destructive-foreground`: nenhum primitivo carrega `text-white`
+  literal. Como o vermelho fica claro no tema escuro, esse foreground
+  troca para quase-preto nesse tema e mantém AA. Os `rounded-full` de
+  badges, chips e barras de progresso são
+  semânticos e não são botões; `Button` continua em `rounded-md`, mapeado ao
+  raio de 6px de `--radius`.
 
 Os demais componentes lidos para esta doc — `select.tsx`, `sheet.tsx`,
 `dialog.tsx`, `alert-dialog.tsx` — são majoritariamente stock: mesma
@@ -347,6 +357,16 @@ mapeada de `--r-sm/--r/--r-md/--r-lg`) para não colidir com
 sistemas são independentes desde a 4c-0:** `--radius` é `6px` fixo — o
 raio-assinatura de botão do DESIGN.md — e a escala `--r-*` é
 6/8/12/16px. Mexer em `--r` não move o `--radius` do shadcn.
+
+Além de cores de preenchimento/texto, `app.css` centraliza
+`--status-*-border` e as sombras `--shadow-floating`/`--shadow-drawer`.
+Verify e Input usam esses tokens em CSS-in-JS, SVG e dados de gráfico, em vez
+de repetir hex/RGBA literais nos componentes. Assim os feedbacks de status
+continuam cromáticos, mas acompanham tema e contraste pela fonte única.
+
+`components/ui/design-tokens.test.ts` trava o contrato dos primitivos: CTA
+primário com `text-primary-foreground`, botão com `rounded-md` (não pill),
+destrutivo com foreground semântico e badge índigo com `text-on-dark`.
 
 **Exceção deliberada:** `--pad`, `--gap`, `--row-py` e `--tile-py`
 ficam fora do bridge. A spec SP2a é explícita sobre o motivo: esses

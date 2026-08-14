@@ -1,5 +1,5 @@
 import React from 'react';
-import { Copy, Search } from 'lucide-react';
+import { Copy, FileSpreadsheet, Search } from 'lucide-react';
 import type { CoffeeConclusaoFiltro } from '../../../../types';
 import { SegTabs } from '@/components/branded/section';
 import { Button } from '@/components/ui/button';
@@ -24,6 +24,9 @@ interface ConcluidasToolbarProps {
   contagens: { todas: number; gerada: number; corrigida: number };
   copyDisabled: boolean;
   onCopy: () => void;
+  exportDisabled: boolean;
+  exportPending: boolean;
+  onExport: () => void;
 }
 
 export function ConcluidasToolbar({
@@ -36,6 +39,9 @@ export function ConcluidasToolbar({
   contagens,
   copyDisabled,
   onCopy,
+  exportDisabled,
+  exportPending,
+  onExport,
 }: ConcluidasToolbarProps): React.JSX.Element {
 
   return (
@@ -84,6 +90,14 @@ export function ConcluidasToolbar({
         onClick={onCopy}
       >
         <Copy /> Copiar IDs
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={exportDisabled || exportPending}
+        onClick={onExport}
+      >
+        <FileSpreadsheet /> {exportPending ? 'Exportando…' : 'Exportar Excel'}
       </Button>
     </div>
   );

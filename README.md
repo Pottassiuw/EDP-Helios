@@ -71,8 +71,9 @@ desenvolvimento. Variáveis em `backend/.env.example`, detalhes em
 ## Hub COFFEE
 
 O fluxo de COFFEE é dividido em **Verificar**, **Abrir**, **Operação**,
-**Concluídas** e **Logs**. Verificar encaminha as notas selecionadas à fila
-persistida de Operação, exibida como Kanban (Fila, Prontas para gerar,
+**Concluídas** e **Logs**. Verificar lê o `Verificar.db` compartilhado em modo
+somente leitura e encaminha as notas selecionadas à fila persistida de
+Operação, exibida como Kanban (Fila, Prontas para gerar,
 Processando e Aguardando SAP). Concluídas é o histórico separado: notas
 geradas podem ser arquivadas e somente notas corrigidas podem ser movidas para
 o plano.
@@ -82,8 +83,9 @@ o plano.
 | Ação                  | Requisição                     | Retorno |
 |-----------------------|--------------------------------|---------|
 | Carregar dados        | `GET  /api/data`               | `{ records, completed, rule_stats, … }` |
-| Importar planilha     | `POST /api/upload` (multipart) | `{ status, total }` |
-| Concluir / reabrir    | `POST /api/complete/{id}`      | `{ status, completed }` (toggle) |
+| Triagem SQLite        | `GET /api/data`                | Lê `ids_verificacao` de `Verificar.db` |
+| Importar planilha     | `POST /api/upload` (multipart) | Compatibilidade/testes; não é usado pela interface |
+| Encaminhar / retirar  | `POST /api/coffee/marcar-gerar` | Controla a fila COFFEE e a rastreabilidade |
 | Marcar como duplicata | `POST /api/duplicata/{id}`     | `{ status }` |
 
 ## Módulo Input (Gestão de Notas)
@@ -111,3 +113,10 @@ Porte do painel Streamlit do departamento (spec em
 cd backend && python -m pytest test_upload.py test_input_module.py   # backend
 cd frontend && npm run build                    # type-check (tsc) + build
 ```
+
+## Entrega no GitHub
+
+O fluxo de entrega usa Issue → branch isolada → Pull Request → revisão →
+merge em `develop`. As regras operacionais, gates e estados do Project estão
+em [CONTRIBUTING.md](CONTRIBUTING.md) e no manual
+[docs/dev/13-github-delivery-workflow.md](docs/dev/13-github-delivery-workflow.md).

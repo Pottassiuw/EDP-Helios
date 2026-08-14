@@ -7,8 +7,12 @@ backend/venv/
 backend/credenciais.json
 
 # Variáveis de ambiente / segredos (Databricks token, etc.)
+# O sufixo cobre cópias de segurança (.env.bak, .env.local): elas carregam o
+# mesmo token e antes escapavam do ignore por não casarem com o nome exato.
 backend/.env
 .env
+.env.*
+!.env.example
 
 # Python
 __pycache__/

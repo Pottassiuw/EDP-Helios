@@ -1,7 +1,7 @@
 import React from "react";
 import { Eyebrow } from "@/components/branded/section";
 import { Badge } from "@/components/ui/badge";
-import type { FieldProps, NoteStatus } from "../../types";
+import type { FieldProps, NoteStatus, TriageForwarding } from "../../types";
 
 export const LOGO_DARK =
   "/assets/RGB/Dark/Regular/NEG/EDP_Group_MasterLogo_RGB_Dark_NEG.png";
@@ -9,9 +9,9 @@ export const LOGO_LIGHT =
   "/assets/RGB/Light/Regular/POS/EDP_Group_MasterLogo_RRGB_Light_POS.png";
 
 const PRIO_BORDER: Record<string, string> = {
-  high: "rgba(240,85,92,0.3)",
-  med: "rgba(240,169,59,0.32)",
-  low: "rgba(0,168,89,0.3)",
+  high: "var(--status-red-border)",
+  med: "var(--status-amber-border)",
+  low: "var(--status-green-border)",
 };
 
 function prioMeta(p: number): ["high" | "med" | "low" | "none", string | number] {
@@ -38,7 +38,8 @@ export const StatusTag: React.FC<{
   status: NoteStatus;
   done: boolean;
   dup?: boolean;
-}> = ({ status, done, dup }) => {
+  encaminhamento?: TriageForwarding;
+}> = ({ status, done, dup, encaminhamento }) => {
   if (dup)
     return (
       <Badge variant="tagDup">
@@ -46,11 +47,32 @@ export const StatusTag: React.FC<{
         Duplicata
       </Badge>
     );
+  if (encaminhamento?.situacao === "retornada")
+    return (
+      <Badge variant="tagDone" style={{ backgroundColor: "var(--accent-tint)", color: "var(--accent)" }}>
+        <span className="w-[6px] h-[6px] rounded-full bg-current" />
+        Retornada
+      </Badge>
+    );
+  if (encaminhamento?.situacao === "falha_operacional")
+    return (
+      <Badge variant="tagErr" title={encaminhamento.erro ?? "Falha operacional"}>
+        <span className="w-[6px] h-[6px] rounded-full bg-current" />
+        Falha operacional
+      </Badge>
+    );
+  if (encaminhamento)
+    return (
+      <Badge variant="tagDone">
+        <span className="w-[6px] h-[6px] rounded-full bg-current" />
+        Encaminhada
+      </Badge>
+    );
   if (done)
     return (
       <Badge variant="tagDone">
         <span className="w-[6px] h-[6px] rounded-full bg-current" />
-        Concluída
+        Encaminhada
       </Badge>
     );
   return status === "ok" ? (

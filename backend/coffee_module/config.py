@@ -17,7 +17,15 @@ COFFEE_API_KEY = os.environ.get(
 )
 DELAY_BUSCA = float(os.environ.get("COFFEE_DELAY_BUSCA", "1.0"))
 DELAY_GERACAO = float(os.environ.get("COFFEE_DELAY_GERACAO", "0.5"))
+# Era 120s fixo: uma nota lenta/travada podia prender até 360s (3 chamadas
+# em _executar_geracao) o worker inteiro, e com fila sequencial isso travava
+# todo o lote atrás dela. 30s corta o pior caso pra 90s por nota-problema.
+TIMEOUT = float(os.environ.get("COFFEE_TIMEOUT", "30"))
+# Processamento paralelo limitado dos jobs em lote (consulta/geração/SAP) —
+# sequencial (1 nota por vez) não escalava com filas grandes.
+MAX_WORKERS = int(os.environ.get("COFFEE_MAX_WORKERS", "4"))
 SAP_PENDENTE = 10000000
+SAP_DUPLICATA = 99999999
 
 
 def base_url() -> str:

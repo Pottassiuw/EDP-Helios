@@ -2,6 +2,8 @@
 import os
 import tempfile
 import time as _time
+from concurrent.futures import ThreadPoolExecutor
+from io import BytesIO
 
 # Blindagem global: impede que a execução de testes afete o banco de dados real
 _tmp_test_dir = tempfile.mkdtemp(prefix="edp_coffee_test_")
@@ -32,6 +34,13 @@ def test_classificacao_gerada():
     assert classify.classificar(17247854, 17247854) == "gerada"
 
 
+def test_classificacao_duplicada():
+    assert classify.classificar(config.SAP_DUPLICATA, None) == "duplicada"
+    assert classify.classificar(config.SAP_DUPLICATA, config.SAP_PENDENTE) == "duplicada"
+    # sentinel de duplicata nunca deve cair no ramo de "SAP real" (corrigida/gerada)
+    assert classify.classificar(config.SAP_DUPLICATA, 17247854) == "duplicada"
+
+
 @pytest.fixture
 def coffee_tmp(monkeypatch, tmp_path):
     """Aponta o módulo para dados temporários, chave fake, e inicializa o banco."""
@@ -42,6 +51,41 @@ def coffee_tmp(monkeypatch, tmp_path):
     from coffee_module import db
     db.inicializar_banco()
     return tmp_path
+
+
+def test_conexao_configura_timeout_e_foreign_keys_por_conexao(coffee_tmp):
+    """Remover a configuração por conexão faria cada conexão voltar aos defaults."""
+    from coffee_module import db
+
+    primeira = db.get_db_connection()
+    segunda = db.get_db_connection()
+    try:
+        assert primeira.execute("PRAGMA busy_timeout").fetchone()[0] == 5000
+        assert segunda.execute("PRAGMA busy_timeout").fetchone()[0] == 5000
+        assert primeira.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+        assert segunda.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+    finally:
+        primeira.close()
+        segunda.close()
+
+
+def test_conexao_concorrente_abre_enquanto_outra_mantem_lock(coffee_tmp):
+    """Renegociar WAL na abertura tenta lock exclusivo e quebra jobs concorrentes."""
+    from coffee_module import db
+
+    bloqueadora = db.get_db_connection()
+    bloqueadora.execute("BEGIN EXCLUSIVE")
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(db.get_db_connection)
+            concorrente = future.result(timeout=1)
+        try:
+            assert concorrente.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+        finally:
+            concorrente.close()
+    finally:
+        bloqueadora.rollback()
+        bloqueadora.close()
 
 
 def test_upsert_primeira_busca_pendente(coffee_tmp):
@@ -340,27 +384,317 @@ def test_rota_job_inexistente_404(coffee_cliente):
 def test_rotas_de_escrita(coffee_cliente, monkeypatch):
     from coffee_module import client
     chamadas = []
+    local = "701CF12345678"
     monkeypatch.setattr(client, "definir_sap", lambda i, s: chamadas.append(("sap", i, s)) or True)
     monkeypatch.setattr(client, "desarquivar", lambda i: chamadas.append(("des", i)) or True)
     monkeypatch.setattr(client, "alterar_local", lambda i, l: chamadas.append(("loc", i, l)) or True)
+    monkeypatch.setattr(
+        client,
+        "buscar_nota",
+        lambda i: {
+            "pk": int(i),
+            "id_sap": 17247854,
+            "arquivado": False,
+            "local_instalacao": local,
+            "fields": {"id_sap": 17247854},
+        },
+    )
     assert coffee_cliente.post("/api/coffee/sap", json={"id": 1, "sap": 10000000}).json()["ok"] is True
     assert coffee_cliente.post("/api/coffee/desarquivar", json={"id": 1}).json()["ok"] is True
-    assert coffee_cliente.post("/api/coffee/local-instalacao", json={"id": 1, "local": "X"}).json()["ok"] is True
+    resposta_local = coffee_cliente.post(
+        "/api/coffee/local-instalacao",
+        json={"id": 1, "local": local},
+    )
+    assert resposta_local.json() == {"ok": True, "local_instalacao": local}
     assert ("sap", 1, 10000000) in chamadas
 
 
-def test_rota_consultar_grava_dono_do_header(coffee_cliente):
-    """Regressão: usuario_coffee precisa ser async — dependency sync setava a
-    contextvar numa cópia de contexto descartada e o upsert gravava o dono
-    errado (fallback getpass), sumindo a nota da lista do requisitante."""
+def test_rota_local_rejeita_formato_invalido_sem_chamar_coffee(
+    coffee_cliente,
+    monkeypatch,
+):
+    from coffee_module import client
+
+    chamadas = []
+    monkeypatch.setattr(
+        client,
+        "alterar_local",
+        lambda i, local: chamadas.append((i, local)) or True,
+    )
+
+    resposta = coffee_cliente.post(
+        "/api/coffee/local-instalacao",
+        json={"id": 1, "local": "701-CF-123"},
+    )
+
+    assert resposta.status_code == 400
+    assert "13" in resposta.json()["detail"]
+    assert chamadas == []
+
+
+def test_rota_local_rejeita_sucesso_nao_confirmado(coffee_cliente, monkeypatch):
+    from coffee_module import client
+
+    monkeypatch.setattr(client, "alterar_local", lambda i, local: True)
+    monkeypatch.setattr(
+        client,
+        "buscar_nota",
+        lambda i: {
+            "pk": int(i),
+            "id_sap": 17247854,
+            "arquivado": False,
+            "local_instalacao": "701CF99999999",
+            "fields": {"id_sap": 17247854},
+        },
+    )
+
+    resposta = coffee_cliente.post(
+        "/api/coffee/local-instalacao",
+        json={"id": 1, "local": "701CF12345678"},
+    )
+
+    assert resposta.status_code == 409
+    assert "não confirmou" in resposta.json()["detail"]
+
+
+def test_listar_alimentadores_carrega_do_csv():
+    from coffee_module import alimentadores
+    registros = alimentadores.listar()
+    assert len(registros) > 1000
+    assert {"id", "cidade"} <= registros[0].keys()
+    assert alimentadores.alimentador_valido(registros[0]["id"])
+    assert not alimentadores.alimentador_valido("NAO_EXISTE_999")
+
+
+def test_listar_municipios_carrega_do_csv():
+    from coffee_module import municipios
+    registros = municipios.listar()
+    assert len(registros) == 28
+    assert {"codigo", "nome"} <= registros[0].keys()
+    assert len(registros[0]["codigo"]) == 3
+    assert municipios.municipio_valido(registros[0]["codigo"])
+    assert not municipios.municipio_valido("999")
+
+
+def test_listar_tipos_equipamento_carrega_do_csv():
+    from coffee_module import tipos_equipamento
+    registros = tipos_equipamento.listar()
+    assert len(registros) == 15
+    assert {"id", "descricao"} <= registros[0].keys()
+    assert tipos_equipamento.tipo_equipamento_valido(registros[0]["id"])
+    assert not tipos_equipamento.tipo_equipamento_valido("NAO_EXISTE")
+
+
+def test_rota_municipios_expoe_registros(coffee_cliente):
+    resposta = coffee_cliente.get("/api/coffee/municipios")
+    assert resposta.status_code == 200
+    registros = resposta.json()["registros"]
+    assert len(registros) == 28
+
+
+def test_rota_tipos_equipamento_expoe_registros(coffee_cliente):
+    resposta = coffee_cliente.get("/api/coffee/tipos-equipamento")
+    assert resposta.status_code == 200
+    registros = resposta.json()["registros"]
+    assert len(registros) == 15
+
+
+def test_rota_alimentador_confirma_e_atualiza(coffee_cliente, monkeypatch):
+    from coffee_module import client
+    chamadas = []
+    monkeypatch.setattr(client, "alterar_alimentador",
+                         lambda i, a: chamadas.append((i, a)) or True)
+    monkeypatch.setattr(
+        client, "buscar_nota",
+        lambda i: {"pk": int(i), "id_sap": 17247854, "arquivado": False,
+                   "local_instalacao": "701CF12345678",
+                   "fields": {"id_sap": 17247854, "alimentador": "AFC01"}},
+    )
+
+    resposta = coffee_cliente.post("/api/coffee/alimentador", json={"id": 1, "alimentador": "AFC01"})
+
+    assert resposta.json() == {"ok": True, "alimentador": "AFC01"}
+    assert (1, "AFC01") in chamadas
+
+
+def test_rota_alimentador_rejeita_id_desconhecido_sem_chamar_coffee(coffee_cliente, monkeypatch):
+    from coffee_module import client
+    chamadas = []
+    monkeypatch.setattr(client, "alterar_alimentador", lambda i, a: chamadas.append((i, a)) or True)
+
+    resposta = coffee_cliente.post("/api/coffee/alimentador", json={"id": 1, "alimentador": "NAO_EXISTE_999"})
+
+    assert resposta.status_code == 400
+    assert chamadas == []
+
+
+def test_rota_alimentador_rejeita_sucesso_nao_confirmado(coffee_cliente, monkeypatch):
+    from coffee_module import client
+    monkeypatch.setattr(client, "alterar_alimentador", lambda i, a: True)
+    monkeypatch.setattr(
+        client, "buscar_nota",
+        lambda i: {"pk": int(i), "id_sap": 17247854, "arquivado": False,
+                   "local_instalacao": "701CF12345678",
+                   "fields": {"id_sap": 17247854, "alimentador": "OUTRO01"}},
+    )
+
+    resposta = coffee_cliente.post("/api/coffee/alimentador", json={"id": 1, "alimentador": "AFC01"})
+
+    assert resposta.status_code == 409
+    assert "não confirmou" in resposta.json()["detail"]
+
+
+def test_rota_consultar_expoe_referencia_eletrica_alimentador_e_campos_crus(coffee_cliente, monkeypatch):
+    from coffee_module import client
+    monkeypatch.setattr(
+        client, "buscar_nota",
+        lambda i: {"pk": int(i), "id_sap": 17247854, "arquivado": False,
+                   "local_instalacao": "718ET00026773",
+                   "fields": {"id_sap": 17247854, "referencia_fisica": "SER-11",
+                              "referencia_eletrica": "ELE-22", "alimentador": "AFC01"}},
+    )
+    r = coffee_cliente.get("/api/coffee/consultar/355617")
+    body = r.json()
+    assert body["referencia_fisica"] == "SER-11"
+    assert body["referencia_eletrica"] == "ELE-22"
+    assert body["alimentador"] == "AFC01"
+    assert body["campos"]["referencia_eletrica"] == "ELE-22"
+
+
+def test_rota_local_nao_encaminha_nota_sozinha(coffee_cliente, monkeypatch):
+    from coffee_module import client, db
+
+    local = "701CF12345678"
+    monkeypatch.setattr(client, "alterar_local", lambda i, valor: True)
+    monkeypatch.setattr(
+        client,
+        "buscar_nota",
+        lambda i: {
+            "pk": int(i),
+            "id_sap": None,
+            "arquivado": False,
+            "local_instalacao": local,
+            "fields": {
+                "id_sap": None,
+                "cidade": "701",
+                "tipo_local_instalacao": "CF",
+                "local_instalacao_numero": 12345678,
+            },
+        },
+    )
+
+    resposta = coffee_cliente.post(
+        "/api/coffee/local-instalacao",
+        json={"id": 1, "local": local},
+        headers={"X-User": "alice"},
+    )
+
+    assert resposta.status_code == 200
+    assert db.listar_itens_operacao() == []
+    espelho = db.obter_nota(1)
+    assert espelho["usuario"] == "alice"
+    campos = espelho["dados_json"]
+    assert campos["cidade"] == "701"
+    assert campos["tipo_local_instalacao"] == "CF"
+    assert campos["local_instalacao_numero"] == 12345678
+
+
+def test_rota_consultar_nao_persiste_nota_do_header(coffee_cliente):
+    """Consulta usada pela busca de duplicata não deve criar estado local."""
     from coffee_module import db
     r = coffee_cliente.get("/api/coffee/consultar/999", headers={"X-User": "alice"})
     assert r.status_code == 200
-    assert db.obter_nota(999)["usuario"] == "alice"
+    assert db.obter_nota(999) is None
     de_alice = coffee_cliente.get("/api/coffee/notas", headers={"X-User": "alice"}).json()["registros"]
-    assert [n["pk"] for n in de_alice] == [999]
+    assert de_alice == []
     de_bob = coffee_cliente.get("/api/coffee/notas", headers={"X-User": "bob"}).json()["registros"]
     assert de_bob == []
+
+
+def test_rota_exportar_concluidas_gera_xlsx_so_com_notas_concluidas(coffee_cliente):
+    """O Excel de concluídas usa somente o espelho local já filtrado por status."""
+    from openpyxl import load_workbook
+    from coffee_module import db
+
+    db.upsert_nota(101, 17247854, {
+        "cidade": "Serra",
+        "tipo_local_instalacao": "ET",
+        "local_instalacao_numero": "00026773",
+        "postes": "P-77",
+        "referencia_fisica": "Rua da Consulta",
+        "componente": "Chave",
+        "sintoma": "Queda",
+        "observacoes": "Validada pela engenharia",
+    })
+    db.upsert_nota(102, 10000000, {"cidade": "Vitória"})
+
+    response = coffee_cliente.post(
+        "/api/coffee/notas/concluidas/exportar",
+        json={"pks": [101, 102]},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    assert "notas_concluidas" in response.headers["content-disposition"]
+    worksheet = load_workbook(BytesIO(response.content)).active
+    rows = list(worksheet.values)
+    assert rows[0][:4] == ("ID ONR", "ID SAP", "Classificação", "Local de instalação")
+    assert rows[1][:8] == (
+        101,
+        17247854,
+        "Gerada",
+        "Serra-ET-00026773",
+        "P-77",
+        "Rua da Consulta",
+        "Chave",
+        "Queda",
+    )
+    assert len(rows) == 2
+    assert worksheet.freeze_panes == "A2"
+
+
+def test_rota_exportar_concluidas_nao_expoe_notas_de_outro_usuario(coffee_cliente):
+    """O header X-User limita a planilha a notas concluídas do próprio usuário."""
+    from openpyxl import load_workbook
+    from coffee_module import db
+
+    try:
+        db.definir_usuario("alice")
+        db.upsert_nota(201, 17247854, {"observacoes": "Nota da Alice"})
+        db.definir_usuario("bob")
+        db.upsert_nota(202, 17247855, {"observacoes": "Nota do Bob"})
+
+        response = coffee_cliente.post(
+            "/api/coffee/notas/concluidas/exportar",
+            json={"pks": [201, 202]},
+            headers={"X-User": "alice"},
+        )
+
+        assert response.status_code == 200
+        rows = list(load_workbook(BytesIO(response.content)).active.values)
+        assert [row[0] for row in rows[1:]] == [201]
+        assert rows[1][8] == "Nota da Alice"
+    finally:
+        db.definir_usuario(None)
+
+
+def test_planilha_concluidas_neutraliza_formula_de_texto_externo():
+    """Campos vindos do COFFEE não podem executar fórmulas ao abrir no Excel."""
+    from openpyxl import load_workbook
+    from coffee_module.exportacao import gerar_planilha_concluidas
+
+    arquivo = gerar_planilha_concluidas([{
+        "pk": 101,
+        "id_sap": 17247854,
+        "classificacao": "gerada",
+        "dados_json": {"observacoes": "=HYPERLINK(\"https://exemplo.invalid\")"},
+    }])
+
+    observacao = load_workbook(BytesIO(arquivo)).active["I2"]
+    assert observacao.data_type == "s"
+    assert observacao.value == "'=HYPERLINK(\"https://exemplo.invalid\")"
 
 
 def test_rota_buscar_log_acao_com_usuario_do_header(coffee_cliente):
@@ -509,6 +843,18 @@ def test_obter_nota_ignora_arquivada(monkeypatch, tmp_path):
     assert db.obter_nota(4242) is None
 
 
+def test_desarquivar_nota_reverte_arquivar_nota(monkeypatch, tmp_path):
+    """desarquivar_nota devolve a nota arquivada localmente pra visibilidade normal."""
+    monkeypatch.setenv("COFFEE_DATA_DIR", str(tmp_path))
+    from coffee_module import db
+    db.inicializar_banco()
+    db.upsert_nota(4242, 12345678, {"prioridade": 3, "observacoes": "Trocar poste"})
+    db.arquivar_nota(4242)
+    assert db.obter_nota(4242) is None
+    db.desarquivar_nota(4242)
+    assert db.obter_nota(4242) is not None
+
+
 # ---------------------------------------------------------------------------
 # Task 3 — Routes /marcar-gerar + limpeza de a_gerar no /regerar
 # ---------------------------------------------------------------------------
@@ -611,6 +957,54 @@ def test_rota_consultar_retorna_campos(coffee_cliente, monkeypatch):
     assert body["local_instalacao"] == "718ET00026773"
     assert body["classificacao"] == "gerada"
     assert body["arquivado"] is False
+
+
+def test_rota_consultar_retorna_poste_e_referencia(coffee_cliente, monkeypatch):
+    from coffee_module import client
+    monkeypatch.setattr(
+        client, "buscar_nota",
+        lambda i: {"pk": int(i), "id_sap": 17247854, "arquivado": False,
+                   "local_instalacao": "718ET00026773",
+                   "fields": {"id_sap": 17247854, "postes": "TR-088",
+                              "referencia_fisica": "SER-11"}},
+    )
+    r = coffee_cliente.get("/api/coffee/consultar/355617")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["poste"] == "TR-088"
+    assert body["referencia"] == "SER-11"
+
+
+def test_rota_consultar_poste_referencia_ausentes_vira_none(coffee_cliente, monkeypatch):
+    from coffee_module import client
+    monkeypatch.setattr(
+        client, "buscar_nota",
+        lambda i: {"pk": int(i), "id_sap": 17247854, "arquivado": False,
+                   "local_instalacao": None},
+    )
+    r = coffee_cliente.get("/api/coffee/consultar/355617")
+    body = r.json()
+    assert body["poste"] is None
+    assert body["referencia"] is None
+    assert body["problema"] is None
+    assert body["observacao"] is None
+
+
+def test_rota_consultar_projeta_problema_e_observacao_sem_persistir(coffee_cliente, monkeypatch):
+    from coffee_module import client, db
+    monkeypatch.setattr(
+        client, "buscar_nota",
+        lambda i: {"pk": int(i), "id_sap": 17247854, "arquivado": False,
+                   "local_instalacao": "718ET00026773",
+                   "fields": {"componente_novo": "Luminaria", "sintoma": "Apagada",
+                              "causa": "Lampada queimada", "observacoes": "Trocar lampada"}},
+    )
+
+    body = coffee_cliente.get("/api/coffee/consultar/355617").json()
+
+    assert body["problema"] == "Luminaria · Apagada · Lampada queimada"
+    assert body["observacao"] == "Trocar lampada"
+    assert db.obter_nota(355617) is None
 
 
 def test_compor_local_instalacao():
@@ -904,7 +1298,10 @@ def test_marcar_gerar_desmarca_pk_resolvido_nao_o_id(coffee_cliente, monkeypatch
     r = coffee_cliente.post("/api/coffee/marcar-gerar", json={"id": 999, "a_gerar": True})
     assert r.status_code == 200
     assert db.listar_notas("a_gerar") == []
-    assert db.obter_nota(355617)["a_gerar"] is False
+    nota = db.obter_nota(355617)
+    assert nota["a_gerar"] is False
+    assert nota["verificar_id"] == 999
+    assert nota["verificar_ativa"] is True
 
 
 def test_marcar_gerar_grava_origem_verificar(coffee_cliente, monkeypatch):

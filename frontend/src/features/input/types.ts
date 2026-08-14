@@ -56,7 +56,22 @@ export interface BackupInfo {
 export interface EdicaoResultado {
   alteradas: number;
   campos: number;
+  /** Notas puladas por estarem travadas por outro usuário — não perdidas, seguem pendentes na UI. */
+  bloqueadas: number[];
   ultima_alteracao: string | null;
+}
+
+/** Trava ativa de edição (tabela `bloqueios`, compartilhada com o banco da rede). */
+export interface Bloqueio {
+  Numero_Nota: number;
+  Usuario: string;
+  Data_Hora: string;
+}
+
+export interface TravarResultado {
+  ok: boolean;
+  usuario?: string;
+  desde?: string;
 }
 
 export interface NotaRamal {

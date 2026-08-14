@@ -10,6 +10,17 @@ export interface CoffeeNota {
   erro: string | null;
   a_gerar?: boolean;
   origem?: string | null;
+  verificar_id?: number | null;
+  verificar_ativa?: boolean;
+  verificar_em?: string | null;
+  verificar_por?: string | null;
+  encaminhada_em?: string | null;
+  encaminhada_por?: string | null;
+  retornada_em?: string | null;
+  retornada_por?: string | null;
+  retorno_justificativa?: string | null;
+  corrigida_em?: string | null;
+  corrigida_por?: string | null;
 }
 
 export interface CoffeeJob {
@@ -24,6 +35,9 @@ export interface CoffeeJob {
   ja_corrigidas?: number[];
   geradas?: number[];
   divergentes?: Array<{ id: number; local_atual: string | null }>;
+  /** Só presente em jobs de consulta avulsa/operação: quantas notas terminaram
+   * em cada etapa do quadro. */
+  por_etapa?: Partial<Record<'pronta' | 'aguardando_sap' | 'processando' | 'ignorada', number>>;
   iniciado_em: string;
   atualizado_em?: string;
 }
@@ -72,6 +86,30 @@ export interface CoffeeConsulta {
   local_instalacao: string | null;
   classificacao: string;
   arquivado: boolean | null;
+  poste: string | null;
+  referencia: string | null;
+  referencia_fisica: string | null;
+  referencia_eletrica: string | null;
+  alimentador: string | null;
+  problema: string | null;
+  observacao: string | null;
+  /** Campos crus do json_all, pra ficha completa mostrar tudo sem o backend projetar campo a campo. */
+  campos: Record<string, unknown>;
+}
+
+export interface Alimentador {
+  id: string;
+  cidade: string;
+}
+
+export interface Municipio {
+  codigo: string;
+  nome: string;
+}
+
+export interface TipoEquipamento {
+  id: string;
+  descricao: string;
 }
 
 export interface PropostaPlano {

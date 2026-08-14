@@ -106,7 +106,20 @@ cd ../backend && uvicorn main:app
 ```
 
 O FastAPI serve `frontend/dist/` como estático e expõe a API no mesmo
-processo (`backend/main.py:330-332`).
+processo (`backend/main.py:330-332`). No Windows, `iniciar_sistema.bat` oferece cinco opções: produção
+(backend + frontend compilado), desenvolvimento (backend + Vite), build do
+frontend sem iniciar servidor, apenas backend com `--reload` e saída. O modo
+de produção sempre executa `npm run build` antes de iniciar o servidor; se o
+Node, as dependências (`npm ci`) ou o build falharem, ele informa o erro e
+não inicia com um `dist` potencialmente desatualizado. O script inicializa o `fnm`
+antes de buscar `npm`, priorizando `%USERPROFILE%\Documents\fnm-windows\fnm.exe`
+e aceitando também `%USERPROFILE%\AppData\Local\fnm\fnm.exe` ou o `PATH`.
+Se o FNM/Node/npm não estiver disponível, o script aborta em vez de usar
+silenciosamente uma versão do sistema. As versões ativas de Node e npm são
+exibidas no início; `npm.cmd` é chamado com `call`, pois executá-lo sem
+`call` encerra o fluxo do batch antes do menu. O cabeçalho do `.bat` também registra uma regra de
+manutenção: não alterar executáveis, Node/npm, FNM, versões ou caminhos sem
+solicitação explícita.
 
 Testes (`README.md`):
 
@@ -131,30 +144,31 @@ cd frontend && npm run build                    # type-check (tsc) + build
 | Backend — databricks_module | `backend/databricks_module/` | Integração genérica e reutilizável com o Databricks SQL Warehouse (client, config, descoberta de schema); base da Carteira de Notas | [09-backend-databricks-module.md](./09-backend-databricks-module.md) |
 | Backend — carteira_module | `backend/carteira_module/` | Projeção local da base COFFEE (Databricks), sync idempotente, situação derivada e API do explorador da Carteira de Notas | [10-backend-carteira-module.md](./10-backend-carteira-module.md) |
 | Carteira | `frontend/src/features/carteira/` | Explorador da base COFFEE (Databricks): tabela paginada, filtros, situação, detalhe e sincronização — referência de não-regressão da direção visual Supabaze (DESIGN.md), hoje global | [11-frontend-carteira.md](./11-frontend-carteira.md) |
-| Backend — core (Verificar) | `backend/main.py` | Endpoints `/api/upload`, `/api/data`, `/api/complete`, `/api/duplicata`; monta os routers de `coffee_module`/`input_module` | (sem doc dedicado — coberto neste overview e em 07) |
+| Backend — Verificar | `backend/verificar_module/`, `backend/main.py` | Leitura read-only de `Verificar.db`, normalização da triagem e endpoint `/api/data`; o upload é só compatibilidade | [01-frontend-verificar.md](./01-frontend-verificar.md) |
+| Entrega no GitHub | `.github/`, `CONTRIBUTING.md`, GitHub Issues/Project/PRs | Processo de Issue → branch isolada → Pull Request → revisão → merge, templates e gates automatizados | [13-github-delivery-workflow.md](./13-github-delivery-workflow.md) |
 
 ## Pontos de atenção
 
-- `backend/main.py:61-63` — `RECORDS`/`COMPLETED` são estado global
-  em memória do processo Python (não por sessão/usuário), persistido em
-  `backend/app_state.json` só nos pontos em que `save_state()` é chamado
-  explicitamente; um restart sem esse arquivo perde o estado da última
-  planilha carregada.
-  `save_state()` grava em `app_state.json.tmp` e só então faz `replace()`,
-  com `encoding="utf-8"` explícito nos dois sentidos. Sem isso, uma planilha
-  com acentos estourava `UnicodeEncodeError` no codec locale do Windows
-  depois de o arquivo já ter sido truncado, deixando `app_state.json` com
-  0 byte — a triagem carregada em COFFEE > Verificar sumia a cada restart do
-  backend. As duas funções agora logam a falha em vez de engoli-la.
+- A triagem de produção não depende de `RECORDS`/`COMPLETED` nem de
+  `app_state.json`: `GET /api/data` lê o `Verificar.db` compartilhado em modo
+  somente leitura. Esses estados e o endpoint `/api/upload` restam apenas para
+  compatibilidade/testes e não são restaurados no startup.
+- O upload de compatibilidade (`POST /api/upload`) recebe o corpo de forma
+  assíncrona, mas executa a leitura Pandas, a montagem da triagem e a gravação
+  do estado em worker via `asyncio.to_thread`. O helper síncrono
+  `processar_upload` permanece em `backend/main.py`; `publicar_upload` usa um
+  lock de módulo para publicar `RECORDS`/`COMPLETED`, gravar o estado e capturar
+  o total como uma operação indivisível entre uploads concorrentes. As respostas de sucesso,
+  erro de leitura (400), Carteira indisponível (503) e identificação (500)
+  preservam o contrato anterior.
 - `backend/main.py:17-22` — CORS liberado para `allow_origins=["*"]`,
   `allow_methods=["*"]`, `allow_headers=["*"]`.
 - `backend/main.py` — `GET /api/data` só envia em `raw` as colunas da
-  interface `NoteRaw` (`_RAW_UTEIS`/`slim_raw`). A planilha de verificação
-  traz dezenas de colunas extras que o frontend nunca lê: mandar todas
+  interface `NoteRaw` (`_RAW_UTEIS`/`slim_raw`). A fonte Verificar contém
+  dezenas de colunas extras que o frontend nunca lê: mandar todas
   representava ~76% do corpo. Medido com a sonda `[COFFEE-PERF]`
   (5000 notas): 1232 ms / 10,6 MB antes, 459 ms / 3,4 MB depois. Esse é o
-  payload que a seção COFFEE > Verificar consome ao abrir, e que o
-  `App.tsx` serializa no snapshot de `sessionStorage`.
+  payload que a seção COFFEE > Verificar consome ao abrir.
 - Instrumentação de performance: `EDP_PERF=1` no backend loga
   `[COFFEE-PERF] <método> <rota> <status> <ms> <bytes>` para `/api/data` e
   `/api/coffee/*` (mais o tempo de banco em `GET /coffee/notas` e

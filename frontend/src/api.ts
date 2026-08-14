@@ -4,10 +4,13 @@ import type {
   FetchResult,
   Note,
   NoteError,
+  NoteGenerator,
   NoteRaw,
   NoteStatus,
   DuplicateCandidate,
-  UploadResult,
+  TriageDailyForwarding,
+  TriageForwarding,
+  TriageSourceInfo,
   ToggleResult,
   DuplicateResult,
 } from "./types";
@@ -76,6 +79,7 @@ interface ApiRecord {
   latitude?: string | null;
   longitude?: string | null;
   colaborador?: string | null;
+  gerador?: NoteGenerator;
   imagens_totais?: number | null;
   imagens_recebidas?: number | null;
   local_instalacao?: string;
@@ -91,6 +95,9 @@ interface ApiRecord {
 interface ApiData {
   records?: ApiRecord[];
   completed?: string[];
+  fonte?: TriageSourceInfo | null;
+  encaminhamentos?: Record<string, TriageForwarding>;
+  encaminhadas_hoje?: TriageDailyForwarding[];
 }
 
 function str(v: unknown, fb = ""): string {
@@ -124,6 +131,7 @@ function normalize(j: ApiData): FetchResult {
       longitude:
         r.longitude ?? (raw.longitude != null ? String(raw.longitude) : null),
       colaborador: r.colaborador ?? (str(raw.colaborador) || null),
+      gerador: r.gerador,
       imagens_totais: r.imagens_totais ?? num(raw.imagens_totais),
       imagens_recebidas: r.imagens_recebidas ?? num(raw.imagens_recebidas),
       errors: r.errors ?? [],
@@ -135,7 +143,14 @@ function normalize(j: ApiData): FetchResult {
       raw: raw as NoteRaw,
     };
   });
-  return { notes, completed: new Set(j.completed ?? []), source: "api" };
+  return {
+    notes,
+    completed: new Set(j.completed ?? []),
+    source: "api",
+    fonte: j.fonte ?? null,
+    encaminhamentos: j.encaminhamentos ?? {},
+    encaminhadasHoje: j.encaminhadas_hoje ?? [],
+  };
 }
 
 // Instrumentação opcional da abertura da seção COFFEE:
@@ -178,17 +193,6 @@ async function erroComDetail(res: Response, fallback: string): Promise<Error> {
   return new Error(e.detail ?? (fallback + " -> " + res.status));
 }
 
-export async function upload(file: File): Promise<UploadResult> {
-  const fd = new FormData();
-  fd.append("file", file);
-  const res = await fetch(BASE + "/upload", { method: "POST", body: fd });
-  if (!res.ok) {
-    const e = (await res.json().catch(() => ({}))) as { detail?: string };
-    throw new Error(e.detail ?? "POST /upload -> " + res.status);
-  }
-  return res.json() as Promise<UploadResult>;
-}
-
 export async function toggleComplete(id: string): Promise<ToggleResult> {
   const res = await fetch(BASE + "/complete/" + encodeURIComponent(id), {
     method: "POST",
@@ -197,11 +201,21 @@ export async function toggleComplete(id: string): Promise<ToggleResult> {
   return res.json() as Promise<ToggleResult>;
 }
 
-export async function markDuplicate(id: string): Promise<DuplicateResult> {
+export async function markDuplicate(id: string, justificativa?: string): Promise<DuplicateResult> {
   const res = await fetch(BASE + "/duplicata/" + encodeURIComponent(id), {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ justificativa: justificativa || null }),
   });
   if (!res.ok) throw new Error("POST /duplicata -> " + res.status);
+  return res.json() as Promise<DuplicateResult>;
+}
+
+export async function desfazerDuplicata(id: string): Promise<DuplicateResult> {
+  const res = await fetch(BASE + "/duplicata/" + encodeURIComponent(id) + "/desfazer", {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error("POST /duplicata/desfazer -> " + res.status);
   return res.json() as Promise<DuplicateResult>;
 }
 
@@ -212,6 +226,69 @@ export async function marcarGerar(id: string, aGerar: boolean, justificativa?: s
     body: JSON.stringify({ id: Number(id), a_gerar: aGerar, justificativa }),
   });
   if (!res.ok) throw await erroComDetail(res, "POST /marcar-gerar");
+}
+
+export interface AlterarLocalInstalacaoResultado {
+  ok: true;
+  local_instalacao: string;
+}
+
+export async function alterarLocalInstalacao(
+  id: number,
+  local: string,
+): Promise<AlterarLocalInstalacaoResultado> {
+  const res = await coffeeFetch(BASE + "/coffee/local-instalacao", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, local }),
+  });
+  if (!res.ok) throw await erroComDetail(res, "POST /local-instalacao");
+  return res.json() as Promise<AlterarLocalInstalacaoResultado>;
+}
+
+export interface AlterarAlimentadorResultado {
+  ok: true;
+  alimentador: string;
+}
+
+export async function alterarAlimentador(
+  id: number,
+  alimentador: string,
+): Promise<AlterarAlimentadorResultado> {
+  const res = await coffeeFetch(BASE + "/coffee/alimentador", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, alimentador }),
+  });
+  if (!res.ok) throw await erroComDetail(res, "POST /alimentador");
+  return res.json() as Promise<AlterarAlimentadorResultado>;
+}
+
+export async function listarAlimentadores(): Promise<import("./features/coffee/types").Alimentador[]> {
+  const res = await coffeeFetch(BASE + "/coffee/alimentadores", {
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) throw await erroComDetail(res, "GET /alimentadores");
+  const body = await res.json() as { registros: import("./features/coffee/types").Alimentador[] };
+  return body.registros;
+}
+
+export async function listarMunicipios(): Promise<import("./features/coffee/types").Municipio[]> {
+  const res = await coffeeFetch(BASE + "/coffee/municipios", {
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) throw await erroComDetail(res, "GET /municipios");
+  const body = await res.json() as { registros: import("./features/coffee/types").Municipio[] };
+  return body.registros;
+}
+
+export async function listarTiposEquipamento(): Promise<import("./features/coffee/types").TipoEquipamento[]> {
+  const res = await coffeeFetch(BASE + "/coffee/tipos-equipamento", {
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) throw await erroComDetail(res, "GET /tipos-equipamento");
+  const body = await res.json() as { registros: import("./features/coffee/types").TipoEquipamento[] };
+  return body.registros;
 }
 
 export async function consultarNota(
@@ -301,11 +378,16 @@ export async function resumoForaDoPlano(): Promise<{ corrigidas_fora_do_plano: n
 export const EDPApi = {
   BASE,
   fetchData,
-  upload,
   toggleComplete,
   markDuplicate,
+  desfazerDuplicata,
   marcarGerar,
   consultarNota,
+  alterarLocalInstalacao,
+  alterarAlimentador,
+  listarAlimentadores,
+  listarMunicipios,
+  listarTiposEquipamento,
   coffeeUrl,
   mapsUrl,
   openCoffee,

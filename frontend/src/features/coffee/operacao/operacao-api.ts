@@ -50,11 +50,6 @@ export const OperacaoApi = {
       method: 'POST',
       body: JSON.stringify({ ids, justificativa }),
     }),
-  alterarLocal: (id: number, local: string): Promise<{ ok: true }> =>
-    json(`${BASE}/coffee/local-instalacao`, {
-      method: 'POST',
-      body: JSON.stringify({ id, local }),
-    }),
   arquivar: (id: number, justificativa: string): Promise<{ ok: true }> =>
     json(`${BASE}/coffee/arquivar`, {
       method: 'POST',

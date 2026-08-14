@@ -17,8 +17,10 @@ consultada é classificada localmente (`nao_gerada` / `pendente` /
 | `backend/coffee_module/jobs.py` | Workers em threads com snapshots persistidos de consulta, geração e atualização SAP. |
 | `backend/coffee_module/classify.py` | Função pura `classificar()` que deriva o status de uma nota (`nao_gerada`/`pendente`/`corrigida`/`gerada`) a partir de `id_sap` atual, anterior e origem. |
 | `backend/coffee_module/db.py` | Persistência local em SQLite (`coffee.db`): notas, logs, snapshots de jobs e fila operacional. |
+| `backend/coffee_module/exportacao.py` | Gera a planilha XLSX de notas concluídas a partir do espelho local filtrado. |
 | `backend/coffee_module/routes.py` | Router FastAPI `/api/coffee/*`: expõe Operação, Concluídas, local, arquivamento, triagem e logs. |
-| `backend/coffee_module/config.py` | Configuração: chave da API COFFEE, URL base, diretório de dados, delays entre chamadas e a constante `SAP_PENDENTE` (`10000000`). |
+| `backend/coffee_module/config.py` | Configuração: chave da API COFFEE, URL base, diretório de dados, delays entre chamadas e os sentinels de `id_sap` `SAP_PENDENTE` (`10000000`) e `SAP_DUPLICATA` (`99999999`). |
+| `backend/coffee_module/alimentadores.py` | Lookup estático de alimentadores (`data/alimentadores.csv`, 1199 linhas `id`/`cidade`), carregado 1x e cacheado (`functools.lru_cache`). |
 
 ## client.py — integração externa
 
@@ -45,6 +47,13 @@ e a rota `/marcar-gerar` responde 502 "Nao foi possivel buscar a nota".
   `/marcar-gerar` convertem em 404 (qualquer outra exceção vira 502).
   Retorna um dict com `pk`, `id_sap`, `arquivado`, `local_instalacao`
   (montado por `compor_local_instalacao`) e os `fields` brutos.
+  A rota síncrona `GET /api/coffee/consultar/{id}` é somente leitura para a
+  busca sob demanda de duplicatas: ela não faz `upsert` em `notas_coffee`,
+  mas calcula `classificacao` a partir do estado local já existente. Além de
+  `poste`/`referencia`, projeta `problema` (junção não vazia de
+  `componente`/`componente_novo`, `sintoma`, `causa`) e `observacao`
+  (`observacao` ou `observacoes`). A ausência de `fields` ou desses aliases
+  produz `null`, não erro nem escrita.
 - `compor_local_instalacao(fields)` (`client.py:25`) — a API não devolve
   um campo pronto de local de instalação: ele é montado a partir de
   `cidade` (3 dígitos, zero-padded) + `tipo_local_instalacao` (2 letras) +
@@ -55,6 +64,7 @@ e a rota `/marcar-gerar` responde 502 "Nao foi possivel buscar a nota".
 - `desarquivar(id)` (`client.py:93`) — `GET desarquivar/{id}`.
 - `alterar_local(id, local)` (`client.py:97`) — `GET
   local_instalacao/{id}/{local}`.
+- `alterar_alimentador(id, alimentador)` — `GET alimentador/{id}/{alimentador}`.
 
 As três escritas (`definir_sap`, `desarquivar`, `alterar_local`)
 compartilham o helper interno `_get_logado()` (`client.py:72`), que faz o
@@ -71,6 +81,39 @@ mantidos para compatibilidade de API. Cada atualização grava estado, total,
 progresso, erros e resultados. Na inicialização, operações que ficaram
 `rodando` são interrompidas e seus cards em processamento retornam à etapa
 recuperável.
+
+### Paralelismo limitado (`_rodar_em_paralelo`)
+
+`iniciar_consulta_operacao()`, `iniciar_geracao_operacao()` e
+`iniciar_atualizacao_sap()` processam suas notas por `_rodar_em_paralelo()`
+(`jobs.py`), um `ThreadPoolExecutor(max_workers=config.MAX_WORKERS)` — antes
+era estritamente sequencial (1 nota por vez). Com fila grande, sequencial não
+escalava: cada nota que precisa gerar faz até 3 chamadas HTTP bloqueantes
+pra API COFFEE (`buscar_nota` → `definir_sap` → `desarquivar` → `buscar_nota`
+de novo), e uma nota lenta/travada prendia **todo o resto atrás dela** no
+mesmo job. `COFFEE_MAX_WORKERS` (padrão 4) e `COFFEE_TIMEOUT` (padrão 30s,
+era 120s fixo — cortando o pior caso de ~360s pra ~90s numa nota-problema)
+são configuráveis por env var.
+
+Cada `processar_um(ident)` passado pro helper trata seu próprio erro de
+domínio (`aplicar_falha` com a etapa de retorno certa pro fluxo) e relança a
+exceção — `_rodar_em_paralelo` só cuida da contabilização (`feitas`/`erros`)
+de forma segura entre threads via `_LOCK` (sem essa proteção, incrementos
+concorrentes em `snapshot["feitas"]` se perdem). O ganho real de throughput
+é menor que o teórico 4×: `operation_service.aplicar_consulta`/
+`_executar_geracao` abrem várias conexões SQLite por nota (cada
+`get_db_connection()` é `sqlite3.connect()` novo, sem pool), e escritas
+concorrentes no mesmo arquivo SQLite serializam parcialmente — throughput
+melhor ainda depende de reduzir esse número de round-trips por nota, não
+feito aqui (fora de escopo desta rodada).
+
+O `X-User` é capturado na rota e passado explicitamente a todos esses jobs.
+No início de cada thread (e de cada tarefa do pool, que roda em thread
+própria), o job chama `db.definir_usuario(usuario)`: uma
+`ContextVar` definida na requisição não atravessa `threading.Thread`. Assim,
+os logs assíncronos de consulta, geração, atualização SAP e correção de local
+mantêm o usuário informado, em vez do fallback do usuário da máquina. O
+`trace_id` segue o mesmo padrão de propagação explícita.
 
 A regra central de `_rodar_geracao()` (`jobs.py:70-110`) é: **o COFFEE só
 processa notas desarquivadas** — ele atribui o SAP real e arquiva sozinho
@@ -95,25 +138,53 @@ SAP ausente ou `SAP_PENDENTE`; pula notas com SAP real).
 
 `classificar(id_sap_atual, id_sap_anterior, origem=None)` (`classify.py:5`)
 é uma função pura que deriva o status local da nota a partir de três
-valores: sem `id_sap` → `nao_gerada`; `id_sap == SAP_PENDENTE` →
-`pendente`; transição de `SAP_PENDENTE` para um SAP real → `gerada` (se
-`origem == "avulsa"`) ou `corrigida` (origem desconhecida/`"verificar"`,
-mantido por compatibilidade retroativa); qualquer outro caso → `gerada`.
-O campo `arquivado` **não** entra nessa classificação — é tratado à parte
-(ver `db.py`). `origem` é o que distingue geração avulsa (via COFFEE, fila
-"a gerar") de correção de erro vinda da triagem Verificar.
+valores: sem `id_sap` → `nao_gerada`; `id_sap == SAP_DUPLICATA` →
+`duplicada` (checado antes de `SAP_PENDENTE`, senão o sentinel de duplicata
+cairia no ramo de SAP real e viraria `corrigida`/`gerada` por engano);
+`id_sap == SAP_PENDENTE` → `pendente`; transição de `SAP_PENDENTE` para um
+SAP real → `gerada` (se `origem == "avulsa"`) ou `corrigida` (origem
+desconhecida/`"verificar"`, mantido por compatibilidade retroativa);
+qualquer outro caso → `gerada`. O campo `arquivado` **não** entra nessa
+classificação — é tratado à parte (ver `db.py`). `origem` é o que distingue
+geração avulsa (via COFFEE, fila "a gerar") de correção de erro vinda da
+triagem Verificar.
+
+### Marcar duplicata (consumidor: Verificar)
+
+`backend/main.py: mark_duplicata()`/`desfazer_duplicata()` (rotas
+`POST /api/duplicata/{note_id}` e `POST /api/duplicata/{note_id}/desfazer`,
+fora do router `coffee_module`, mas reusando suas funções) marcam uma nota da
+triagem Verificar como duplicata reaproveitando o mecanismo real de SAP: como
+`SAP_PENDENTE`, o sentinel `SAP_DUPLICATA` é escrito **ao vivo** via
+`client.definir_sap`, não é um campo local isolado. Marcar também arquiva
+localmente (`db.arquivar_nota`) e limpa qualquer item pendente de geração
+(`remover_item_operacao` + `marcar_gerar(False)`); desfazer restaura
+`SAP_PENDENTE` ao vivo e desarquiva localmente (`db.desarquivar_nota()`,
+espelho de `arquivar_nota()`). Justificativa é opcional e só alimenta
+`registrar_log`, diferente de `POST /arquivar` (que a exige).
 
 ## db.py
 
 SQLite local em `config.data_dir() / "coffee.db"` (WAL habilitado), com
-tabelas criadas/migradas em `inicializar_banco()`:
+tabelas criadas/migradas em `inicializar_banco()`. O `journal_mode=WAL` é
+negociado somente nessa inicialização (modo persistido no arquivo); cada nova
+conexão apenas habilita `foreign_keys`, usa `synchronous=NORMAL` e recebe
+`busy_timeout=5000`. Isso evita que jobs concorrentes disputem um lock
+exclusivo ao renegociar WAL. As operações do módulo mantêm conexões curtas:
+executam, fazem `commit` e fecham a conexão antes de retornar.
 
 - **`notas_coffee`** — uma linha por `pk` de nota, com `id_sap`,
   `id_sap_anterior` (snapshot para a classificação), `arquivado`,
   `classificacao`, `dados_json` (fields brutos), `a_gerar` (flag da fila),
-  `origem` (`"avulsa"` | `"verificar"` | `NULL`) e `classificacao_em`
-  (timestamp da última mudança de classificação, preservado entre
-  re-buscas que não mudam a classe).
+  `origem` (`"avulsa"` | `"verificar"` | `NULL`), `classificacao_em` e a
+  rastreabilidade da triagem: `verificar_id` (não assume que o ID da fonte é o
+  PK COFFEE), `verificar_ativa`, `verificar_em`/`verificar_por`, o último
+  encaminhamento `encaminhada_em`/`encaminhada_por`, o retorno justificado da
+  Operação (`retornada_em`/`retornada_por`/`retorno_justificativa`) e
+  `corrigida_em`/`corrigida_por`. `resumo_triagem_verificar()` cruza essa
+  origem com a fila operacional para expor encaminhadas, falhas operacionais,
+  retornadas e o total diário separado por usuário. Os timestamps são preservados entre
+  re-buscas que não mudam a classe.
 - **`coffee_logs`** — log de auditoria (`api_call` / `acao_usuario` /
   `transicao`), com `usuario` (best-effort via `getpass.getuser()`, nunca
   levanta) e `trace_id` (correlaciona um lote e suas chamadas filhas,
@@ -123,10 +194,16 @@ tabelas criadas/migradas em `inicializar_banco()`:
 - **`coffee_fila_operacao`** — cards da fila com entrada original, PK
   resolvida, etapa, origem, job associado e erro recuperável.
 
-`upsert_nota()` (`db.py:102`) é o ponto único de escrita de notas: lê o
+O startup do FastAPI chama `inicializar_banco()` antes de atender a triagem,
+para que `GET /api/data` sempre encontre o schema de rastreabilidade mesmo se
+nenhuma rota `/api/coffee/*` tiver sido acessada nesta execução.
+
+`upsert_nota()` é o ponto único de escrita de notas: lê o
 `id_sap`/`classificacao`/`origem` anteriores, chama `classify.classificar()`
 e grava, registrando uma entrada `transicao` em `coffee_logs` quando a
-classificação muda. Nota: `arquivado` é intencionalmente **excluído** do
+classificação muda. Na transição para `corrigida`, fixa também o usuário e o
+horário da conclusão; a rota `/marcar-gerar` fixa o vínculo e o usuário de
+entrada da triagem. Nota: `arquivado` é intencionalmente **excluído** do
 upsert (comentário `ponytail`, `db.py:103-104`) — representa uma ação do
 usuário no app (via `arquivar_nota()`), não o estado do COFFEE, que arquiva
 como parte do seu próprio workflow normal ao gerar.
@@ -155,10 +232,13 @@ Router `/api/coffee` (prefixo). Mapeamento para o frontend
 | `POST /operacao/remover` | Remove cards da operação; exige justificativa. | `operacao/coffee-operacao.tsx` |
 | `GET /job/{job_id}` | Consulta um snapshot de job diretamente. | Compatibilidade e diagnóstico. |
 | `GET /notas` | Lista notas; `status=concluida` retorna geradas e corrigidas. | `concluidas/concluidas-api.ts` |
-| `GET /consultar/{id}` | Busca síncrona de uma nota; permanece como rota de compatibilidade. | Integrações legadas/manual. |
+| `POST /notas/concluidas/exportar` | Gera XLSX para os PKs concluídos ainda disponíveis ao usuário; a lista vazia/obsoleta retorna 404. | `concluidas/concluidas-api.ts` |
+| `GET /consultar/{id}` | Busca síncrona somente leitura: poste, referência física/elétrica separadas, alimentador, problema, observação e `campos` (fields crus do `json_all`, pra ficha completa mostrar tudo sem o backend projetar campo a campo). | Verificar (ficha completa), duplicatas externas. |
 | `POST /sap` | Define `id_sap` de uma nota diretamente. | uso interno/manual |
 | `POST /desarquivar` | Desarquiva uma nota diretamente. | uso interno/manual |
-| `POST /local-instalacao` | Corrige o local e reconsulta o card/ficha. | `components/coffee-nota-inspector.tsx` |
+| `POST /local-instalacao` | Valida 13 caracteres, corrige e reconsulta. Se não existe card operacional, apenas sincroniza a nota local; se já existe, reclassifica sua ficha. Retorna conflito se o COFFEE não confirmar o valor. | Verificar e `components/coffee-nota-inspector.tsx` |
+| `GET /alimentadores` | Lista o lookup estático de alimentadores (`alimentadores.py`, CSV carregado 1x). | `alimentador-correction.tsx` (Verificar) |
+| `POST /alimentador` | Valida o ID contra o lookup (nunca texto livre), chama `client.alterar_alimentador`, reconsulta e confirma por releitura — mesmo padrão de `/local-instalacao`, sem a integração com card operacional. | `alimentador-correction.tsx` (Verificar) |
 | `GET /logs` | Lista logs, filtrável por `nota_pk`/`tipo`/`usuario`/`since`/`limit`. | `coffee-logs.tsx`, inspector |
 | `GET /logs/usuarios` | Lista usuários distintos que aparecem nos logs. | `coffee-logs.tsx` |
 | `POST /arquivar` | Arquiva uma nota concluída; exige justificativa. | `concluidas/coffee-concluidas.tsx` |

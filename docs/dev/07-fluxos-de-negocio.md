@@ -13,10 +13,11 @@ pelo frontend. Para os detalhes internos de cada módulo, ver
 
 ## Ciclo de vida de uma nota
 
-1. **Verificar (triagem)** — o usuário faz upload de um Excel de notas
-   ([`01-frontend-verificar.md`](01-frontend-verificar.md)). O backend
-   roda as regras de validação (coordenada, referência, imagens,
-   executor, local, tipo, SAP, setor, prioridade) e detecta duplicatas.
+1. **Verificar (triagem)** — o backend lê a tabela `ids_verificacao` do
+   `Verificar.db` compartilhado em modo somente leitura
+   ([`01-frontend-verificar.md`](01-frontend-verificar.md)). Ele transforma
+   as regras `chk_*` (coordenada, referência, imagens, executor, local, tipo,
+   SAP, setor e prioridade) e detecta duplicatas.
 2. **Correção ou fila COFFEE** — notas escolhidas na triagem são
    encaminhadas para a fila persistida da página Operação. O
    `POST /marcar-gerar` registra `origem='verificar'`; reabrir a nota
@@ -29,8 +30,9 @@ pelo frontend. Para os detalhes internos de cada módulo, ver
    Prontos. O COFFEE só processa notas **desarquivadas**; ver a regra
    detalhada na seção seguinte.
 5. **Gerada / corrigida** — quando o COFFEE atribui o SAP real, a
-   atualização SAP remove o card da operação e a nota aparece em
-   Concluídas, classificada conforme `classify.classificar`.
+   atualização SAP remove o card da operação. Uma nota originada em Verificar
+   é classificada como corrigida, recebe data/hora e usuário da conclusão,
+   some da triagem e aparece em Concluídas.
 6. **Nota real no SAP** — fim do ciclo: a nota tem `id_sap` real e está
    arquivada no COFFEE.
 7. **COFFEE → Plano (opcional)** — com a nota já gerada (`id_sap`
@@ -72,7 +74,8 @@ durante o SP1) está em
 
 Como a sincronização roda em background e pode ser disparada por
 qualquer sessão, outras abas/usuários não são notificados
-automaticamente — é o polling de 60s em `use-input-data.ts` (ver
+automaticamente — é o polling unificado de 60s em repouso em
+`use-input-sync.ts` (ver
 tabela abaixo) que detecta a mudança comparando `versao`
 (`db.obter_versao_dataset()`, retornada por `GET /sync`) e invalida
 `INPUT_DADOS_KEY` em background, avisando o usuário via `toast.info`
@@ -82,16 +85,17 @@ tabela abaixo) que detecta a mudança comparando `versao`
 
 | Valor | Onde (arquivo:linha) | O que faz |
 |---|---|---|
-| 220ms | `frontend/src/features/verificar/upload-screen.tsx:23` | Progresso "falso" da barra de upload (`setPct(65)` depois de 220ms) — não é polling real, é feedback visual enquanto o upload real roda. |
+| 30_000ms (30s) | `frontend/src/features/verificar/useTriageData.ts` | Reconsulta o `Verificar.db`, refletindo notas corrigidas ou alterações na fonte. |
 | 250ms × índice | `frontend/src/api.ts:20` | Ao abrir N notas no COFFEE de uma vez, cada `window.open` é escalonado 250ms depois do anterior, para não disparar o bloqueador de pop-up do navegador. |
 | 800ms | `frontend/src/features/coffee/operacao/use-coffee-operacao.ts` | Refetch do quadro enquanto existir job com estado `rodando`. |
 | 10_000ms (10s) | `frontend/src/features/coffee/coffee-logs.tsx:60` | Refresh automático dos logs quando o toggle "ao vivo" está ligado. |
-| 60_000ms (60s) | `frontend/src/features/input/use-input-data.ts:29-35` | Verifica se a base de dados do Input foi sincronizada em outra sessão (compara `versao`); se sim, invalida `INPUT_DADOS_KEY` em background e avisa via `toast.info`. |
+| 60_000ms (60s) / 3_000ms (3s) | `frontend/src/features/input/use-input-sync.ts` | Única query de `/sync` por aba Input: repouso / operação ativa. Compara `versao`, invalida `INPUT_DADOS_KEY` e alimenta o status recuperável do cabeçalho. |
+| 60_000ms (60s) / 15_000ms (15s) | `frontend/src/features/input/use-bloqueios.ts` | Consulta locks em repouso / enquanto há edição inline ativa; alterações locais invalidam a query imediatamente. |
 
 ## Pontos de atenção
 
-- **Polling descentralizado.** Operação usa `refetchInterval` do React
-  Query; logs ao vivo e staleness do Input ainda usam timers próprios.
+- **Polling entre features.** Operação e Input usam `refetchInterval` do React
+  Query; logs ao vivo ainda usam timer próprio.
   Uma migração para WebSocket ou SSE continuaria exigindo mudanças em
   mais de uma feature.
 - **Regra de desarquivar duplicada em dois lugares.** A sequência

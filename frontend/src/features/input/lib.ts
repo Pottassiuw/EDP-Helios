@@ -114,6 +114,12 @@ export function parseColagemTsv(texto: string, colunas: string[]): Partial<NotaI
     });
 }
 
+export function formatarDataHora(v: string | number | null): string {
+  if (v === null || v === undefined || v === '') return '—';
+  const d = typeof v === 'number' ? new Date(v) : new Date(String(v).replace(' ', 'T'));
+  return Number.isNaN(d.getTime()) ? String(v) : d.toLocaleString('pt-BR');
+}
+
 export function formatarNumero(v: Celula, casas = 2, agrupar = true): string {
   if (v === null || v === undefined) return '-';
   const n = Number(v);

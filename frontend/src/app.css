@@ -61,11 +61,17 @@
   --color-accent-2: var(--accent-2);
   --color-accent-tint: var(--accent-tint);
   --color-on-green: var(--on-green);
+  --color-on-dark: var(--on-dark);
   --color-tint-green: var(--tint-green);
   --color-tint-blue: var(--tint-blue);
   --color-tint-indigo: var(--tint-indigo);
   --color-tint-amber: var(--tint-amber);
   --color-tint-red: var(--tint-red);
+  --color-status-green-border: var(--status-green-border);
+  --color-status-blue-border: var(--status-blue-border);
+  --color-status-indigo-border: var(--status-indigo-border);
+  --color-status-amber-border: var(--status-amber-border);
+  --color-status-red-border: var(--status-red-border);
   --radius-app-sm: var(--r-sm);
   --radius-app: var(--r);
   --radius-app-md: var(--r-md);
@@ -170,6 +176,17 @@
   /* Par fixo do verde da marca (DESIGN.md `on-primary`). O verde não muda
      com o tema, então o tipo sobre ele também não. */
   --on-green: #171717;
+  --on-dark: #ffffff;
+
+  /* Bordas de feedback derivadas dos tokens de status; os componentes não
+     carregam mais valores RGBA literais próprios. */
+  --status-green-border: color-mix(in srgb, var(--green) 30%, transparent);
+  --status-blue-border: color-mix(in srgb, var(--blue) 40%, transparent);
+  --status-indigo-border: color-mix(in srgb, var(--indigo) 30%, transparent);
+  --status-amber-border: color-mix(in srgb, var(--amber) 30%, transparent);
+  --status-red-border: color-mix(in srgb, var(--red) 30%, transparent);
+  --shadow-floating: 0 4px 14px color-mix(in srgb, var(--text) 35%, transparent);
+  --shadow-drawer: -8px 0 24px color-mix(in srgb, var(--text) 30%, transparent);
 
   /* — status (uso restrito a badges/indicadores, nunca botões —
      DESIGN.md: "purples, yellows, pinks belong inside chart points
@@ -259,10 +276,14 @@
   --tint-green:  rgba(62,207,142,0.16);
 
   --indigo: #9b8cf0;  /* accent-violet clareado p/ AA sobre canvas-night */
+  /* O índigo fica claro no tema escuro; texto branco perderia AA nele. */
+  --on-dark: #171717;
   --tint-indigo: rgba(155,140,240,0.16);
   --amber:  #ffdb13;  /* accent-yellow literal — 11.9:1 sobre near-black */
   --tint-amber: rgba(255,219,19,0.15);
   --red:    #ff6b8f;  /* accent-crimson clareado */
+  /* O vermelho é clareado no escuro; texto branco perderia AA nele. */
+  --destructive-foreground: #171717;
   --tint-red: rgba(255,107,143,0.15);
   --blue:   #6f9dff;  /* accent-indigo clareado */
   --tint-blue: rgba(111,157,255,0.15);

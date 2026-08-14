@@ -12,8 +12,7 @@ perder o progresso ao atualizar o navegador.
 `coffee-hub.tsx` é a casca da feature. Ele recebe a subpágina de `App.tsx` e
 renderiza uma de cinco seções por `SegTabs`:
 
-- **Verificar** — reusa a triagem de planilha e encaminha notas para a fila
-  COFFEE.
+- **Verificar** — lê a triagem diretamente do `Verificar.db` e encaminha notas para a fila COFFEE.
 - **Abrir** — abre IDs manualmente no COFFEE; a lista fica no navegador.
 - **Operação** — o Kanban da fila ativa.
 - **Concluídas** — histórico separado de notas geradas e corrigidas.
@@ -30,6 +29,7 @@ renderiza uma de cinco seções por `SegTabs`:
 | `operacao/components/operacao-kanban.tsx` | Quatro colunas responsivas, sem drag and drop: Fila, Prontas, Processando e Aguardando SAP. |
 | `components/coffee-nota-inspector.tsx` | Ficha lateral da nota com resumo, card read-only da Carteira, atividade, edição de local e ações contextuais. |
 | `concluidas/coffee-concluidas.tsx` | Histórico, filtros, arquivamento de geradas e movimento de corrigidas para o Plano. |
+| `concluidas/concluidas-api.ts` | Consulta e exportação do conjunto filtrado de concluídas. |
 | `concluidas/components/concluidas-list.tsx` | Lista responsiva de concluídas e seleção restrita às corrigidas. |
 | `coffee-abrir.tsx` | Lista local de IDs e abertura escalonada no COFFEE. |
 | `coffee-logs.tsx` e `coffee-log-table.tsx` | Filtros e linha do tempo de auditoria por `trace_id`. |
@@ -38,9 +38,23 @@ renderiza uma de cinco seções por `SegTabs`:
 
 ## Operação: Kanban persistido
 
-O botão **Adicionar notas** abre o composer na própria página. IDs separados
-por espaço, vírgula, ponto e vírgula ou linha são analisados antes de enviar;
-somente números positivos e únicos seguem para `POST /api/coffee/operacao/consultar`.
+O botão **Adicionar notas** abre o composer na própria página
+(`operacao-composer.tsx`): textarea grande (8 linhas, `resize-y`,
+`overflow-y-auto` até a altura máxima), texto auxiliar sobre o formato e
+contadores de válidos/repetidos/inválidos/já-na-operação enquanto o usuário
+digita. IDs separados por espaço, vírgula, ponto e vírgula ou linha são
+analisados antes de enviar; somente números positivos e únicos seguem para
+`POST /api/coffee/operacao/consultar`. O composer só limpa o texto e fecha
+depois que a consulta é *aceita* pelo backend — uma falha mantém o conteúdo
+e mostra o erro embutido no painel, sem fechar silenciosamente. Ctrl+Enter
+consulta; Enter sozinho só quebra linha (é uma textarea).
+
+Depois que o job de consulta termina, um toast resume o resultado real
+(`resumo-job.ts: resumoJobConsulta`) — quantas notas ficaram prontas,
+aguardando SAP, em processamento, foram ignoradas (já em estado final) ou
+falharam — em vez de só "Consulta iniciada". O backend expõe essa contagem
+em `por_etapa` no snapshot do job de consulta (`jobs.py:
+_rodar_consulta_operacao`).
 
 O Kanban não permite arrastar cards. A API e a máquina de estados definem a
 etapa de cada item:
@@ -60,7 +74,9 @@ interrompidos e itens que estavam em processamento voltam a Prontas com erro
 recuperável.
 
 O estado legado do antigo modal, `sessionStorage['edp_coffee_gerar_rows']`, é
-migrado na primeira montagem de Operação. A chave só é removida depois de a
+migrado na primeira montagem de Operação. A migração é observável: um toast
+avisa que a migração começou e outro confirma quantas notas foram migradas
+(ou o erro, se a consulta falhar). A chave só é removida depois de a
 consulta ser aceita; se a mutation falhar, os dados ficam na sessão para uma
 tentativa futura.
 
@@ -105,7 +121,17 @@ consulta quando esse dado antigo não existir.
 Notas geradas podem ser arquivadas após justificativa. Apenas corrigidas podem
 ser selecionadas e movidas, individualmente ou em lote, para o Plano. O
 `MoverPlanoModal` invalida `INPUT_DADOS_KEY` e a revisão de cada nota movida e
-oferece a navegação para a Visão Geral do Input.
+oferece a navegação para a Visão Geral do Input. Para notas vindas de Verificar,
+a lista informa a data/hora de entrada e da correção; o inspector mostra também
+quem encaminhou e quem concluiu.
+
+O botão **Exportar Excel** envia os PKs do resultado atualmente filtrado (tipo,
+busca e período), junto do `X-User` da sessão COFFEE, para o backend e baixa
+`notas_concluidas_YYYY-MM-DD.xlsx`.
+A planilha contém ID ONR, ID SAP, classificação, local, poste, referência,
+componente, sintoma, observação, origem e data de conclusão. Ela não exporta
+notas que deixaram de estar concluídas ou de estar disponíveis para o usuário
+entre a listagem e o download.
 
 ## Logs e timings
 

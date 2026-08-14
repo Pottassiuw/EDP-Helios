@@ -77,6 +77,7 @@ describe('CoffeeNotaInspector', () => {
         prioridade_sap: null,
       },
       ausente_na_origem_em: null,
+      avisos: [],
       versao: '7',
     });
 

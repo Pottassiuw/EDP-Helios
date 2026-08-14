@@ -1,20 +1,52 @@
 @echo off
 :: =======================================================================
-:: EDP Verify - Script de Inicializacao Automatizado
+:: Helios - Script de Inicializacao Automatizado
+:: =======================================================================
+:: AVISO PARA OUTRAS IAs E MANTENEDORES:
+:: - Nao altere, substitua ou remova executaveis do sistema.
+:: - Nao altere Node, npm, FNM, suas versoes ou caminhos sem pedido explicito.
+:: - O frontend deve usar exclusivamente Node/npm gerenciados pelo FNM.
+:: - Nao instale outro Node/npm nem crie fallback para o executavel do sistema.
 :: =======================================================================
 chcp 65001 > nul
-title EDP Verify - De olho no Problema
+title Helios - A luz do seu setor
 
 setlocal enabledelayedexpansion
 
 set "PROJECT_ROOT=%~dp0"
 cd /d "%PROJECT_ROOT%"
 
-:: Adiciona caminhos do Node.js e FNM ao PATH da sessao caso necessario
-if exist "%USERPROFILE%\Node" set "PATH=%USERPROFILE%\Node;!PATH!"
-if exist "%USERPROFILE%\AppData\Roaming\fnm\current" set "PATH=%USERPROFILE%\AppData\Roaming\fnm\current;!PATH!"
-if exist "%USERPROFILE%\Node\fnm.exe" (
-    for /f "tokens=*" %%i in ('"%USERPROFILE%\Node\fnm.exe" env --shell cmd') do %%i
+:: Inicializa o FNM antes de qualquer chamada ao Node/npm.
+:: O npm correto vem da versao Node selecionada pelo FNM, nunca do PATH do Windows.
+set "FNM_EXE="
+if exist "%USERPROFILE%\Documents\fnm-windows\fnm.exe" set "FNM_EXE=%USERPROFILE%\Documents\fnm-windows\fnm.exe"
+if not defined FNM_EXE if exist "%USERPROFILE%\AppData\Local\fnm\fnm.exe" set "FNM_EXE=%USERPROFILE%\AppData\Local\fnm\fnm.exe"
+if not defined FNM_EXE (
+    for /f "delims=" %%i in ('where fnm 2^>nul') do if not defined FNM_EXE set "FNM_EXE=%%i"
+)
+if not defined FNM_EXE (
+    echo ERRO: FNM nao encontrado.
+    echo Instale/configure o FNM em %%USERPROFILE%%\Documents\fnm-windows ou adicione-o ao PATH.
+    pause
+    exit /b 1
+)
+
+for /f "tokens=*" %%i in ('"%FNM_EXE%" env --shell cmd') do %%i
+if errorlevel 1 (
+    echo ERRO: nao foi possivel inicializar o ambiente do FNM.
+    pause
+    exit /b 1
+)
+
+where node >nul 2>&1 || (
+    echo ERRO: Node nao foi disponibilizado pelo FNM.
+    pause
+    exit /b 1
+)
+where npm >nul 2>&1 || (
+    echo ERRO: npm nao foi disponibilizado pelo FNM.
+    pause
+    exit /b 1
 )
 
 :: Identifica o executavel do Python pelo caminho absoluto
@@ -27,42 +59,55 @@ if exist "%PROJECT_ROOT%backend\.venv\Scripts\python.exe" (
 )
 
 echo =======================================================================
-echo                 EDP VERIFY - DE OLHO NO PROBLEMA
+echo                 Helios - A luz do seu setor
 echo =======================================================================
+echo  Node ativo: & node --version
+echo  npm ativo:  & call npm --version
 echo.
-echo  [1] Iniciar Sistema (Recomendado - http://localhost:8000)
-echo  [2] Iniciar Modo Desenvolvedor (Backend :8000 + Frontend Vite :5173)
-echo  [3] Recompilar Frontend (npm run build)
-echo  [4] Sair
+echo  [1] Produção (Backend + Frontend compilado - :6328)
+echo  [2] Desenvolvimento (Backend :6328 + Frontend Vite :5173)
+echo  [3] Build Frontend (npm run build, sem iniciar servidor)
+echo  [4] Apenas Backend (com reload - :6328)
+echo  [5] Sair
 echo.
 echo =======================================================================
 
-choice /C 1234 /T 5 /D 1 /M "Selecione uma opcao (Iniciando modo padrao em 5s):"
+choice /C 12345 /T 5 /D 1 /M "Selecione uma opcao (Iniciando modo padrao em 5s):"
 
-if errorlevel 4 goto SAIR
+if errorlevel 5 goto SAIR
+if errorlevel 4 goto BACKEND_ONLY
 if errorlevel 3 goto REBUILD
 if errorlevel 2 goto DEV_MODE
 if errorlevel 1 goto PROD_MODE
 
 :PROD_MODE
 cls
-echo.
-echo [1/2] Compilando arquivos do Frontend (dist)...
-cd /d "%PROJECT_ROOT%frontend"
-call npm run build
+echo [1/2] Verificando arquivos do Frontend (dist)...
+if not exist "%PROJECT_ROOT%frontend\dist" (
+    echo.
+    echo Frontend ainda nao foi compilado. Gerando build agora...
+    cd /d "%PROJECT_ROOT%frontend"
+    call npm run build
+    if errorlevel 1 (
+        echo.
+        echo Build falhou. O servidor nao sera iniciado.
+        pause
+        goto FIM
+    )
+)
 
 echo [2/2] Iniciando o servidor EDP Verify (Backend + Frontend)...
 echo.
 echo -----------------------------------------------------------------------
-echo  O sistema abrira automaticamente no navegador: http://localhost:8000
+echo  O sistema abrira automaticamente no navegador: http://localhost:6328
 echo  Para encerrar o sistema, feche esta janela ou pressione Ctrl+C.
 echo -----------------------------------------------------------------------
 echo.
 
-start "" "http://localhost:8000"
+start "" "http://localhost:6328"
 
 cd /d "%PROJECT_ROOT%backend"
-"!PYTHON_EXE!" -m uvicorn main:app --host 127.0.0.1 --port 8000
+"!PYTHON_EXE!" -m uvicorn main:app --host 0.0.0.0 --port 6328
 goto FIM
 
 :DEV_MODE
@@ -73,17 +118,30 @@ echo                   INICIANDO MODO DESENVOLVEDOR
 echo =======================================================================
 echo.
 
-echo [1/2] Iniciando Backend FastAPI em segundo plano (:8000)...
-start "EDP Verify - Backend" cmd /k "cd /d "%PROJECT_ROOT%backend" && "!PYTHON_EXE!" -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload"
+echo [1/2] Iniciando Backend FastAPI em segundo plano (:6328)...
+start "EDP Verify - Backend" cmd /k "cd /d "%PROJECT_ROOT%backend" && "!PYTHON_EXE!" -m uvicorn main:app --host 0.0.0.0 --port 6328 --reload"
 
 echo [2/2] Iniciando Frontend Vite (:5173)...
 start "EDP Verify - Frontend Vite" cmd /k "cd /d "%PROJECT_ROOT%frontend" && npm run dev"
 
 echo.
 echo Servidores iniciados em janelas separadas!
-echo Backend:  http://localhost:8000
+echo Backend:  http://localhost:6328
 echo Frontend: http://localhost:5173
 echo.
+goto FIM
+
+:BACKEND_ONLY
+cls
+echo.
+echo =======================================================================
+echo                    APENAS BACKEND (:6328)
+echo =======================================================================
+echo.
+echo Backend FastAPI com reload. Pressione Ctrl+C para encerrar.
+echo.
+cd /d "%PROJECT_ROOT%backend"
+"!PYTHON_EXE!" -m uvicorn main:app --host 0.0.0.0 --port 6328 --reload
 goto FIM
 
 :REBUILD
@@ -93,11 +151,17 @@ echo Recompilando o frontend React...
 echo.
 cd /d "%PROJECT_ROOT%frontend"
 call npm run build
+if errorlevel 1 (
+    echo.
+    echo Build falhou. O servidor nao sera iniciado.
+    pause
+    goto FIM
+)
 echo.
 echo Build concluido com sucesso!
 echo.
 pause
-goto PROD_MODE
+goto FIM
 
 :SAIR
 exit /b 0

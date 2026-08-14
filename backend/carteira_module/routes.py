@@ -9,6 +9,8 @@ from input_module.service import NotasDuplicadasErro, pos_escrita
 
 router = APIRouter(prefix="/api/carteira", tags=["carteira"])
 
+_REPRESENTACAO_ENRIQUECIMENTO = "enriquecimento-v2"
+
 
 @router.get("/notas")
 def listar_notas(
@@ -39,7 +41,7 @@ def obter_enriquecimento_por_sap(
     response: Response,
 ):
     corpo = service.enriquecimento_por_sap(numero)
-    etag = f'W/"{corpo["versao"]}"'
+    etag = f'W/"{_REPRESENTACAO_ENRIQUECIMENTO}-{corpo["versao"]}"'
     headers = {"ETag": etag, "Cache-Control": "no-cache"}
     if request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers=headers)

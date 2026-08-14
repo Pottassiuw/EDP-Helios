@@ -13,17 +13,17 @@ import { Loader2, Mail } from 'lucide-react';
 
 /** Cores do "semáforo" (porte de Input/app.py:1132-1139). */
 const CORES_AUDITORIA: Record<string, string> = {
-  '🟢 Adiantado': '#28a745',
-  '🔵 No Prazo': '#007bff',
-  '🔴 Com Atraso': '#dc3545',
-  '🟣 Fora do Plano': '#6f42c1',
-  '⚠️ Passível de Encerramento': '#ffc107',
-  '⚪ Em Andamento (No Prazo)': '#585c5d',
-  '⚪ Sem Planejamento': '#6c757d',
-  '⏳Sem Data SAP': '#410707',
-  '⚠️ Data SAP Inválida': '#343a40',
-  '⚠️ Sem Mês Planejado Válido': '#fd7e14',
-  '⚠️ Erro na Análise': '#000000',
+  '🟢 Adiantado': 'var(--green-3)',
+  '🔵 No Prazo': 'var(--blue)',
+  '🔴 Com Atraso': 'var(--red)',
+  '🟣 Fora do Plano': 'var(--indigo)',
+  '⚠️ Passível de Encerramento': 'var(--amber)',
+  '⚪ Em Andamento (No Prazo)': 'var(--text-dim)',
+  '⚪ Sem Planejamento': 'var(--text-mute)',
+  '⏳Sem Data SAP': 'var(--red)',
+  '⚠️ Data SAP Inválida': 'var(--text-dim)',
+  '⚠️ Sem Mês Planejado Válido': 'var(--amber)',
+  '⚠️ Erro na Análise': 'var(--text)',
 };
 
 const COLUNAS_AUDITORIA: ColunaDef[] = [
@@ -316,7 +316,7 @@ export function Reports({
 
   const fatias: FatiaRosca[] = [...contagens.entries()]
     .sort((a, b) => b[1] - a[1])
-    .map(([rotulo, qtd]) => ({ rotulo, qtd, cor: CORES_AUDITORIA[rotulo] ?? '#888' }));
+    .map(([rotulo, qtd]) => ({ rotulo, qtd, cor: CORES_AUDITORIA[rotulo] ?? 'var(--text-mute)' }));
 
   // --- PROCESSAMENTO DADOS: FINANÇAS ---
   const registrosFinancas = React.useMemo(() => {

@@ -1,7 +1,11 @@
 """Testes do módulo Input (backend)."""
+import datetime
+import io
 import os
 import tempfile
-import io
+import threading
+import time
+from pathlib import Path
 
 # Blindagem global: impede que a execução de testes afete o banco de dados real
 _tmp_test_dir = tempfile.mkdtemp(prefix="edp_input_test_")
@@ -63,8 +67,7 @@ def test_inicializar_banco_cria_tabelas(banco_temporario):
     tabelas = {r[0] for r in conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
     conn.close()
-    assert {"notas", "log_alteracoes", "log_arquivos"} <= tabelas
-    assert "bloqueios" not in tabelas  # fora do escopo (spec)
+    assert {"notas", "log_alteracoes", "log_arquivos", "bloqueios"} <= tabelas
 
 
 def test_inicializar_banco_cria_indices(banco_temporario):
@@ -154,6 +157,53 @@ def test_aplicar_edicoes_gera_diff_log_e_status_anterior(banco_temporario):
     assert resultado["alteradas"] == 0
 
 
+def test_aplicar_edicoes_aceita_schema_legado_sem_status_anterior(
+    banco_temporario
+):
+    from input_module import db
+
+    db.salvar_em_massa(pd.DataFrame([_nota(2001)]))
+    conn = db.get_db_connection()
+    try:
+        conn.execute("ALTER TABLE notas DROP COLUMN Status_Anterior")
+        conn.commit()
+    finally:
+        conn.close()
+
+    resultado = db.aplicar_edicoes(
+        [{"Numero_Nota": 2001, "Status_Nota": "99 Encerrado"}],
+        usuario="tester",
+    )
+
+    assert resultado == {"alteradas": 1, "campos": 1, "bloqueadas": []}
+    nota = db.carregar_dados().set_index("Numero_Nota").loc[2001]
+    assert nota["Status_Nota"] == "99 Encerrado"
+    assert list(db.carregar_logs()["Campo_Alterado"]) == ["Status_Nota"]
+
+
+def test_aplicar_edicoes_consolida_linhas_duplicadas_da_mesma_nota(
+    banco_temporario
+):
+    from input_module import db
+
+    db.salvar_em_massa(pd.DataFrame([_nota(2002)]))
+
+    resultado = db.aplicar_edicoes(
+        [
+            {"Numero_Nota": 2002, "Observacao": "primeira"},
+            {"Numero_Nota": 2002, "Observacao": "final", "Check": "feito"},
+        ],
+        usuario="tester",
+    )
+
+    assert resultado == {"alteradas": 1, "campos": 2, "bloqueadas": []}
+    nota = db.carregar_dados().set_index("Numero_Nota").loc[2002]
+    assert nota["Observacao"] == "final"
+    assert nota["Check"] == "feito"
+    logs = db.carregar_logs()
+    assert set(logs["Campo_Alterado"]) == {"Observacao", "Check"}
+
+
 def test_aplicar_edicoes_nota_inexistente_da_erro(banco_temporario):
     from input_module import db
     with pytest.raises(ValueError):
@@ -164,12 +214,66 @@ def test_reverter_ultima_alteracao(banco_temporario):
     from input_module import db
     db.salvar_em_massa(pd.DataFrame([_nota(3000)]))
     db.aplicar_edicoes([{"Numero_Nota": 3000, "Status_Nota": "99 Encerrado"}], usuario="t")
-    ok, _msg = db.reverter_ultima_alteracao()
+    ok, _msg = db.reverter_ultima_alteracao("t")
     assert ok
     df = db.carregar_dados()
     assert df[df["Numero_Nota"] == 3000].iloc[0]["Status_Nota"] == "10 Em planejamento"
-    ok, _msg = db.reverter_ultima_alteracao()
+    ok, _msg = db.reverter_ultima_alteracao("t")
     assert not ok
+
+
+def test_reverter_nao_desfaz_alteracao_de_outro_usuario(banco_temporario):
+    """O undo é por usuário: com o banco compartilhado, desfazer o próprio
+    trabalho não pode reverter o da colega que salvou depois."""
+    from input_module import db
+    db.salvar_em_massa(pd.DataFrame([_nota(3100)]))
+    db.aplicar_edicoes([{"Numero_Nota": 3100, "Observacao": "minha"}], usuario="eu")
+    db.aplicar_edicoes([{"Numero_Nota": 3100, "Observacao": "dela"}], usuario="outra")
+
+    ok, _msg = db.reverter_ultima_alteracao("eu")
+    assert ok
+    df = db.carregar_dados()
+    # A edição da outra pessoa (mais recente) permanece intocada.
+    assert df[df["Numero_Nota"] == 3100].iloc[0]["Observacao"] == "dela"
+
+
+def test_reverter_protege_comparacao_e_update_na_mesma_transacao(
+    banco_temporario, monkeypatch
+):
+    from input_module import db
+
+    db.salvar_em_massa(pd.DataFrame([_nota(3101)]))
+    db.aplicar_edicoes(
+        [{"Numero_Nota": 3101, "Observacao": "minha"}],
+        usuario="eu",
+    )
+    comparar_original = db._mesmo_valor
+    tentativa_concorrente = {}
+
+    def comparar_com_escrita_concorrente(gravado, esperado):
+        conexao = sqlite3.connect(db.obter_caminho_banco(), timeout=0)
+        try:
+            conexao.execute(
+                "UPDATE notas SET Observacao = ? WHERE Numero_Nota = ?",
+                ("concorrente", 3101),
+            )
+            conexao.commit()
+            tentativa_concorrente["gravou"] = True
+        except sqlite3.OperationalError as erro:
+            assert "locked" in str(erro).lower()
+            tentativa_concorrente["gravou"] = False
+        finally:
+            conexao.close()
+        return comparar_original(gravado, esperado)
+
+    monkeypatch.setattr(db, "_mesmo_valor", comparar_com_escrita_concorrente)
+
+    ok, _mensagem = db.reverter_ultima_alteracao("eu")
+
+    assert ok
+    assert tentativa_concorrente == {"gravou": False}
+    nota = db.carregar_dados().set_index("Numero_Nota").loc[3101]
+    assert nota["Observacao"] == ""
 
 
 def test_deletar_notas(banco_temporario):
@@ -217,6 +321,303 @@ def test_deletar_notas_gera_log(banco_temporario):
     assert linha["Usuario"] == "tester"
 
 
+# ── Fase 2: bloqueios (edição concorrente no banco compartilhado) ────────
+def test_travar_nota_bloqueia_outro_usuario(banco_temporario):
+    from input_module import db
+    assert db.travar_nota(4200, "ana") == {"ok": True}
+    resultado = db.travar_nota(4200, "bob")
+    assert resultado["ok"] is False
+    assert resultado["usuario"] == "ana"
+    assert "desde" in resultado
+
+
+def test_travar_nota_concorrente_tem_apenas_um_vencedor(
+    banco_temporario, monkeypatch
+):
+    from input_module import db
+
+    get_connection_original = db.get_db_connection
+    conexoes_prontas = threading.Barrier(2)
+    resultados = []
+    erros = []
+
+    def get_connection_sincronizada():
+        conexao = get_connection_original()
+        conexoes_prontas.wait(timeout=5)
+        return conexao
+
+    def travar(usuario):
+        try:
+            resultados.append((usuario, db.travar_nota(4210, usuario)))
+        except Exception as erro:
+            erros.append(erro)
+
+    monkeypatch.setattr(db, "get_db_connection", get_connection_sincronizada)
+    threads = [
+        threading.Thread(target=travar, args=("ana",)),
+        threading.Thread(target=travar, args=("bob",)),
+    ]
+
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    monkeypatch.setattr(db, "get_db_connection", get_connection_original)
+    assert all(not thread.is_alive() for thread in threads)
+    assert erros == []
+    assert sum(resultado["ok"] for _, resultado in resultados) == 1
+    dono = db.obter_bloqueios([4210])[4210]["usuario"]
+    assert next(usuario for usuario, resultado in resultados if resultado["ok"]) == dono
+
+
+def test_travar_nota_mesmo_usuario_renova(banco_temporario):
+    from input_module import db
+    assert db.travar_nota(4201, "ana")["ok"] is True
+    # Segunda chamada da MESMA pessoa não é bloqueio — é renovação do TTL.
+    assert db.travar_nota(4201, "ana")["ok"] is True
+
+
+def test_destravar_libera_para_outro_usuario(banco_temporario):
+    from input_module import db
+    db.travar_nota(4202, "ana")
+    assert db.destravar_notas([4202], "ana") == 1
+    assert db.travar_nota(4202, "bob")["ok"] is True
+
+
+def test_destravar_nao_derruba_lock_de_outro(banco_temporario):
+    """Um release tardio de quem perdeu a corrida não pode apagar o lock de
+    quem já assumiu a nota no meio tempo."""
+    from input_module import db
+    db.travar_nota(4203, "ana")
+    assert db.destravar_notas([4203], "bob") == 0  # bob nunca foi o dono
+    assert db.obter_bloqueios([4203])[4203]["usuario"] == "ana"
+
+
+def test_bloqueio_expira_por_ttl(banco_temporario, monkeypatch):
+    from input_module import db
+    import datetime
+    db.travar_nota(4204, "ana")
+    # Simula um lock antigo sem esperar o TTL de verdade.
+    expirado = datetime.datetime.now() - datetime.timedelta(minutes=db.BLOQUEIO_TTL_MINUTOS + 1)
+    conn = db.get_db_connection()
+    conn.execute("UPDATE bloqueios SET Data_Hora = ? WHERE Numero_Nota = ?", (expirado, 4204))
+    conn.commit()
+    conn.close()
+    assert db.obter_bloqueios([4204]) == {}
+    assert db.travar_nota(4204, "bob")["ok"] is True
+
+
+def test_aplicar_edicoes_pula_nota_travada_por_outro(banco_temporario):
+    from input_module import db
+    db.salvar_em_massa(pd.DataFrame([_nota(4205)]))
+    db.travar_nota(4205, "outra")
+    resultado = db.aplicar_edicoes(
+        [{"Numero_Nota": 4205, "Observacao": "tentativa"}], usuario="eu")
+    assert resultado["alteradas"] == 0
+    assert resultado["bloqueadas"] == [4205]
+    df = db.carregar_dados()
+    assert df[df["Numero_Nota"] == 4205].iloc[0]["Observacao"] == ""
+
+
+def test_aplicar_edicoes_permite_dono_do_bloqueio(banco_temporario):
+    from input_module import db
+    db.salvar_em_massa(pd.DataFrame([_nota(4206)]))
+    db.travar_nota(4206, "eu")
+    resultado = db.aplicar_edicoes(
+        [{"Numero_Nota": 4206, "Observacao": "minha edicao"}], usuario="eu")
+    assert resultado["alteradas"] == 1
+    assert resultado["bloqueadas"] == []
+
+
+def test_aplicar_edicoes_concorrentes_preserva_campos_diferentes(
+    banco_temporario, monkeypatch
+):
+    from input_module import db
+
+    db.salvar_em_massa(pd.DataFrame([_nota(4209)]))
+    carregar_original = db.carregar_dados
+    get_connection_original = db.get_db_connection
+    conexoes_prontas = threading.Barrier(2)
+    erros = []
+
+    def get_connection_sincronizada():
+        conexao = get_connection_original()
+        conexoes_prontas.wait(timeout=5)
+        return conexao
+
+    def editar(linha):
+        try:
+            db.aplicar_edicoes([linha], usuario="mesmo-usuario")
+        except Exception as erro:
+            erros.append(erro)
+
+    monkeypatch.setattr(db, "get_db_connection", get_connection_sincronizada)
+    threads = [
+        threading.Thread(
+            target=editar,
+            args=({"Numero_Nota": 4209, "Observacao": "observacao concorrente"},),
+        ),
+        threading.Thread(
+            target=editar,
+            args=({"Numero_Nota": 4209, "Check": "check concorrente"},),
+        ),
+    ]
+
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    monkeypatch.setattr(db, "get_db_connection", get_connection_original)
+    assert all(not thread.is_alive() for thread in threads)
+    assert erros == []
+    nota = carregar_original().set_index("Numero_Nota").loc[4209]
+    assert nota["Observacao"] == "observacao concorrente"
+    assert nota["Check"] == "check concorrente"
+
+
+def test_aplicar_edicoes_reverte_log_quando_update_falha(banco_temporario):
+    from input_module import db
+
+    db.salvar_em_massa(pd.DataFrame([_nota(4211)]))
+    conn = db.get_db_connection()
+    try:
+        conn.execute(
+            """CREATE TRIGGER falhar_update_observacao
+               BEFORE UPDATE OF Observacao ON notas
+               WHEN NEW.Observacao = 'falha-forcada'
+               BEGIN
+                 SELECT RAISE(ABORT, 'falha simulada no update');
+               END"""
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    with pytest.raises(sqlite3.IntegrityError, match="falha simulada"):
+        db.aplicar_edicoes(
+            [{"Numero_Nota": 4211, "Observacao": "falha-forcada"}],
+            usuario="teste",
+        )
+
+    nota = db.carregar_dados().set_index("Numero_Nota").loc[4211]
+    logs = db.carregar_logs()
+    assert nota["Observacao"] == ""
+    assert logs[logs["Numero_Nota"] == 4211].empty
+
+
+def test_deletar_notas_pula_travada_por_outro(banco_temporario):
+    from input_module import db
+    db.salvar_em_massa(pd.DataFrame([_nota(4207), _nota(4208)]))
+    db.travar_nota(4207, "outra")
+    assert db.deletar_notas([4207, 4208], usuario="eu") == 1
+    numeros = set(db.carregar_dados()["Numero_Nota"])
+    assert 4207 in numeros   # travada: sobreviveu
+    assert 4208 not in numeros  # livre: excluída
+
+
+def test_deletar_notas_revalida_lock_adquirido_antes_do_delete(
+    banco_temporario, monkeypatch
+):
+    from input_module import db
+
+    db.salvar_em_massa(pd.DataFrame([_nota(4212)]))
+    obter_original = db.obter_bloqueios
+    consulta_concluida = threading.Event()
+    continuar_delete = threading.Event()
+    resultado_delete = {}
+    erros = []
+
+    def obter_pausado(numeros):
+        bloqueios = obter_original(numeros)
+        consulta_concluida.set()
+        assert continuar_delete.wait(timeout=5)
+        return bloqueios
+
+    def deletar():
+        try:
+            resultado_delete["quantidade"] = db.deletar_notas(
+                [4212], usuario="ana"
+            )
+        except Exception as erro:
+            erros.append(erro)
+
+    monkeypatch.setattr(db, "obter_bloqueios", obter_pausado)
+    thread = threading.Thread(target=deletar)
+    thread.start()
+    assert consulta_concluida.wait(timeout=5)
+    resultado_lock = db.travar_nota(4212, "bob")
+    continuar_delete.set()
+    thread.join(timeout=10)
+    monkeypatch.setattr(db, "obter_bloqueios", obter_original)
+
+    assert not thread.is_alive()
+    assert erros == []
+    assert resultado_lock == {"ok": True}
+    assert resultado_delete["quantidade"] == 0
+    assert 4212 in set(db.carregar_dados()["Numero_Nota"])
+    assert db.obter_bloqueios([4212])[4212]["usuario"] == "bob"
+
+
+def test_deletar_nota_concorrente_gera_um_unico_log(
+    banco_temporario, monkeypatch
+):
+    from input_module import db
+
+    db.salvar_em_massa(pd.DataFrame([_nota(4213)]))
+    obter_original = db.obter_bloqueios
+    consultas_concluidas = threading.Barrier(2)
+    resultados = []
+    erros = []
+
+    def obter_sincronizado(numeros):
+        bloqueios = obter_original(numeros)
+        consultas_concluidas.wait(timeout=5)
+        return bloqueios
+
+    def deletar(usuario):
+        try:
+            resultados.append(db.deletar_notas([4213], usuario=usuario))
+        except Exception as erro:
+            erros.append(erro)
+
+    monkeypatch.setattr(db, "obter_bloqueios", obter_sincronizado)
+    threads = [
+        threading.Thread(target=deletar, args=("ana",)),
+        threading.Thread(target=deletar, args=("bob",)),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+    monkeypatch.setattr(db, "obter_bloqueios", obter_original)
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert erros == []
+    assert sum(resultados) == 1
+    logs = db.carregar_logs()
+    logs_exclusao = logs[
+        (logs["Numero_Nota"] == 4213)
+        & (logs["Campo_Alterado"] == "EXCLUSÃO DE NOTA")
+    ]
+    assert len(logs_exclusao) == 1
+
+
+def test_deletar_notas_ignora_numeros_duplicados(banco_temporario):
+    from input_module import db
+
+    db.salvar_em_massa(pd.DataFrame([_nota(4214)]))
+
+    assert db.deletar_notas([4214, 4214], usuario="ana") == 1
+    logs = db.carregar_logs()
+    logs_exclusao = logs[
+        (logs["Numero_Nota"] == 4214)
+        & (logs["Campo_Alterado"] == "EXCLUSÃO DE NOTA")
+    ]
+    assert len(logs_exclusao) == 1
+
+
 def test_backup_rotativo(banco_temporario):
     from input_module import db
     db.salvar_em_massa(pd.DataFrame([_nota(5000)]))
@@ -231,6 +632,272 @@ def test_backup_rotativo(banco_temporario):
     assert len(arquivos) == 1
     db.realizar_backup(limite=20, intervalo_horas=2)
     assert len(list(pasta.glob("notas_departamento_*.db"))) == 1
+
+
+def test_backup_rotativo_inclui_commit_no_wal_de_conexao_concorrente(banco_temporario):
+    """Protege contra cópia do .db sem o conteúdo confirmado no arquivo -wal."""
+    from input_module import db
+
+    db.salvar_em_massa(pd.DataFrame([_nota(5001)]))
+    pasta = config_backups_dir()
+    for arquivo in pasta.glob("notas_departamento_*.db"):
+        arquivo.unlink()
+    caminho_origem = db.obter_caminho_banco()
+    conexao_gravadora = sqlite3.connect(caminho_origem)
+    try:
+        journal_mode = conexao_gravadora.execute(
+            "PRAGMA journal_mode = WAL"
+        ).fetchone()[0].lower()
+        assert journal_mode == "wal"
+        conexao_gravadora.execute(
+            "UPDATE notas SET Observacao = ? WHERE Numero_Nota = ?",
+            ("gravado por conexão concorrente", 5001),
+        )
+        conexao_gravadora.commit()
+
+        db.realizar_backup(limite=20, intervalo_horas=0)
+
+        caminho_backup = next(pasta.glob("notas_departamento_*.db"))
+        conexao_backup = sqlite3.connect(caminho_backup)
+        try:
+            observacao = conexao_backup.execute(
+                "SELECT Observacao FROM notas WHERE Numero_Nota = ?", (5001,)
+            ).fetchone()[0]
+        finally:
+            conexao_backup.close()
+    finally:
+        conexao_gravadora.close()
+
+    assert observacao == "gravado por conexão concorrente"
+
+
+def test_backup_rotativo_remove_arquivo_parcial_quando_snapshot_falha(
+    banco_temporario, monkeypatch
+):
+    from input_module import db
+
+    db.salvar_em_massa(pd.DataFrame([_nota(5002)]))
+    pasta = config_backups_dir()
+    for arquivo in pasta.glob("notas_departamento_*.db"):
+        arquivo.unlink()
+
+    class ConexaoOrigemComFalha:
+        def backup(self, conexao_destino):
+            raise sqlite3.OperationalError("falha simulada no snapshot")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        db, "_conectar_origem_backup", lambda caminho: ConexaoOrigemComFalha()
+    )
+
+    db.realizar_backup(limite=20, intervalo_horas=0)
+
+    assert list(pasta.glob("notas_departamento_*.db")) == []
+
+
+def test_backups_no_mesmo_segundo_recebem_nomes_unicos(
+    banco_temporario, monkeypatch
+):
+    from input_module import db
+
+    db.salvar_em_massa(pd.DataFrame([_nota(5003)]))
+    pasta = config_backups_dir()
+    for arquivo in pasta.glob("notas_departamento_*.db"):
+        arquivo.unlink()
+
+    class DataHoraFixa(datetime.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 8, 9, 18, 15, 30, tzinfo=tz)
+
+    monkeypatch.setattr(db.datetime, "datetime", DataHoraFixa)
+
+    db.realizar_backup(limite=20, intervalo_horas=0)
+    db.realizar_backup(limite=20, intervalo_horas=0)
+
+    assert len(list(pasta.glob("notas_departamento_*.db"))) == 2
+
+
+def test_backup_falho_nao_remove_snapshot_valido_do_mesmo_instante(
+    banco_temporario, monkeypatch
+):
+    from input_module import db
+
+    db.salvar_em_massa(pd.DataFrame([_nota(5004)]))
+    pasta = config_backups_dir()
+    for arquivo in pasta.glob("notas_departamento_*.db"):
+        arquivo.unlink()
+
+    class DataHoraFixa(datetime.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 8, 9, 18, 15, 30, tzinfo=tz)
+
+    monkeypatch.setattr(db.datetime, "datetime", DataHoraFixa)
+    db.realizar_backup(limite=20, intervalo_horas=0)
+    snapshot_valido = next(pasta.glob("notas_departamento_*.db"))
+
+    class ConexaoOrigemComFalha:
+        def backup(self, conexao_destino):
+            raise sqlite3.OperationalError("falha concorrente simulada")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        db, "_conectar_origem_backup", lambda caminho: ConexaoOrigemComFalha()
+    )
+
+    db.realizar_backup(limite=20, intervalo_horas=0)
+
+    assert snapshot_valido.exists()
+    assert list(pasta.glob("notas_departamento_*.db")) == [snapshot_valido]
+
+
+def test_backup_nao_recria_origem_removida_antes_da_abertura(
+    banco_temporario, monkeypatch
+):
+    from input_module import db
+
+    db.salvar_em_massa(pd.DataFrame([_nota(5005)]))
+    pasta = config_backups_dir()
+    for arquivo in pasta.glob("notas_departamento_*.db"):
+        arquivo.unlink()
+    caminho_origem = Path(db.obter_caminho_banco())
+    caminho_origem.unlink()
+    existe_original = db.os.path.exists
+
+    def existe(caminho):
+        if str(caminho) == str(caminho_origem):
+            return True
+        return existe_original(caminho)
+
+    monkeypatch.setattr(db.os.path, "exists", existe)
+
+    db.realizar_backup(limite=20, intervalo_horas=0)
+
+    assert not existe_original(str(caminho_origem))
+    assert list(pasta.glob("notas_departamento_*.db")) == []
+
+
+def test_conexao_backup_converte_unc_para_uri_sem_authority(monkeypatch):
+    from input_module import db
+
+    caminho_unc = "\\\\servidor\\share\\notas departamento.db"
+    conectar_original = db.sqlite3.connect
+    chamada = {}
+
+    def capturar(database, **kwargs):
+        chamada["uri"] = database
+        chamada["kwargs"] = kwargs
+        return object()
+
+    monkeypatch.setattr(db.sqlite3, "connect", capturar)
+
+    db._conectar_origem_backup(caminho_unc)
+
+    assert chamada == {
+        "uri": "file:////servidor/share/notas%20departamento.db?mode=ro",
+        "kwargs": {"uri": True, "timeout": 30},
+    }
+    uri_memoria = chamada["uri"].replace("mode=ro", "mode=memory")
+    conexao = conectar_original(uri_memoria, uri=True)
+    conexao.close()
+
+
+def test_backups_concorrentes_respeitam_limite_e_nao_deixam_parcial(
+    banco_temporario, monkeypatch
+):
+    from input_module import db
+
+    db.salvar_em_massa(pd.DataFrame([_nota(5006)]))
+    pasta = config_backups_dir()
+    for arquivo in pasta.glob("notas_departamento_*"):
+        arquivo.unlink()
+    lock_medicao = threading.Lock()
+    ciclos_ativos = 0
+    maximo_ciclos_ativos = 0
+    executar_original = db._realizar_backup_serializado
+
+    def executar(limite, intervalo_horas):
+        nonlocal ciclos_ativos, maximo_ciclos_ativos
+        with lock_medicao:
+            ciclos_ativos += 1
+            maximo_ciclos_ativos = max(maximo_ciclos_ativos, ciclos_ativos)
+        time.sleep(0.05)
+        try:
+            executar_original(limite, intervalo_horas)
+        finally:
+            with lock_medicao:
+                ciclos_ativos -= 1
+
+    monkeypatch.setattr(db, "_realizar_backup_serializado", executar)
+    threads = [
+        threading.Thread(
+            target=db.realizar_backup,
+            kwargs={"limite": 1, "intervalo_horas": 2},
+        )
+        for _ in range(2)
+    ]
+
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert maximo_ciclos_ativos == 1
+    assert len(list(pasta.glob("notas_departamento_*.db"))) == 1
+    assert list(pasta.glob("*.partial")) == []
+
+
+def test_backup_so_publica_db_depois_do_snapshot_concluido(
+    banco_temporario, monkeypatch
+):
+    from input_module import db
+
+    db.salvar_em_massa(pd.DataFrame([_nota(5007)]))
+    pasta = config_backups_dir()
+    for arquivo in pasta.glob("notas_departamento_*"):
+        arquivo.unlink()
+    iniciou_snapshot = threading.Event()
+    liberar_snapshot = threading.Event()
+    conectar_original = db._conectar_origem_backup
+
+    class ConexaoControlada:
+        def __init__(self, conexao):
+            self._conexao = conexao
+
+        def backup(self, conexao_destino):
+            iniciou_snapshot.set()
+            assert liberar_snapshot.wait(timeout=5)
+            self._conexao.backup(conexao_destino)
+
+        def close(self):
+            self._conexao.close()
+
+    def conectar(caminho):
+        return ConexaoControlada(conectar_original(caminho))
+
+    monkeypatch.setattr(db, "_conectar_origem_backup", conectar)
+    thread = threading.Thread(
+        target=db.realizar_backup,
+        kwargs={"limite": 20, "intervalo_horas": 0},
+    )
+    thread.start()
+    try:
+        assert iniciou_snapshot.wait(timeout=5)
+        assert list(pasta.glob("notas_departamento_*.db")) == []
+        assert len(list(pasta.glob("*.partial"))) == 1
+    finally:
+        liberar_snapshot.set()
+        thread.join(timeout=10)
+
+    assert not thread.is_alive()
+    assert len(list(pasta.glob("notas_departamento_*.db"))) == 1
+    assert list(pasta.glob("*.partial")) == []
 
 
 def config_backups_dir():
@@ -310,6 +977,50 @@ def test_versao_dataset_muda_com_escritas(banco_temporario):
     assert v2 != v1
     db.salvar_log_arquivo("Gerada_base_IW28.XLSX", "robo-sap", datetime.datetime.now(), "Sync SAP")
     assert db.obter_versao_dataset() != v2
+
+
+def test_salvar_log_arquivo_retorna_se_gravou(banco_temporario, monkeypatch):
+    """O log de arquivos é best-effort, mas quem chama precisa saber se gravou.
+
+    Sem esse retorno, uma auditoria perdida é indistinguível de uma gravada — e
+    a rota de upload responde "ok" para um upload que ninguém consegue rastrear.
+    Falha ao abrir o banco conta como não gravou, não como estouro."""
+    from input_module import db
+    import datetime
+    agora = datetime.datetime.now()
+    assert db.salvar_log_arquivo("Base.xlsx", "ana", agora, "Substituição") is True
+
+    def banco_fora_do_ar():
+        raise sqlite3.OperationalError("unable to open database file")
+
+    monkeypatch.setattr(db, "get_db_connection", banco_fora_do_ar)
+    assert db.salvar_log_arquivo("Base.xlsx", "ana", agora, "Substituição") is False
+
+
+def test_salvar_base_dataframe_separa_conexao_de_gravacao(banco_temporario, monkeypatch):
+    """Banco que nem abriu é uma falha diferente de gravação que quebrou.
+
+    `to_sql(if_exists="replace")` dropa a tabela antiga, então uma falha DURANTE
+    a gravação pode ter mexido no banco; uma conexão que não abriu não tocou em
+    nada. Sem essa distinção quem trata o erro não sabe se tem o que desfazer."""
+    from input_module import db
+    df = pd.DataFrame({"CONJUNTO_DESC": ["POA"]})
+
+    def banco_fora_do_ar():
+        raise sqlite3.OperationalError("unable to open database file")
+
+    monkeypatch.setattr(db, "get_db_connection", banco_fora_do_ar)
+    with pytest.raises(db.GravacaoNaoIniciadaErro):
+        db.salvar_base_dataframe("base_clientes", df)
+
+    def conexao_somente_leitura():
+        return sqlite3.connect(f"file:{db.obter_caminho_banco()}?mode=ro", uri=True)
+
+    # Conexão que abre e só falha no DROP/CREATE do `to_sql`: a gravação começou,
+    # então o erro NÃO é GravacaoNaoIniciadaErro (que não é OperationalError).
+    monkeypatch.setattr(db, "get_db_connection", conexao_somente_leitura)
+    with pytest.raises(sqlite3.OperationalError, match="readonly"):
+        db.salvar_base_dataframe("base_clientes", df)
 
 
 # ── Task 14: cache do engine revalidado por versão do dataset ───────────
@@ -707,6 +1418,42 @@ def test_delete_e_desfazer(cliente):
     assert r.status_code == 200 and r.json()["excluidas"] == 1
 
 
+def test_travar_e_listar_bloqueios_api(cliente):
+    from input_module import db
+    db.salvar_em_massa(pd.DataFrame([_nota(8100)]))
+    r = cliente.post("/api/input/notas/8100/travar", headers=CABECALHO_USER, json={})
+    assert r.status_code == 200 and r.json()["ok"] is True
+
+    ativos = cliente.get("/api/input/bloqueios").json()["bloqueios"]
+    assert any(b["Numero_Nota"] == 8100 and b["Usuario"] == "ana" for b in ativos)
+
+    r = cliente.post("/api/input/notas/8100/travar", headers={"X-User": "bob"}, json={})
+    assert r.status_code == 200  # não é erro HTTP — o conflito vem no corpo, como /desfazer
+    assert r.json()["ok"] is False
+    assert r.json()["usuario"] == "ana"
+
+
+def test_destravar_api(cliente):
+    from input_module import db
+    db.salvar_em_massa(pd.DataFrame([_nota(8101)]))
+    cliente.post("/api/input/notas/8101/travar", headers=CABECALHO_USER, json={})
+    r = cliente.post("/api/input/notas/destravar", headers=CABECALHO_USER,
+                     json={"numeros": [8101]})
+    assert r.status_code == 200 and r.json()["liberadas"] == 1
+    assert cliente.get("/api/input/bloqueios").json()["bloqueios"] == []
+
+
+def test_patch_retorna_notas_bloqueadas(cliente):
+    from input_module import db
+    db.salvar_em_massa(pd.DataFrame([_nota(8102)]))
+    cliente.post("/api/input/notas/8102/travar", headers={"X-User": "outra"}, json={})
+    r = cliente.patch("/api/input/notas", headers=CABECALHO_USER,
+                      json={"linhas": [{"Numero_Nota": 8102, "Observacao": "via api"}]})
+    assert r.status_code == 200
+    assert r.json()["alteradas"] == 0
+    assert r.json()["bloqueadas"] == [8102]
+
+
 def test_export_gera_xlsx(cliente):
     from input_module import db, engine
     db.salvar_em_massa(pd.DataFrame([_nota(9000)]))
@@ -752,6 +1499,519 @@ def test_bases_lista_download_upload(cliente, monkeypatch, tmp_path):
     assert cliente.get("/api/input/bases/nao_existe.xlsx/download").status_code == 404
 
 
+def _bytes_clientes(conjunto: str) -> bytes:
+    """Bytes de um Clientes_Conjunto.xlsx válido com um único conjunto."""
+    buffer = io.BytesIO()
+    pd.DataFrame({"CONJUNTO_DESC": [conjunto], "QTDE_CONJUNTO": [10]}).to_excel(buffer, index=False)
+    return buffer.getvalue()
+
+
+def _base_apoio_temporaria(monkeypatch, tmp_path):
+    """Aponta BASES_APOIO para um Clientes_Conjunto.xlsx válido em tmp_path."""
+    from input_module import config
+    caminho = tmp_path / "Clientes_Conjunto.xlsx"
+    caminho.write_bytes(_bytes_clientes("POA"))
+    monkeypatch.setattr(config, "BASES_APOIO", {"Clientes por Conjunto": str(caminho)})
+    return caminho
+
+
+def _base_apoio_ja_importada(monkeypatch, tmp_path):
+    """Base de apoio em tmp_path com o MESMO conteúdo já refletido no SQLite."""
+    from input_module import db
+    caminho = _base_apoio_temporaria(monkeypatch, tmp_path)
+    db.salvar_base_dataframe("base_clientes", pd.read_excel(caminho))
+    return caminho
+
+
+def _conjuntos_no_sqlite() -> list:
+    from input_module import db
+    return db.carregar_base_dataframe("base_clientes")["CONJUNTO_DESC"].tolist()
+
+
+def test_upload_base_invalida_preserva_arquivo_anterior(cliente, monkeypatch, tmp_path):
+    """Arquivo que não é um Excel válido é rejeitado ANTES de tocar o alvo."""
+    caminho = _base_apoio_temporaria(monkeypatch, tmp_path)
+    original = caminho.read_bytes()
+    antes = set(tmp_path.iterdir())
+
+    r = cliente.post("/api/input/bases/Clientes_Conjunto.xlsx",
+                     headers=CABECALHO_USER,
+                     files={"arquivo": ("novo.xlsx", b"isto nao e um xlsx")})
+
+    assert r.status_code == 422
+    assert "Clientes_Conjunto.xlsx" in r.json()["detail"]
+    assert caminho.read_bytes() == original
+    assert set(tmp_path.iterdir()) == antes
+    assert cliente.get("/api/input/logs/arquivos").json()["registros"] == []
+
+
+def test_upload_base_ilegivel_nao_toca_o_sqlite(cliente, monkeypatch, tmp_path):
+    """Parse que falha ANTES de qualquer gravação deixa o SQLite saudável quieto.
+
+    Sem nada gravado não há o que realinhar, e reimportar o alvo só para "voltar
+    ao normal" dropa e recria (`to_sql` com `if_exists="replace"`) uma tabela que
+    estava certa — uma falha nessa releitura destruiria dados que o upload
+    recusado nem chegou a tocar."""
+    from input_module import db
+    _base_apoio_ja_importada(monkeypatch, tmp_path)
+    salvar_real = db.salvar_base_dataframe
+    gravacoes = []
+
+    def espiar_gravacao(nome_tabela, df):
+        gravacoes.append(nome_tabela)
+        salvar_real(nome_tabela, df)
+
+    monkeypatch.setattr(db, "salvar_base_dataframe", espiar_gravacao)
+
+    r = cliente.post("/api/input/bases/Clientes_Conjunto.xlsx",
+                     headers=CABECALHO_USER,
+                     files={"arquivo": ("novo.xlsx", b"isto nao e um xlsx")})
+
+    assert r.status_code == 422
+    assert gravacoes == [], "o SQLite foi reescrito sem que o upload tivesse gravado nada"
+    assert _conjuntos_no_sqlite() == ["POA"]
+
+
+def test_upload_base_com_banco_inalcancavel_nao_realinha_o_sqlite(cliente, monkeypatch, tmp_path):
+    """Banco que não abre não conta como gravação parcial.
+
+    A tabela continua com o conteúdo do alvo — não há o que desfazer. Realinhar
+    aqui dropava e recriava (`to_sql(if_exists="replace")`) uma tabela sã, e uma
+    falha nessa releitura destruiria dados que o upload nem chegou a tocar."""
+    from input_module import db
+    _base_apoio_ja_importada(monkeypatch, tmp_path)
+    tentativas = []
+
+    def banco_fora_do_ar(nome_tabela, _df):
+        tentativas.append(nome_tabela)
+        raise db.GravacaoNaoIniciadaErro("Banco indisponível ao salvar tabela base_clientes")
+
+    monkeypatch.setattr(db, "salvar_base_dataframe", banco_fora_do_ar)
+
+    r = cliente.post("/api/input/bases/Clientes_Conjunto.xlsx",
+                     headers=CABECALHO_USER,
+                     files={"arquivo": ("novo.xlsx", _bytes_clientes("SUZ"))})
+
+    assert r.status_code == 422
+    assert "consistência" not in r.json()["detail"]
+    assert tentativas == ["base_clientes"], "o realinhamento reimportou uma tabela intocada"
+    assert _conjuntos_no_sqlite() == ["POA"]
+
+
+def test_upload_base_falha_no_meio_preserva_arquivo_anterior(cliente, monkeypatch, tmp_path):
+    """Excel válido cuja gravação no SQLite falha no meio não substitui o alvo.
+
+    Aqui o SQLite está fora do ar para gravação, então nem o realinhamento passa:
+    a gravação que levantou pode ter dropado a tabela, e ninguém consegue provar
+    que o banco voltou ao conteúdo do alvo — a resposta tem que dizer isso."""
+    from input_module import db
+    caminho = _base_apoio_temporaria(monkeypatch, tmp_path)
+    original = caminho.read_bytes()
+
+    novo = io.BytesIO()
+    pd.DataFrame({"CONJUNTO_DESC": ["SUZ"], "QTDE_CONJUNTO": [99]}).to_excel(novo, index=False)
+
+    def falhar(*_args, **_kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(db, "salvar_base_dataframe", falhar)
+    antes = set(tmp_path.iterdir())
+
+    r = cliente.post("/api/input/bases/Clientes_Conjunto.xlsx",
+                     headers=CABECALHO_USER,
+                     files={"arquivo": ("novo.xlsx", novo.getvalue())})
+
+    assert r.status_code == 500
+    assert "database is locked" in r.json()["detail"]
+    assert "consistência" in r.json()["detail"]
+    assert caminho.read_bytes() == original
+    assert set(tmp_path.iterdir()) == antes
+    assert cliente.get("/api/input/logs/arquivos").json()["registros"] == []
+
+
+def test_upload_base_bem_sucedido_substitui_o_alvo(cliente, monkeypatch, tmp_path):
+    """Só depois do import bem-sucedido o conteúdo novo aparece no alvo."""
+    caminho = _base_apoio_temporaria(monkeypatch, tmp_path)
+
+    novo = io.BytesIO()
+    pd.DataFrame({"CONJUNTO_DESC": ["SUZ"], "QTDE_CONJUNTO": [99]}).to_excel(novo, index=False)
+    antes = set(tmp_path.iterdir())
+
+    r = cliente.post("/api/input/bases/Clientes_Conjunto.xlsx",
+                     headers=CABECALHO_USER,
+                     files={"arquivo": ("novo.xlsx", novo.getvalue())})
+
+    assert r.status_code == 200
+    assert pd.read_excel(caminho)["CONJUNTO_DESC"].tolist() == ["SUZ"]
+    assert set(tmp_path.iterdir()) == antes
+
+
+def test_upload_base_ainda_ausente_na_rede_cria_o_arquivo(cliente, monkeypatch, tmp_path):
+    """Base gerenciada que ainda não existe na rede: o upload a cria.
+
+    Sem alvo para guardar de lado não há nada a preservar — o upload é a
+    primeira versão da base, não um erro de rede."""
+    from input_module import config
+    caminho = tmp_path / "Clientes_Conjunto.xlsx"
+    monkeypatch.setattr(config, "BASES_APOIO", {"Clientes por Conjunto": str(caminho)})
+    antes = set(tmp_path.iterdir())
+
+    r = cliente.post("/api/input/bases/Clientes_Conjunto.xlsx",
+                     headers=CABECALHO_USER,
+                     files={"arquivo": ("novo.xlsx", _bytes_clientes("SUZ"))})
+
+    assert r.status_code == 200
+    assert pd.read_excel(caminho)["CONJUNTO_DESC"].tolist() == ["SUZ"]
+    assert _conjuntos_no_sqlite() == ["SUZ"]
+    assert set(tmp_path.iterdir()) == antes | {caminho}
+    assert cliente.get("/api/input/logs/arquivos").json()["registros"][0]["Acao"] == "Substituição"
+
+
+def test_upload_base_falha_no_replace_preserva_excel_e_sqlite(cliente, monkeypatch, tmp_path):
+    """Falha ao trocar o arquivo não pode deixar o SQLite com a base nova."""
+    caminho = _base_apoio_ja_importada(monkeypatch, tmp_path)
+    original = caminho.read_bytes()
+    antes = set(tmp_path.iterdir())
+
+    def replace_falha(*_args, **_kwargs):
+        raise OSError("a rede caiu no meio da troca")
+
+    monkeypatch.setattr(os, "replace", replace_falha)
+
+    r = cliente.post("/api/input/bases/Clientes_Conjunto.xlsx",
+                     headers=CABECALHO_USER,
+                     files={"arquivo": ("novo.xlsx", _bytes_clientes("SUZ"))})
+
+    assert r.status_code == 502
+    assert caminho.read_bytes() == original
+    assert _conjuntos_no_sqlite() == ["POA"]
+    assert set(tmp_path.iterdir()) == antes
+    assert cliente.get("/api/input/logs/arquivos").json()["registros"] == []
+
+
+def test_upload_base_nunca_deixa_o_alvo_ausente(cliente, monkeypatch, tmp_path):
+    """O alvo só muda no `os.replace` final — nunca sai do lugar antes disso.
+
+    Enquanto o import para o SQLite roda, o Excel da rede tem que continuar
+    legível com o conteúdo antigo: uma queda do processo nessa janela deixa a
+    base anterior no lugar, e não um alvo ausente que ninguém recupera."""
+    from input_module import db
+    caminho = _base_apoio_ja_importada(monkeypatch, tmp_path)
+    original = caminho.read_bytes()
+    antes = set(tmp_path.iterdir())
+    salvar_real = db.salvar_base_dataframe
+    replace_real = os.replace
+    alvo_durante_import = []
+    origens_dos_replaces = []
+
+    def espiar_replace(origem, destino, *args, **kwargs):
+        origens_dos_replaces.append(str(origem))
+        return replace_real(origem, destino, *args, **kwargs)
+
+    def espiar_gravacao(nome_tabela, df):
+        alvo_durante_import.append(caminho.read_bytes() if caminho.exists() else None)
+        salvar_real(nome_tabela, df)
+
+    monkeypatch.setattr(os, "replace", espiar_replace)
+    monkeypatch.setattr(db, "salvar_base_dataframe", espiar_gravacao)
+
+    r = cliente.post("/api/input/bases/Clientes_Conjunto.xlsx",
+                     headers=CABECALHO_USER,
+                     files={"arquivo": ("novo.xlsx", _bytes_clientes("SUZ"))})
+
+    assert r.status_code == 200
+    assert alvo_durante_import == [original], "o alvo mudou (ou sumiu) antes do import terminar"
+    assert str(caminho) not in origens_dos_replaces, "o alvo foi movido do lugar"
+    assert pd.read_excel(caminho)["CONJUNTO_DESC"].tolist() == ["SUZ"]
+    assert set(tmp_path.iterdir()) == antes
+
+
+def _bytes_custo_modular(item: str) -> bytes:
+    """Bytes de um Custo_Modular.xlsx válido (aba 'Modulares')."""
+    buffer = io.BytesIO()
+    df = pd.DataFrame({"ITEM": [item, item, item], "VALOR": [1, 2, 3]})
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Modulares")
+    return buffer.getvalue()
+
+
+def test_upload_base_multi_aba_com_import_parcial_realinha_o_sqlite(cliente, monkeypatch, tmp_path):
+    """Custo_Modular grava DUAS tabelas a partir do mesmo Excel.
+
+    Se a segunda gravação falhar, a primeira não pode ficar com dados de um
+    arquivo que nunca entrou na rede: o SQLite volta a refletir o alvo."""
+    from input_module import config, db, routes
+    caminho = tmp_path / "Custo_Modular.xlsx"
+    caminho.write_bytes(_bytes_custo_modular("ANTIGO"))
+    monkeypatch.setattr(config, "BASES_APOIO", {"Custo Modular": str(caminho)})
+    routes._importar_base_para_sqlite("Custo_Modular.xlsx", str(caminho))
+    original = caminho.read_bytes()
+    antes = set(tmp_path.iterdir())
+
+    salvar_real = db.salvar_base_dataframe
+    ja_falhou = []
+
+    def falhar_uma_vez_na_sazonal(nome_tabela, df):
+        if nome_tabela == "base_sazonal" and not ja_falhou:
+            ja_falhou.append(nome_tabela)
+            raise sqlite3.OperationalError("database is locked")
+        salvar_real(nome_tabela, df)
+
+    monkeypatch.setattr(db, "salvar_base_dataframe", falhar_uma_vez_na_sazonal)
+
+    r = cliente.post("/api/input/bases/Custo_Modular.xlsx",
+                     headers=CABECALHO_USER,
+                     files={"arquivo": ("novo.xlsx", _bytes_custo_modular("NOVO"))})
+
+    assert r.status_code == 422
+    assert caminho.read_bytes() == original
+    assert db.carregar_base_dataframe("base_custo_modular")["ITEM"].tolist() == ["ANTIGO"] * 3
+    assert set(tmp_path.iterdir()) == antes
+    assert cliente.get("/api/input/logs/arquivos").json()["registros"] == []
+
+
+def test_upload_base_multi_aba_le_o_workbook_inteiro_antes_de_gravar(monkeypatch, tmp_path):
+    """Custo_Modular lê duas abas do MESMO Excel.
+
+    Uma falha de leitura na segunda aba tem que acontecer antes de o SQLite ser
+    tocado: um arquivo que nem foi lido por inteiro não pode ter gravado tabela
+    nenhuma, nem deixar o realinhamento pós-falha com o que desfazer."""
+    from input_module import db, routes
+    caminho = tmp_path / "Custo_Modular.xlsx"
+    leituras = []
+    gravacoes = []
+
+    def ler_e_falhar_na_segunda_aba(*args, **kwargs):
+        leituras.append(kwargs.get("skiprows"))
+        if len(leituras) > 1:
+            raise OSError("aba ilegível")
+        return pd.DataFrame({"ITEM": ["NOVO"], "VALOR": [1]})
+
+    monkeypatch.setattr(routes.pd, "read_excel", ler_e_falhar_na_segunda_aba)
+    monkeypatch.setattr(db, "salvar_base_dataframe",
+                        lambda nome_tabela, df: gravacoes.append(nome_tabela))
+
+    tabelas_tocadas: list = []
+    with pytest.raises(OSError):
+        routes._importar_base_para_sqlite(
+            "Custo_Modular.xlsx", str(caminho), tabelas_tocadas)
+
+    assert leituras == [None, 1], "as duas abas têm que ser lidas antes da 1ª gravação"
+    assert gravacoes == [], "gravou no SQLite com o workbook ainda por ler"
+    assert tabelas_tocadas == []
+
+
+def _espiar_invalidacoes(monkeypatch) -> list:
+    """Registra as invalidações de cache que a rota dispara."""
+    from input_module import engine
+    invalidacoes = []
+    monkeypatch.setattr(engine, "invalidar_cache", lambda: invalidacoes.append("cache"))
+    monkeypatch.setattr(engine, "invalidar_status_bases",
+                        lambda: invalidacoes.append("status_bases"))
+    return invalidacoes
+
+
+def test_upload_base_com_realinhamento_falho_avisa_consistencia_incerta(
+        cliente, monkeypatch, tmp_path):
+    """Realinhamento que também falha não pode ser engolido.
+
+    Sobra um SQLite com metade dos dados de um arquivo que nunca entrou na rede.
+    A resposta tem que dizer que a consistência não pôde ser confirmada, e os
+    caches — que ainda servem o estado anterior — têm que ser invalidados."""
+    from input_module import config, db, routes
+    caminho = tmp_path / "Custo_Modular.xlsx"
+    caminho.write_bytes(_bytes_custo_modular("ANTIGO"))
+    monkeypatch.setattr(config, "BASES_APOIO", {"Custo Modular": str(caminho)})
+    routes._importar_base_para_sqlite("Custo_Modular.xlsx", str(caminho))
+    original = caminho.read_bytes()
+    antes = set(tmp_path.iterdir())
+
+    salvar_real = db.salvar_base_dataframe
+
+    def gravacao_instavel(nome_tabela, df):
+        """A sazonal nunca grava; no realinhamento (conteúdo ANTIGO) a modular
+        também falha — o banco fica com a modular do arquivo recusado."""
+        if nome_tabela == "base_sazonal" or df["ITEM"].iloc[0] == "ANTIGO":
+            raise sqlite3.OperationalError("database is locked")
+        salvar_real(nome_tabela, df)
+
+    monkeypatch.setattr(db, "salvar_base_dataframe", gravacao_instavel)
+    invalidacoes = _espiar_invalidacoes(monkeypatch)
+
+    r = cliente.post("/api/input/bases/Custo_Modular.xlsx",
+                     headers=CABECALHO_USER,
+                     files={"arquivo": ("novo.xlsx", _bytes_custo_modular("NOVO"))})
+
+    assert r.status_code == 500
+    assert "consistência" in r.json()["detail"]
+    assert "database is locked" in r.json()["detail"]
+    assert invalidacoes == ["cache", "status_bases"]
+    # O banco realmente ficou com dados que não estão no alvo — é isso que a
+    # resposta 500 está avisando.
+    assert db.carregar_base_dataframe("base_custo_modular")["ITEM"].tolist() == ["NOVO"] * 3
+    assert caminho.read_bytes() == original
+    assert set(tmp_path.iterdir()) == antes
+    assert cliente.get("/api/input/logs/arquivos").json()["registros"] == []
+
+
+def test_upload_base_ausente_com_import_parcial_avisa_consistencia_incerta(
+        cliente, monkeypatch, tmp_path):
+    """Primeiro upload que quebra no meio não tem alvo de onde realinhar.
+
+    Sem arquivo na rede, as tabelas já gravadas ficam órfãs — a rota não pode
+    responder como se só a planilha tivesse sido recusada."""
+    from input_module import config, db
+    caminho = tmp_path / "Custo_Modular.xlsx"
+    monkeypatch.setattr(config, "BASES_APOIO", {"Custo Modular": str(caminho)})
+    antes = set(tmp_path.iterdir())
+
+    salvar_real = db.salvar_base_dataframe
+
+    def falhar_sempre_na_sazonal(nome_tabela, df):
+        if nome_tabela == "base_sazonal":
+            raise sqlite3.OperationalError("database is locked")
+        salvar_real(nome_tabela, df)
+
+    monkeypatch.setattr(db, "salvar_base_dataframe", falhar_sempre_na_sazonal)
+    invalidacoes = _espiar_invalidacoes(monkeypatch)
+
+    r = cliente.post("/api/input/bases/Custo_Modular.xlsx",
+                     headers=CABECALHO_USER,
+                     files={"arquivo": ("novo.xlsx", _bytes_custo_modular("NOVO"))})
+
+    assert r.status_code == 500
+    assert "consistência" in r.json()["detail"]
+    assert invalidacoes == ["cache", "status_bases"]
+    assert not caminho.exists()
+    assert set(tmp_path.iterdir()) == antes
+    assert cliente.get("/api/input/logs/arquivos").json()["registros"] == []
+
+
+def _conjunto_do_xlsx(caminho):
+    """Conjunto dentro de um Clientes_Conjunto.xlsx, ou None se não for um."""
+    try:
+        return pd.read_excel(caminho)["CONJUNTO_DESC"].iloc[0]
+    except Exception:
+        return None
+
+
+def test_uploads_concorrentes_da_mesma_base_nao_cruzam(cliente, monkeypatch, tmp_path):
+    """Dois uploads simultâneos da mesma base não podem cruzar Excel e SQLite.
+
+    O primeiro upload é congelado exatamente na janela crítica — SQLite já
+    gravado, `os.replace` ainda não feito — e o segundo é disparado ali dentro.
+    A trava por alvo tem que barrar o segundo nessa janela; sem ela, ele importa
+    AAA→BBB no SQLite e troca o Excel antes de o primeiro trocar o dele, e o
+    par final fica de uploads diferentes."""
+    caminho = _base_apoio_ja_importada(monkeypatch, tmp_path)
+    replace_real = os.replace
+    primeiro_na_janela = threading.Event()
+    liberar_primeiro = threading.Event()
+    esperas_do_primeiro = []
+
+    def congelar_primeiro_no_replace(origem, destino, *args, **kwargs):
+        if _conjunto_do_xlsx(origem) == "AAA":
+            primeiro_na_janela.set()
+            esperas_do_primeiro.append(liberar_primeiro.wait(timeout=30))
+        return replace_real(origem, destino, *args, **kwargs)
+
+    monkeypatch.setattr(os, "replace", congelar_primeiro_no_replace)
+
+    respostas = {}
+
+    def enviar(conjunto: str) -> None:
+        respostas[conjunto] = cliente.post(
+            "/api/input/bases/Clientes_Conjunto.xlsx", headers=CABECALHO_USER,
+            files={"arquivo": ("novo.xlsx", _bytes_clientes(conjunto))})
+
+    primeiro = threading.Thread(target=enviar, args=("AAA",))
+    primeiro.start()
+    assert primeiro_na_janela.wait(timeout=30), "primeiro upload não chegou na janela crítica"
+
+    segundo = threading.Thread(target=enviar, args=("BBB",))
+    segundo.start()
+    # Observação, não sincronização: o segundo já entrou e tem que estar preso na
+    # trava enquanto o primeiro segura a janela. Sem trava ele termina aqui.
+    segundo.join(timeout=1.0)
+    assert segundo.is_alive(), "o segundo upload passou por cima da janela do primeiro"
+    assert _conjuntos_no_sqlite() == ["AAA"], "o segundo upload gravou no SQLite dentro da janela"
+
+    liberar_primeiro.set()
+    primeiro.join(timeout=30)
+    segundo.join(timeout=30)
+    assert not primeiro.is_alive() and not segundo.is_alive()
+
+    assert esperas_do_primeiro == [True]
+    assert respostas["AAA"].status_code == 200
+    assert respostas["BBB"].status_code == 200
+    # Serializados, o último upload inteiro vence nos dois lados.
+    assert pd.read_excel(caminho)["CONJUNTO_DESC"].tolist() == ["BBB"]
+    assert _conjuntos_no_sqlite() == ["BBB"]
+
+
+def test_upload_base_com_auditoria_perdida_ainda_muda_o_etag_das_notas(
+        cliente, monkeypatch, tmp_path):
+    """A revalidação de GET /notas não pode depender do log de auditoria.
+
+    O log de arquivos é best-effort: se ele não gravar, a versão do dataset
+    (derivada dele) fica idêntica à de antes do upload e o ETag também. O
+    navegador então continua recebendo 304 e servindo a base ANTIGA, sem nada
+    na tela indicando que os dados mudaram."""
+    from input_module import db
+    _base_apoio_ja_importada(monkeypatch, tmp_path)
+    quente = cliente.get("/api/input/notas")
+    assert quente.status_code == 200
+    etag_antigo = quente.headers["etag"]
+
+    # Best-effort que não gravou: é exatamente o que a auditoria faz hoje quando
+    # o INSERT falha — não levanta, só não deixa rastro.
+    monkeypatch.setattr(db, "salvar_log_arquivo", lambda *_a, **_k: None)
+
+    r = cliente.post("/api/input/bases/Clientes_Conjunto.xlsx",
+                     headers=CABECALHO_USER,
+                     files={"arquivo": ("novo.xlsx", _bytes_clientes("SUZ"))})
+
+    assert r.status_code == 200
+    assert _conjuntos_no_sqlite() == ["SUZ"]
+    assert cliente.get("/api/input/logs/arquivos").json()["registros"] == []
+
+    depois = cliente.get("/api/input/notas", headers={"If-None-Match": etag_antigo})
+    assert depois.status_code != 304, "GET /notas revalidou como inalterado depois de um upload"
+    assert depois.headers["etag"] != etag_antigo
+
+
+def test_upload_base_com_auditoria_que_levanta_nao_desfaz_a_publicacao(
+        cliente, monkeypatch, tmp_path):
+    """Auditoria que estoura DEPOIS da publicação não vira um 500 falso.
+
+    Nesse ponto o Excel e o SQLite já estão trocados e consistentes: responder
+    500 faria o usuário reenviar uma base que já entrou. A resposta é 200 com
+    aviso explícito de que só a auditoria falhou, e os caches são invalidados
+    do mesmo jeito — senão a tela segue no conteúdo antigo."""
+    from input_module import db
+    caminho = _base_apoio_ja_importada(monkeypatch, tmp_path)
+    antes = set(tmp_path.iterdir())
+
+    def auditoria_fora_do_ar(*_a, **_k):
+        raise sqlite3.OperationalError("unable to open database file")
+
+    monkeypatch.setattr(db, "salvar_log_arquivo", auditoria_fora_do_ar)
+    invalidacoes = _espiar_invalidacoes(monkeypatch)
+
+    r = cliente.post("/api/input/bases/Clientes_Conjunto.xlsx",
+                     headers=CABECALHO_USER,
+                     files={"arquivo": ("novo.xlsx", _bytes_clientes("SUZ"))})
+
+    assert r.status_code == 200
+    corpo = r.json()
+    assert corpo["ok"] is True
+    assert "auditoria" in corpo["aviso"].lower()
+    assert invalidacoes == ["cache", "status_bases"]
+    assert pd.read_excel(caminho)["CONJUNTO_DESC"].tolist() == ["SUZ"]
+    assert _conjuntos_no_sqlite() == ["SUZ"]
+    assert set(tmp_path.iterdir()) == antes
+
+
 def test_backups_lista_e_download(cliente):
     from input_module import db
     db.salvar_em_massa(pd.DataFrame([_nota(9500)]))
@@ -761,6 +2021,9 @@ def test_backups_lista_e_download(cliente):
     assert len(backups) >= 1
     nome = backups[0]["arquivo"]
     assert cliente.get(f"/api/input/backups/{nome}/download").status_code == 200
+    legado = config_backups_dir() / "notas_departamento_20260809_181530.db"
+    legado.write_bytes(b"backup legado")
+    assert cliente.get(f"/api/input/backups/{legado.name}/download").status_code == 200
     assert cliente.get("/api/input/backups/..%2Fhack.db/download").status_code in (400, 404)
 
 
@@ -962,6 +2225,26 @@ def test_postergadas_schema_e_helpers(banco_temporario):
 
 
 # ── Task 2: Sincronização de Metas do Controle Plano de Recomposição ───────
+def test_caminho_controle_recomposicao_usa_usuario_da_maquina(monkeypatch):
+    from input_module import config
+
+    monkeypatch.delenv("CONTROLE_RECOMPOSICAO_PATH", raising=False)
+    monkeypatch.setenv("USER", "usuario-sharepoint")
+    monkeypatch.setenv("USERNAME", "outro-usuario")
+
+    esperado = (
+        Path("C:/Users")
+        / "usuario-sharepoint"
+        / "EDP"
+        / "O365_Planejamento_Manutencao_EDP_Brasil - Documentos"
+        / "PLANO RECOMPOSIÇÃO"
+        / "SP"
+        / "2026"
+        / "Controle Plano de Recomposição 2026.xlsx"
+    )
+    assert config.caminho_controle_recomposicao() == esperado
+
+
 def _xlsx_controle(caminho, meta_jan=17.0, com_postergadas=True):
     """Planilha sintética mínima com abas base, dexpara e (opcional) Postergadas."""
     import gc
@@ -1364,6 +2647,48 @@ def test_perfil_producao_reconhecido(monkeypatch):
     monkeypatch.setenv("EDP_PERFIL", "PRODUCAO")
     assert config.perfil() == config.PERFIL_PRODUCAO
     assert config.em_producao() is True
+
+
+def _liberar_copia_excel_rede(monkeypatch):
+    """Remove as envs que fazem gerar_copia_excel_rede() sair antes do corpo.
+
+    Sem isso o teste passaria pelo atalho de ambiente de teste e nunca
+    exercitaria a guarda de perfil.
+    """
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.delenv("INPUT_DATA_DIR", raising=False)
+
+
+def test_copia_excel_rede_nao_toca_rede_no_perfil_local(monkeypatch):
+    """Perfil local sai antes de enriquecer dados e de qualquer caminho de rede."""
+    from input_module import engine
+    _liberar_copia_excel_rede(monkeypatch)
+    monkeypatch.delenv("EDP_PERFIL", raising=False)
+    chamadas = []
+    monkeypatch.setattr(engine, "enriquecer_dados",
+                        lambda: chamadas.append("enriquecer_dados"))
+
+    engine.gerar_copia_excel_rede()
+
+    assert chamadas == []
+
+
+def test_copia_excel_rede_segue_no_perfil_producao(monkeypatch):
+    """A guarda é do perfil local — produção continua gerando a cópia."""
+    from input_module import engine
+    _liberar_copia_excel_rede(monkeypatch)
+    monkeypatch.setenv("EDP_PERFIL", "producao")
+    chamadas = []
+
+    def _enriquecer_e_parar():
+        chamadas.append("enriquecer_dados")
+        raise RuntimeError("teste para antes de escrever na rede")
+
+    monkeypatch.setattr(engine, "enriquecer_dados", _enriquecer_e_parar)
+
+    engine.gerar_copia_excel_rede()
+
+    assert chamadas == ["enriquecer_dados"]
 
 
 def test_perfil_local_usa_banco_do_data_dir(monkeypatch, tmp_path):

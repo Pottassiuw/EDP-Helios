@@ -75,6 +75,9 @@ export interface ComparableFields {
   setor: string;
   uf: string;
   prioridade: number;
+  observacao?: string;
+  referencia_eletrica?: string;
+  campos_com_erro?: DuplicateField[];
 }
 
 export interface DuplicateCandidate extends ComparableFields {
@@ -83,6 +86,21 @@ export interface DuplicateCandidate extends ComparableFields {
   match: DuplicateField[];
   latitude: string | null;
   longitude: string | null;
+  /** Presente só para candidatas externas (in_sheet=false): achou linha na Carteira? */
+  carteira_match?: boolean;
+  status_sap?: string | null;
+  prioridade_sap?: number | null;
+  conjunto?: string | null;
+  /** Data em que a nota saiu da última sincronização da Carteira (tombstone), se aplicável. */
+  carteira_ausente_em?: string | null;
+}
+
+export interface NoteGenerator {
+  matricula: string;
+  nome: string;
+  uf: string;
+  inspetor: boolean;
+  cadastrado: boolean;
 }
 
 export interface NoteRaw {
@@ -110,6 +128,7 @@ export interface Note extends ComparableFields {
   latitude: string | null;
   longitude: string | null;
   colaborador: string | null;
+  gerador?: NoteGenerator;
   imagens_totais: number | null;
   imagens_recebidas: number | null;
   // kept for Detail view display; not comparison keys
@@ -138,14 +157,37 @@ export interface RuleMeta {
 export type Accent = [string, string, string, string];
 
 // ── Camada de dados / API ────────────────────────────────────────────────
+export interface TriageSourceInfo {
+  arquivo: string;
+  schema_version: number;
+  atualizado_em: string | null;
+}
+
+export type TriageSituation = 'encaminhada' | 'falha_operacional' | 'retornada';
+
+export interface TriageForwarding {
+  situacao: TriageSituation;
+  etapa: string | null;
+  erro: string | null;
+  encaminhada_em: string | null;
+  encaminhada_por: string | null;
+  retornada_em: string | null;
+  retornada_por: string | null;
+  retorno_justificativa: string | null;
+}
+
+export interface TriageDailyForwarding {
+  usuario: string;
+  total: number;
+}
+
 export interface FetchResult {
   notes: Note[];
   completed: Set<string>;
   source: Source;
-}
-export interface UploadResult {
-  status: string;
-  total: number;
+  fonte: TriageSourceInfo | null;
+  encaminhamentos: Record<string, TriageForwarding>;
+  encaminhadasHoje: TriageDailyForwarding[];
 }
 export interface ToggleResult {
   status: string;
@@ -162,14 +204,10 @@ export interface FieldProps {
   children?: React.ReactNode;
   grow?: boolean;
 }
-export interface UploadScreenProps {
-  theme?: Theme;
-  onUpload: (file: File) => Promise<void>;
-}
 export interface DuplicateCompareProps {
   note: Note;
   resolved: boolean;
-  onMarkDuplicate: (id: string) => void;
+  onMarkDuplicate: (id: string, justificativa?: string) => void;
   onSendToCoffee?: (ids: string[], sourceId?: string) => void;
 }
 
@@ -179,8 +217,11 @@ export interface KpiDrawerProps {
   cOk: number;      // notas sem falha
   cErr: number;     // notas com erro
   cDup: number;     // notas com duplicatas
-  cDone: number;    // notas concluídas
+  cEncaminhadas: number; // notas atualmente encaminhadas ao COFFEE
+  cFalhasOperacionais: number;
+  cRetornadas: number;
   cVisible: number; // notas visíveis no filtro atual
+  encaminhadasHoje: TriageDailyForwarding[];
   selectedNotes?: Note[];
   onRemoveSelected?: (id: string) => void;
 }

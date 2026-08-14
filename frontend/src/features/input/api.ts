@@ -1,6 +1,6 @@
 import type {
-  BackupInfo, BaseStatus, EdicaoResultado, HierarquiaInfo, InputDataset, LogArquivo,
-  LogRegistro, NotaInput, NotaRamal, RamalDataset,
+  BackupInfo, BaseStatus, Bloqueio, EdicaoResultado, HierarquiaInfo, InputDataset, LogArquivo,
+  LogRegistro, NotaInput, NotaRamal, RamalDataset, TravarResultado,
 } from './types';
 
 const base = (): string => localStorage.getItem('edp_api') ?? '/api';
@@ -50,6 +50,12 @@ export const InputApi = {
     req<{ excluidas: number }>('/notas', escrita('DELETE', { numeros })),
   desfazer: () =>
     req<{ ok: boolean; mensagem: string }>('/desfazer', escrita('POST', {})),
+
+  bloqueios: () => req<{ bloqueios: Bloqueio[] }>('/bloqueios'),
+  travarNota: (numero: number) =>
+    req<TravarResultado>(`/notas/${numero}/travar`, escrita('POST', {})),
+  destravarNotas: (numeros: number[]) =>
+    req<{ liberadas: number }>('/notas/destravar', escrita('POST', { numeros })),
 
   logs: () => req<{ registros: LogRegistro[] }>('/logs'),
   logsArquivos: () => req<{ registros: LogArquivo[] }>('/logs/arquivos'),

@@ -1,12 +1,13 @@
 import React from "react";
-import type { Celula, NotaInput } from "./types";
+import { toast } from "sonner";
+import type { Bloqueio, Celula, NotaInput } from "./types";
 import type { ColunaDef } from "./columns";
-import { compararDatas, formatarNumero } from "./lib";
+import { compararDatas, formatarDataHora, formatarNumero } from "./lib";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, ChevronUp, CornerDownRight, Folder, FolderOpen } from "lucide-react";
+import { ChevronDown, ChevronUp, CornerDownRight, Folder, FolderOpen, Lock } from "lucide-react";
 import { Input } from "@/components/ui/input";
 
 const ALTURA_LINHA = 32;
@@ -28,6 +29,13 @@ export interface NotesTableProps {
   prioridadeOpcoes?: string[];
   /** Ativa/desativa agrupamento hierárquico (gavetinhas Nota Mãe -> Filhas). Padrão: true. */
   agruparGavetinhas?: boolean;
+  /** Bloqueios ativos (Numero_Nota -> quem está editando agora). */
+  bloqueios?: Map<number, Bloqueio>;
+  /** Usuário atual — o próprio bloqueio não conta como "de outro". */
+  usuarioAtual?: string | null;
+  /** Chamado antes de entrar em modo de edição; deve tentar travar a nota e
+   *  devolver se pode prosseguir. Sem isso, a edição entra direto (ex.: Ramal). */
+  onIniciarEdicao?: (numero: number) => Promise<boolean>;
 }
 
 interface CelulaEditando {
@@ -59,6 +67,9 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
     statusOpcoes = [],
     prioridadeOpcoes = [],
     agruparGavetinhas = true,
+    bloqueios,
+    usuarioAtual,
+    onIniciarEdicao,
   } = props;
   const [scrollTop, setScrollTop] = React.useState(0);
   const [ordem, setOrdem] = React.useState<{
@@ -176,6 +187,13 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
     (linhasProcessadas.length - inicio - fatia.length) * ALTURA_LINHA,
   );
   const totalColunas = colunas.length + (selecionados ? 1 : 0);
+
+  /** Bloqueio ativo de OUTRO usuário (undefined se livre ou se é o meu próprio). */
+  function bloqueioDeOutro(numero: number): Bloqueio | undefined {
+    const b = bloqueios?.get(numero);
+    if (!b || b.Usuario === usuarioAtual) return undefined;
+    return b;
+  }
 
   function valor(r: NotaInput, campo: string): Celula {
     const pendente = edicoes?.get(r.Numero_Nota);
@@ -300,6 +318,7 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
     // Renderização especial da coluna ID (Numero_Nota) para exibir gavetinha / indetação
     if (c.key === "Numero_Nota") {
       const estaExpandido = expandidos.has(r.Numero_Nota);
+      const bloqueio = bloqueioDeOutro(r.Numero_Nota);
       return (
         <TableCell
           key={c.key}
@@ -307,13 +326,22 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
         >
           <div className="flex items-center gap-2">
             {item.nivel === 1 && (
-              <span className="text-accent/80 pl-0.5 font-bold inline-flex items-center gap-1 shrink-0" title="Nota Filha">
-                <CornerDownRight className="h-3.5 w-3.5 inline text-accent stroke-[2.5]" />
+              <span className="text-[var(--accent)]/80 pl-0.5 font-bold inline-flex items-center gap-1 shrink-0" title="Nota Filha">
+                <CornerDownRight className="h-3.5 w-3.5 inline text-[var(--accent)] stroke-[2.5]" />
               </span>
             )}
             <span className="font-semibold text-foreground tracking-tight">
               {formatarNumero(v, 0, false)}
             </span>
+            {bloqueio && (
+              <span
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-sans font-semibold bg-amber/15 text-amber border border-amber/30 shrink-0"
+                title={`Em edição por ${bloqueio.Usuario} desde ${formatarDataHora(bloqueio.Data_Hora)}`}
+              >
+                <Lock size={10} />
+                {bloqueio.Usuario}
+              </span>
+            )}
             {item.temFilhas ? (
               <button
                 type="button"
@@ -361,6 +389,21 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
       tooltipSoma = `Soma consolidada do grupo: ${formatarNumero(somaTotal, 2)} (Mãe: ${formatarNumero(valorProprio, 2)} + ${item.qtdFilhas} ${item.qtdFilhas === 1 ? 'filha' : 'filhas'}: ${formatarNumero(somaFilhas, 2)})`;
     }
 
+    const tentarEditar = async (): Promise<void> => {
+      const bloqueio = bloqueioDeOutro(r.Numero_Nota);
+      if (bloqueio) {
+        toast.warning(`Nota ${r.Numero_Nota} em edição por ${bloqueio.Usuario}`, {
+          description: `Desde ${formatarDataHora(bloqueio.Data_Hora)} — aguarde a liberação para editar.`,
+        });
+        return;
+      }
+      if (onIniciarEdicao) {
+        const liberado = await onIniciarEdicao(r.Numero_Nota);
+        if (!liberado) return;
+      }
+      setEditando({ numero: r.Numero_Nota, campo: c.key });
+    };
+
     return (
       <TableCell
         key={c.key}
@@ -368,16 +411,8 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
           tooltipSoma ??
           (editavel ? "Clique ou duplo clique para editar" : undefined)
         }
-        onClick={
-          editavel
-            ? () => setEditando({ numero: r.Numero_Nota, campo: c.key })
-            : undefined
-        }
-        onDoubleClick={
-          editavel
-            ? () => setEditando({ numero: r.Numero_Nota, campo: c.key })
-            : undefined
-        }
+        onClick={editavel ? () => { void tentarEditar(); } : undefined}
+        onDoubleClick={editavel ? () => { void tentarEditar(); } : undefined}
         className={`whitespace-nowrap overflow-hidden text-ellipsis max-w-[320px] h-[32px] text-[12.5px] border-b-[1px] border-b-line ${
           editavel ? "hover:bg-accent/10 transition-colors" : ""
         }`}
@@ -481,6 +516,7 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
             {fatia.map((item) => {
               const r = item.registro;
               const ehFilha = item.nivel === 1;
+              const travadaPorOutro = Boolean(bloqueioDeOutro(r.Numero_Nota));
               return (
                 <TableRow
                   key={r.Numero_Nota}
@@ -490,11 +526,13 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
                       : undefined,
                   }}
                   className={
-                    ehFilha
-                      ? "border-l-4 border-l-blue-400 bg-surface-2/90 font-medium hover:bg-surface-2 transition-colors"
-                      : item.temFilhas
-                        ? "border-l-4 border-l-green font-semibold bg-green/5 hover:bg-green/12 transition-colors"
-                        : undefined
+                    travadaPorOutro
+                      ? "border-l-4 border-l-amber bg-amber/5 hover:bg-amber/10 transition-colors"
+                      : ehFilha
+                        ? "border-l-4 border-l-blue-400 bg-surface-2/90 font-medium hover:bg-surface-2 transition-colors"
+                        : item.temFilhas
+                          ? "border-l-4 border-l-green font-semibold bg-green/5 hover:bg-green/12 transition-colors"
+                          : undefined
                   }
                 >
                   {selecionados && (

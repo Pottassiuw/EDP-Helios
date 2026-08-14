@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { InputApi } from './api';
 import type { LogArquivo, LogRegistro } from './types';
+import { formatarDataHora } from './lib';
 import { SegTabs, type SegTab } from '@/components/branded/section';
 import {
   Select,
@@ -32,11 +33,6 @@ const LOG_TABS: SegTab<SubAba>[] = [
   { id: 'timeline', rotulo: 'Linha do Tempo' },
 ];
 
-export function formatarDataHora(v: string | number | null): string {
-  if (v === null || v === undefined || v === '') return '—';
-  const d = typeof v === 'number' ? new Date(v) : new Date(String(v).replace(' ', 'T'));
-  return Number.isNaN(d.getTime()) ? String(v) : d.toLocaleString('pt-BR');
-}
 
 function ehCriacao(campo: string): boolean {
   const c = campo.toUpperCase();

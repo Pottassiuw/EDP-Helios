@@ -44,11 +44,20 @@ export interface DadosCarteiraEnriquecimento {
   prioridade_sap: number | null;
 }
 
+export interface AvisoCarteiraEnriquecimento {
+  codigo: string;
+  bloco: string;
+  campos: Array<keyof DadosCarteiraEnriquecimento>;
+  mensagem: string;
+  acao: string;
+}
+
 export interface CarteiraEnriquecimento {
   numero_sap: number;
   estado: EstadoCarteiraEnriquecimento;
   dados: DadosCarteiraEnriquecimento | null;
   ausente_na_origem_em: string | null;
+  avisos: AvisoCarteiraEnriquecimento[];
   versao: string;
 }
 

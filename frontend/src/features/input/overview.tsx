@@ -1,5 +1,5 @@
 import React from 'react';
-import { Loader2, Download, RefreshCw, CheckCircle2, GitMerge, TableProperties, FolderOpen } from 'lucide-react';
+import { Loader2, Download, RefreshCw, CheckCircle2, GitMerge } from 'lucide-react';
 import type { InputDataset, NotaInput } from './types';
 import { InputApi, baixarBlob } from './api';
 import { toast } from 'sonner';
@@ -11,7 +11,13 @@ import { NotesTable } from './notes-table';
 import { InputNotaInspector } from './input-nota-inspector';
 import { useRecarregarInput } from './use-input-data';
 import { Button } from '@/components/ui/button';
-import { Eyebrow, StatNumber } from '@/components/branded/section';
+import { Eyebrow, StatNumber, SegTabs } from '@/components/branded/section';
+
+type Visualizacao = 'hierarquica' | 'plana';
+const VISUALIZACOES: { id: Visualizacao; rotulo: string }[] = [
+  { id: 'hierarquica', rotulo: '📁 Visão Hierárquica' },
+  { id: 'plana', rotulo: '📊 Visão Planilha' },
+];
 
 export function filtrarRegistros(registros: NotaInput[], estado: FiltersState): NotaInput[] {
   let resultado = registros;
@@ -113,31 +119,13 @@ export function Overview({
             {filtrado ? `de ${dados.registros.length.toLocaleString('pt-BR')} notas encontradas` : 'notas cadastradas'}
           </Eyebrow>
         </div>
-        <div className="flex items-center gap-3 flex-wrap">
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-9 px-3 text-xs font-semibold gap-2 border-line bg-surface hover:bg-surface-2 transition-colors cursor-pointer shadow-2xs"
-            onClick={() => setModoVisualizacao((prev) => (prev === 'planilha' ? 'hierarquia' : 'planilha'))}
-            title={
-              modoVisualizacao === 'planilha'
-                ? "Clique para alternar para a Visão Hierárquica (gavetinhas de notas mães/filhas)"
-                : "Clique para alternar para a Visão Planilha (grid interativo com cópia e seleção)"
-            }
-          >
-            {modoVisualizacao === 'planilha' ? (
-              <>
-                <TableProperties className="h-4 w-4 text-green shrink-0" />
-                <span>📊 Visão Planilha</span>
-              </>
-            ) : (
-              <>
-                <FolderOpen className="h-4 w-4 text-green shrink-0" />
-                <span>📁 Visão Hierárquica</span>
-              </>
-            )}
-          </Button>
-
+        <div className="flex items-center gap-2">
+          <SegTabs
+            tabs={VISUALIZACOES}
+            value={modoVisualizacao === 'hierarquia' ? 'hierarquica' : 'plana'}
+            onChange={(v) => setModoVisualizacao(v === 'hierarquica' ? 'hierarquia' : 'planilha')}
+            ariaLabel="Alternar visualização hierárquica ou plana de notas"
+          />
           <Button
             variant="outline"
             size="sm"

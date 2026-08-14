@@ -46,13 +46,17 @@ def trace_atual():
 
 _COLUNAS = ["pk", "id_sap", "id_sap_anterior", "arquivado",
             "classificacao", "dados_json", "buscado_em", "erro", "a_gerar", "origem",
-            "classificacao_em", "usuario"]
+            "classificacao_em", "usuario", "verificar_id", "verificar_ativa",
+            "verificar_em", "verificar_por", "encaminhada_em", "encaminhada_por",
+            "retornada_em", "retornada_por", "retorno_justificativa",
+            "corrigida_em", "corrigida_por"]
 
 
 def _linha_para_dict(row: tuple) -> dict:
     d = dict(zip(_COLUNAS, row))
     d["arquivado"] = bool(d["arquivado"]) if d["arquivado"] is not None else None
     d["a_gerar"] = bool(d["a_gerar"])
+    d["verificar_ativa"] = bool(d["verificar_ativa"])
     d["dados_json"] = json.loads(d["dados_json"]) if d["dados_json"] else None
     return d
 
@@ -64,12 +68,18 @@ def obter_caminho_banco() -> str:
 def get_db_connection() -> sqlite3.Connection:
     config.data_dir().mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(obter_caminho_banco(), timeout=30, check_same_thread=False)
-    conn.execute("PRAGMA journal_mode = WAL;")
+    # WAL fica persistido no arquivo e deve ser configurado apenas na
+    # inicialização. Reexecutar esse PRAGMA ao abrir conexões concorrentes
+    # exige lock exclusivo e pode bloquear jobs em andamento.
+    conn.execute("PRAGMA foreign_keys = ON;")
+    conn.execute("PRAGMA synchronous = NORMAL;")
+    conn.execute("PRAGMA busy_timeout = 5000;")
     return conn
 
 
 def inicializar_banco() -> None:
     conn = get_db_connection()
+    conn.execute("PRAGMA journal_mode = WAL;")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS notas_coffee (
@@ -94,6 +104,28 @@ def inicializar_banco() -> None:
         conn.execute("ALTER TABLE notas_coffee ADD COLUMN classificacao_em TEXT")
     if "usuario" not in cols_notas:
         conn.execute("ALTER TABLE notas_coffee ADD COLUMN usuario TEXT")
+    if "verificar_id" not in cols_notas:
+        conn.execute("ALTER TABLE notas_coffee ADD COLUMN verificar_id INTEGER")
+    if "verificar_ativa" not in cols_notas:
+        conn.execute("ALTER TABLE notas_coffee ADD COLUMN verificar_ativa INTEGER NOT NULL DEFAULT 0")
+    if "verificar_em" not in cols_notas:
+        conn.execute("ALTER TABLE notas_coffee ADD COLUMN verificar_em TEXT")
+    if "verificar_por" not in cols_notas:
+        conn.execute("ALTER TABLE notas_coffee ADD COLUMN verificar_por TEXT")
+    if "encaminhada_em" not in cols_notas:
+        conn.execute("ALTER TABLE notas_coffee ADD COLUMN encaminhada_em TEXT")
+    if "encaminhada_por" not in cols_notas:
+        conn.execute("ALTER TABLE notas_coffee ADD COLUMN encaminhada_por TEXT")
+    if "retornada_em" not in cols_notas:
+        conn.execute("ALTER TABLE notas_coffee ADD COLUMN retornada_em TEXT")
+    if "retornada_por" not in cols_notas:
+        conn.execute("ALTER TABLE notas_coffee ADD COLUMN retornada_por TEXT")
+    if "retorno_justificativa" not in cols_notas:
+        conn.execute("ALTER TABLE notas_coffee ADD COLUMN retorno_justificativa TEXT")
+    if "corrigida_em" not in cols_notas:
+        conn.execute("ALTER TABLE notas_coffee ADD COLUMN corrigida_em TEXT")
+    if "corrigida_por" not in cols_notas:
+        conn.execute("ALTER TABLE notas_coffee ADD COLUMN corrigida_por TEXT")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS coffee_logs (
@@ -420,6 +452,8 @@ def upsert_nota(pk: int, id_sap: int, dados_json: dict) -> str:
         registrar_log("transicao", "classificar", pk,
                       {"anterior": classe_anterior, "novo": classe,
                        "id_sap_anterior": id_sap_anterior, "id_sap_atual": id_sap}, True)
+        if classe == "corrigida":
+            registrar_correcao(pk)
     return classe
 
 
@@ -441,6 +475,13 @@ def registrar_erro(pk: int, mensagem: str) -> None:
 def arquivar_nota(pk: int) -> None:
     conn = get_db_connection()
     conn.execute("UPDATE notas_coffee SET arquivado = 1 WHERE pk = ?", (pk,))
+    conn.commit()
+    conn.close()
+
+
+def desarquivar_nota(pk: int) -> None:
+    conn = get_db_connection()
+    conn.execute("UPDATE notas_coffee SET arquivado = 0 WHERE pk = ?", (pk,))
     conn.commit()
     conn.close()
 
@@ -498,6 +539,183 @@ def definir_origem(pk: int, origem: str) -> None:
     """Marca a origem da nota ('avulsa' | 'verificar')."""
     conn = get_db_connection()
     conn.execute("UPDATE notas_coffee SET origem = ? WHERE pk = ?", (origem, pk))
+    conn.commit()
+    conn.close()
+
+
+def registrar_origem_verificar(pk: int, verificar_id: int) -> None:
+    """Registra a primeira entrada da nota na triagem, sem perder o histórico."""
+    agora = datetime.datetime.now().isoformat()
+    conn = get_db_connection()
+    conn.execute(
+        """
+        UPDATE notas_coffee
+        SET origem = 'verificar', verificar_id = ?, verificar_ativa = 1,
+            verificar_em = COALESCE(verificar_em, ?),
+            verificar_por = COALESCE(verificar_por, ?),
+            encaminhada_em = ?, encaminhada_por = ?,
+            retornada_em = NULL, retornada_por = NULL,
+            retorno_justificativa = NULL
+        WHERE pk = ?
+        """,
+        (verificar_id, agora, _usuario_atual(), agora, _usuario_atual(), pk),
+    )
+    conn.commit()
+    conn.close()
+
+
+def desativar_verificar(verificar_id: int) -> None:
+    """Torna a nota novamente visível na triagem após remoção da fila."""
+    conn = get_db_connection()
+    conn.execute(
+        "UPDATE notas_coffee SET verificar_ativa = 0 WHERE verificar_id = ?",
+        (verificar_id,),
+    )
+    conn.commit()
+    conn.close()
+
+
+def desativar_verificar_por_pk(pk: int) -> None:
+    """Torna novamente visível uma nota removida da fila pelo seu PK COFFEE."""
+    conn = get_db_connection()
+    conn.execute(
+        "UPDATE notas_coffee SET verificar_ativa = 0 WHERE pk = ?",
+        (pk,),
+    )
+    conn.commit()
+    conn.close()
+
+
+def registrar_retorno_verificar(pk: int, justificativa: str) -> None:
+    """Registra o retorno justificado da Operação para a triagem."""
+    conn = get_db_connection()
+    conn.execute(
+        """
+        UPDATE notas_coffee
+        SET verificar_ativa = 0, retornada_em = ?, retornada_por = ?,
+            retorno_justificativa = ?
+        WHERE pk = ? AND origem = 'verificar'
+        """,
+        (datetime.datetime.now().isoformat(), _usuario_atual(), justificativa, pk),
+    )
+    conn.commit()
+    conn.close()
+
+
+def resumo_triagem_verificar() -> dict:
+    """Retorna o estado operacional e os encaminhamentos de Verificar no dia."""
+    conn = get_db_connection()
+    try:
+        ativos = conn.execute(
+            """
+            SELECT n.verificar_id, n.verificar_ativa, n.encaminhada_em,
+                   n.encaminhada_por, n.retornada_em, n.retornada_por,
+                   n.retorno_justificativa, f.etapa, f.erro
+            FROM notas_coffee n
+            LEFT JOIN coffee_fila_operacao f ON f.nota_pk = n.pk
+            WHERE n.verificar_id IS NOT NULL
+              AND (n.verificar_ativa = 1 OR n.retorno_justificativa IS NOT NULL)
+            """
+        ).fetchall()
+        hoje = conn.execute(
+            """
+            SELECT COALESCE(encaminhada_por, 'Desconhecido'), COUNT(*)
+            FROM notas_coffee
+            WHERE verificar_id IS NOT NULL
+              AND date(encaminhada_em) = date('now', 'localtime')
+            GROUP BY encaminhada_por
+            ORDER BY COUNT(*) DESC, encaminhada_por COLLATE NOCASE
+            """
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return {"encaminhamentos": {}, "encaminhadas_hoje": []}
+    finally:
+        conn.close()
+
+    encaminhamentos = {
+        str(verificar_id): {
+            "situacao": (
+                "retornada" if not verificar_ativa
+                else "falha_operacional" if erro else "encaminhada"
+            ),
+            "etapa": etapa,
+            "erro": erro,
+            "encaminhada_em": encaminhada_em,
+            "encaminhada_por": encaminhada_por,
+            "retornada_em": retornada_em,
+            "retornada_por": retornada_por,
+            "retorno_justificativa": retorno_justificativa,
+        }
+        for (
+            verificar_id,
+            verificar_ativa,
+            encaminhada_em,
+            encaminhada_por,
+            retornada_em,
+            retornada_por,
+            retorno_justificativa,
+            etapa,
+            erro,
+        ) in ativos
+    }
+    return {
+        "encaminhamentos": encaminhamentos,
+        "encaminhadas_hoje": [
+            {"usuario": usuario, "total": total} for usuario, total in hoje
+        ],
+    }
+
+
+def ids_verificar_em_correcao() -> set[str]:
+    """IDs da fonte que seguem em tratamento no COFFEE."""
+    conn = get_db_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT verificar_id FROM notas_coffee
+            WHERE verificar_ativa = 1 AND verificar_id IS NOT NULL
+              AND classificacao IN ('nao_gerada', 'pendente')
+            """
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return set()
+    finally:
+        conn.close()
+    return {str(row[0]) for row in rows}
+
+
+def ids_verificar_corrigidos() -> set[str]:
+    """IDs da fonte que receberam SAP real após serem tratados no COFFEE."""
+    conn = get_db_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT verificar_id FROM notas_coffee
+            WHERE verificar_id IS NOT NULL AND classificacao = 'corrigida'
+              AND id_sap IS NOT NULL AND id_sap != ?
+            """,
+            (config.SAP_PENDENTE,),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return set()
+    finally:
+        conn.close()
+    return {str(row[0]) for row in rows}
+
+
+def registrar_correcao(pk: int) -> None:
+    """Fixa quando e por quem a nota de Verificar recebeu SAP real."""
+    agora = datetime.datetime.now().isoformat()
+    conn = get_db_connection()
+    conn.execute(
+        """
+        UPDATE notas_coffee
+        SET corrigida_em = COALESCE(corrigida_em, ?),
+            corrigida_por = COALESCE(corrigida_por, ?)
+        WHERE pk = ? AND origem = 'verificar'
+        """,
+        (agora, _usuario_atual(), pk),
+    )
     conn.commit()
     conn.close()
 
