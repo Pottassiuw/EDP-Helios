@@ -35,7 +35,7 @@ vi.mock('./nota-ficha-completa', () => ({
   NotaFichaCompleta: () => <section>Ficha completa (COFFEE)</section>,
 }));
 
-import { Dashboard, idsEncaminhaveisEmLote } from './dashboard';
+import { Dashboard, idsEncaminhaveisEmLote, inspetorOptions } from './dashboard';
 
 function consultaVazia(): CoffeeConsulta {
   return {
@@ -75,7 +75,7 @@ const notes: Note[] = [
     id: '100', gerador: { matricula: '204565', nome: 'Fabricio Dias', uf: 'ES', inspetor: true, cadastrado: true },
   }),
   nota({
-    id: '200', gerador: { matricula: '111', nome: 'Outro Inspetor', uf: 'SP', inspetor: true, cadastrado: true },
+    id: '200', uf: 'SP', gerador: { matricula: '111', nome: 'Outro Inspetor', uf: 'SP', inspetor: true, cadastrado: true },
   }),
   nota({
     id: '300', gerador: { matricula: '999999', nome: '999999', uf: '', inspetor: false, cadastrado: false },
@@ -93,6 +93,7 @@ describe('Dashboard — filtro por inspetor', () => {
     sessionStorage.removeItem('edp_verify_gerador');
     sessionStorage.removeItem('edp_verify_inspetor');
     sessionStorage.removeItem('edp_verify_situacao');
+    sessionStorage.removeItem('edp_verify_uf');
     vi.spyOn(EDPApi, 'consultarNota').mockResolvedValue(consultaVazia());
   });
 
@@ -212,8 +213,10 @@ describe('Dashboard — filtro por inspetor', () => {
   it('expõe semanticamente o indicador de compatibilidade na fila', () => {
     const comCandidata = nota({
       id: '700',
+      referencia_eletrica: 'ELE-1',
       duplicates: [{
         id: '701', local_instalacao: 'ABC-10', poste: 'P1', referencia: 'REF-1', problema: 'Problema',
+        referencia_eletrica: 'ELE-1',
         tipo_nota: 'Poda', setor: 'Centro', uf: 'ES', prioridade: 3,
         in_sheet: true, match: [], latitude: null, longitude: null,
       }],
@@ -225,6 +228,15 @@ describe('Dashboard — filtro por inspetor', () => {
     expect(html).toContain('role="img"');
     expect(html).toContain('aria-label="Forte: 100% · cobertura 100%"');
     expect(html).toContain('100% cob.');
+  });
+
+  it('restringe a lista de inspetores ao estado selecionado no filtro de UF', () => {
+    expect(inspetorOptions(notes, 'ES').map((o) => o.nome)).toEqual(['Fabricio Dias']);
+    expect(inspetorOptions(notes, 'SP').map((o) => o.nome)).toEqual(['Outro Inspetor']);
+  });
+
+  it('sem filtro de UF, a lista de inspetores cobre todos os estados', () => {
+    expect(inspetorOptions(notes, 'all').map((o) => o.nome).sort()).toEqual(['Fabricio Dias', 'Outro Inspetor']);
   });
 
   it('exclui do encaminhamento em lote notas com correção local pendente', () => {
