@@ -16,7 +16,7 @@ export const COLUNAS: ColunaDef[] = [
   { key: 'Conjunto', label: 'Conjunto', editavel: true },
   { key: 'Circuito', label: 'Circuito', editavel: true },
   { key: 'Local_Instalacao', label: 'Local Instalação', editavel: true, largura: 170 },
-  { key: 'Planejado_DDPM', label: 'Planejado DDPM', numeric: true, editavel: true },
+  { key: 'Planejado_DDPM', label: 'Planejado', numeric: true, editavel: true },
   { key: 'Medida_SAP', label: 'Medida SAP' },
   { key: 'Medida_vs_Planejado', label: 'Medida vs Planejado' },
   { key: 'Mes_Execucao_Planejado', label: 'Mês Execução Planejado', editavel: true, opcoes: 'mes', largura: 170 },

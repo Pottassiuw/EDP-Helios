@@ -229,7 +229,7 @@ export function Logs(): React.JSX.Element {
                         criacao ? 'bg-green/5' : exclusao ? 'bg-red/5' : ''
                       }`}
                     >
-                      <td className="px-3 py-2.5 font-mono font-semibold text-accent">
+                      <td className="px-3 py-2.5 font-mono font-bold text-accent" style={{ color: "var(--accent, #3ecf8e)" }}>
                         {r.Numero_Nota}
                       </td>
                       <td className="px-3 py-2.5 text-foreground font-medium flex items-center gap-1.5">
