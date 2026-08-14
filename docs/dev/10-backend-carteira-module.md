@@ -164,9 +164,19 @@ diferença entre dado indisponível e ausência válida. Os avisos são gravados
 `carteira_meta` junto ao refresh e contêm apenas código, bloco, campos públicos,
 mensagem e ação fixos. Na leitura, o serviço reconstitui cada aviso a partir
 desse catálogo, sem ecoar texto persistido. Valores da origem, mensagens de
-exceção, caminhos, credenciais e PII nunca entram no contrato. Um sync com marker novo incrementa
-a versão como antes, portanto mudanças nos avisos participam do ETag sem criar
-uma segunda moeda de estado; o caminho `skip` conserva o metadado vigente.
+exceção, caminhos, credenciais e PII nunca entram no contrato. O sync só usa
+`skip` quando o marker e a assinatura das colunas da origem permanecem iguais;
+uma mudança de esquema força novo enriquecimento mesmo com o mesmo marker. A
+versão resultante inclui mudanças nos avisos sem criar uma segunda moeda de
+estado; o caminho `skip` conserva o metadado vigente.
+
+Em cada ciclo do Databricks, o sync le apenas o esquema (`LIMIT 0`) e compara
+sua assinatura com `assinatura_esquema` em `carteira_meta`. Marker igual so
+permite `skip` quando a assinatura tambem e igual; uma mudanca no esquema faz
+o refresh completo, atualiza os avisos e incrementa a versao. A assinatura e
+interna e nunca integra a resposta. O ETag do enriquecimento combina a versao
+da representacao (`enriquecimento-v2`) com a versao da projecao, para que
+corpos em cache de contratos anteriores sejam revalidados uma vez.
 
 ## Testes
 

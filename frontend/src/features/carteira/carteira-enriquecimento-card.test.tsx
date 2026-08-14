@@ -93,6 +93,15 @@ describe('CarteiraEnriquecimentoContent', () => {
     expect(html).toContain('>0<');
   });
 
+  it('renders a legacy payload without avisos', () => {
+    const html = render({
+      ...encontrada,
+      avisos: undefined,
+    } as unknown as CarteiraEnriquecimento);
+
+    expect(html).toContain('POSTES - CAPEX');
+  });
+
   it('exibe travessão quando a data de tombstone é vazia', () => {
     const html = render({
       ...encontrada,

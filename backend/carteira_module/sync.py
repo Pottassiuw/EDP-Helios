@@ -1,5 +1,6 @@
 """Servico de sincronizacao da Carteira: completo + skip-signal, idempotente."""
 import datetime
+import hashlib
 import json
 import threading
 
@@ -28,6 +29,17 @@ def _ler_origem_databricks() -> list[dict]:
     return df.to_dict("records")
 
 
+def _assinatura_esquema(colunas: list[str]) -> str:
+    material = json.dumps(sorted(colunas), ensure_ascii=False)
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+
+def _ler_assinatura_esquema_databricks() -> str:
+    sql = (f"SELECT * FROM {config.CATALOGO}.{config.SCHEMA}.{config.TABELA} "
+           "LIMIT 0")
+    return _assinatura_esquema(list(client.consultar(sql).columns))
+
+
 def _registrar(execucao: dict) -> None:
     conn = db.conectar()
     conn.execute(
@@ -45,9 +57,13 @@ def _registrar(execucao: dict) -> None:
     conn.close()
 
 
-def sincronizar(*, ler_origem=None, ler_marker=None, agora=None) -> dict:
+def sincronizar(*, ler_origem=None, ler_marker=None,
+                ler_assinatura_esquema=None, agora=None) -> dict:
+    origem_injetada = ler_origem is not None
     ler_origem = ler_origem or _ler_origem_databricks
     ler_marker = ler_marker or _ler_marker_databricks
+    if ler_assinatura_esquema is None and not origem_injetada:
+        ler_assinatura_esquema = _ler_assinatura_esquema_databricks
     iniciado = agora or _agora_iso()
     execucao = {"iniciado_em": iniciado, "refresh_marker": None,
                 "novas": 0, "atualizadas": 0, "inalteradas": 0, "ausentes": 0,
@@ -59,7 +75,18 @@ def sincronizar(*, ler_origem=None, ler_marker=None, agora=None) -> dict:
     try:
         marker = ler_marker()
         execucao["refresh_marker"] = marker
-        if marker and marker == db.obter_meta("ultimo_refresh_marker"):
+        assinatura_esquema = (
+            ler_assinatura_esquema()
+            if ler_assinatura_esquema is not None else None
+        )
+        if (
+            marker
+            and marker == db.obter_meta("ultimo_refresh_marker")
+            and (
+                assinatura_esquema is None
+                or assinatura_esquema == db.obter_meta("assinatura_esquema")
+            )
+        ):
             execucao.update(estrategia="skip", status="ok",
                             finalizado_em=_agora_iso(),
                             versao_resultante=db.obter_versao())
@@ -77,6 +104,8 @@ def sincronizar(*, ler_origem=None, ler_marker=None, agora=None) -> dict:
                 "avisos_enriquecimento",
                 json.dumps(avisos, ensure_ascii=False),
             )
+            if assinatura_esquema is not None:
+                db.definir_meta(conn, "assinatura_esquema", assinatura_esquema)
             conn.commit()
         finally:
             conn.close()

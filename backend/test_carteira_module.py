@@ -597,6 +597,34 @@ def test_sync_skip_preserva_avisos_e_nova_versao_os_limpa(carteira_tmp):
     assert apos_correcao["versao"] != versao_com_aviso
 
 
+def test_sync_reprocessa_quando_assinatura_de_esquema_muda(carteira_tmp):
+    from carteira_module import service, sync
+
+    origem_completa = _origem_exemplo(id_onr=1, id_sap="700500")
+    origem_incompativel = dict(origem_completa)
+    origem_incompativel.pop("sintoma")
+
+    sync.sincronizar(
+        ler_origem=lambda: [origem_completa],
+        ler_marker=lambda: "M1",
+        ler_assinatura_esquema=lambda: "esquema-1",
+        agora="2026-07-29T08:00:00",
+    )
+    versao_inicial = service.enriquecimento_por_sap(700500)["versao"]
+
+    resultado_sync = sync.sincronizar(
+        ler_origem=lambda: [origem_incompativel],
+        ler_marker=lambda: "M1",
+        ler_assinatura_esquema=lambda: "esquema-2",
+        agora="2026-07-29T09:00:00",
+    )
+    resultado = service.enriquecimento_por_sap(700500)
+
+    assert resultado_sync["estrategia"] == "completa"
+    assert resultado["avisos"][0]["codigo"] == "diagnostico_indisponivel"
+    assert resultado["versao"] != versao_inicial
+
+
 def test_rota_enriquecimento_por_sap_e_etag(carteira_tmp):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
@@ -661,6 +689,30 @@ def test_rota_enriquecimento_mantem_etag_com_avisos(carteira_tmp):
     assert primeira.json()["avisos"][0]["codigo"] == "diagnostico_indisponivel"
     assert segunda.status_code == 304
     assert segunda.headers["etag"] == etag
+
+
+def test_rota_enriquecimento_revalida_etag_de_representacao_legada(carteira_tmp):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from carteira_module import routes, sync
+
+    sync.sincronizar(
+        ler_origem=lambda: [_origem_exemplo(id_onr=1, id_sap="700500")],
+        ler_marker=lambda: "M1",
+        agora="2026-07-29T08:00:00",
+    )
+    app = FastAPI()
+    app.include_router(routes.router)
+    cliente = TestClient(app)
+
+    resposta = cliente.get(
+        "/api/carteira/notas/por-sap/700500",
+        headers={"If-None-Match": 'W/"1"'},
+    )
+
+    assert resposta.status_code == 200
+    assert resposta.headers["etag"] != 'W/"1"'
+    assert resposta.json()["avisos"] == []
 
 
 def test_rota_enriquecimento_sem_dados_retorna_200(carteira_tmp):

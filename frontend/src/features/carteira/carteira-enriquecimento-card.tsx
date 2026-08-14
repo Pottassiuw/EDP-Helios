@@ -160,8 +160,9 @@ export function CarteiraEnriquecimentoContent({
     );
   }
 
+  const avisos = resultado.avisos ?? [];
   const camposIndisponiveis = new Set(
-    resultado.avisos.flatMap((aviso) => aviso.campos),
+    avisos.flatMap((aviso) => aviso.campos),
   );
   const exibirCampo = (chave: keyof DadosCarteiraEnriquecimento): string => (
     camposIndisponiveis.has(chave) ? 'Indisponível' : exibir(dados[chave])
@@ -189,7 +190,7 @@ export function CarteiraEnriquecimentoContent({
             {formatarData(resultado.ausente_na_origem_em)}.
           </p>
         )}
-        {resultado.avisos.length > 0 && (
+        {avisos.length > 0 && (
           <section
             role="status"
             aria-live="polite"
@@ -209,12 +210,12 @@ export function CarteiraEnriquecimentoContent({
                   Dados parcialmente indisponíveis
                 </p>
                 <ul className="mt-1 list-disc space-y-1 pl-4 text-text-mute">
-                  {resultado.avisos.map((aviso) => (
+                  {avisos.map((aviso) => (
                     <li key={aviso.codigo}>{aviso.mensagem}</li>
                   ))}
                 </ul>
                 <p className="mt-2 text-text-mute">
-                  {resultado.avisos[0].acao}
+                  {avisos[0].acao}
                 </p>
                 <Button
                   type="button"
