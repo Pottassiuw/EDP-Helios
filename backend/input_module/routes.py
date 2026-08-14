@@ -7,6 +7,11 @@ import os
 import re as _re
 from typing import Optional
 from input_module.status10_service import obter_resumo_status10, gerar_email_outlook_status10
+from input_module.notificacoes_service import (
+    obter_resumo_alteracoes_diarias,
+    gerar_email_outlook_engenheiro,
+    gerar_todos_emails_outlook,
+)
 
 import pandas as pd
 from fastapi import (APIRouter, BackgroundTasks, Depends, File, Header,
@@ -28,8 +33,69 @@ def _df_para_registros(df: pd.DataFrame) -> list:
 
 @router.get("/me")
 def quem_sou_eu():
-    usuario = os.environ.get("USERNAME") or os.environ.get("USER") or "sistema"
-    return {"usuario": usuario}
+    return {"usuario": config.usuario_windows()}
+
+
+def usuario_atual(x_user: Optional[str] = Header(None)) -> str:
+    """Extrai o usuário do header X-User ou fallback para config.usuario_windows()."""
+    if x_user and x_user.strip():
+        return x_user.strip()
+    return config.usuario_windows()
+
+
+# ── Responsáveis e E-mails ───────────────────────────────────────────────────
+@router.get("/responsaveis")
+def obter_responsaveis():
+    garantir_banco()
+    return db.carregar_responsaveis()
+
+
+@router.put("/responsaveis")
+def gravar_responsaveis(novo: dict[str, str], usuario: str = Depends(usuario_atual)):
+    garantir_banco()
+    db.salvar_responsaveis(novo)
+    return {"ok": True}
+
+
+@router.get("/responsaveis/emails")
+def obter_emails_responsaveis():
+    garantir_banco()
+    return db.carregar_emails_responsaveis()
+
+
+@router.put("/responsaveis/emails")
+def gravar_emails_responsaveis(novo: dict[str, str], usuario: str = Depends(usuario_atual)):
+    garantir_banco()
+    db.salvar_emails_responsaveis(novo)
+    return {"ok": True}
+
+
+# ── Notificações Diárias aos Engenheiros ───────────────────────────────────────
+class PedidoNotificacao(BaseModel):
+    engenheiro: str = "__todos__"
+    data: Optional[str] = None
+
+
+@router.get("/notificacoes/resumo-diario")
+def notificacoes_resumo_diario(data: Optional[str] = None):
+    garantir_banco()
+    return obter_resumo_alteracoes_diarias(data_referencia=data)
+
+
+@router.post("/notificacoes/enviar-email")
+def notificacoes_enviar_email(pedido: PedidoNotificacao, usuario: str = Depends(usuario_atual)):
+    garantir_banco()
+    if pedido.engenheiro == "__todos__":
+        resultado = gerar_todos_emails_outlook(data_referencia=pedido.data, usuario=usuario)
+    else:
+        resultado = gerar_email_outlook_engenheiro(
+            engenheiro=pedido.engenheiro,
+            data_referencia=pedido.data,
+            usuario=usuario,
+        )
+    if not resultado.get("ok"):
+        raise HTTPException(400, detail=resultado.get("mensagem", "Falha ao gerar e-mail"))
+    return resultado
 
 
 @router.get("/notas")
@@ -223,25 +289,12 @@ def exportar(pedido: ExportPedido):
     )
 
 
-# ── Tarefa 7: configuração (responsáveis, bases, backups, migração) ───────────
+# ── Tarefa 7: configuração (bases, backups, migração) ─────────────────────────
 def _achar_base(nome_arquivo: str) -> str:
     for caminho in config.BASES_APOIO.values():
         if os.path.basename(caminho) == nome_arquivo:
             return caminho
     raise HTTPException(404, f"Base '{nome_arquivo}' não é gerenciada pelo sistema.")
-
-
-@router.get("/responsaveis")
-def obter_responsaveis():
-    garantir_banco()
-    return db.carregar_responsaveis()
-
-
-@router.put("/responsaveis")
-def gravar_responsaveis(novo: dict[str, str], usuario: str = Depends(usuario_atual)):
-    garantir_banco()
-    db.salvar_responsaveis(novo)
-    return {"ok": True}
 
 
 @router.get("/bases")

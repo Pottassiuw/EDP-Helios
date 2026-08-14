@@ -348,6 +348,10 @@ def _caminho_responsaveis() -> str:
     return str(config.data_dir() / "config_responsaveis.json")
 
 
+def _caminho_emails_responsaveis() -> str:
+    return str(config.data_dir() / "config_emails_responsaveis.json")
+
+
 def carregar_responsaveis() -> dict:
     caminho = _caminho_responsaveis()
     if os.path.exists(caminho):
@@ -359,6 +363,20 @@ def carregar_responsaveis() -> dict:
 def salvar_responsaveis(novo: dict) -> None:
     config.data_dir().mkdir(parents=True, exist_ok=True)
     with open(_caminho_responsaveis(), "w", encoding="utf-8") as f:
+        json.dump(novo, f, ensure_ascii=False, indent=4)
+
+
+def carregar_emails_responsaveis() -> dict:
+    caminho = _caminho_emails_responsaveis()
+    if os.path.exists(caminho):
+        with open(caminho, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return dict(config.EMAILS_RESPONSAVEIS_PADRAO)
+
+
+def salvar_emails_responsaveis(novo: dict) -> None:
+    config.data_dir().mkdir(parents=True, exist_ok=True)
+    with open(_caminho_emails_responsaveis(), "w", encoding="utf-8") as f:
         json.dump(novo, f, ensure_ascii=False, indent=4)
 
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Loader2, Undo2, Save, Trash2 } from 'lucide-react';
+import { Loader2, Undo2, Save, Trash2, Mail } from 'lucide-react';
 import type { Celula, InputDataset, NotaInput } from './types';
 import { InputApi } from './api';
 import { toast } from 'sonner';
@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/select';
 import { SegTabs, Banner, Eyebrow } from '@/components/branded/section';
 import { ConfirmModal } from '../coffee/confirm-modal';
+import { NotificacaoModal } from './notificacao-modal';
 
 import { Rateio } from './rateio';
 import { HierarquiaCard } from './hierarquia-card';
@@ -64,6 +65,7 @@ export function Manage({ dados, estadoFiltros }: ManageProps): React.JSX.Element
   const [loteMes, setLoteMes] = React.useState('');
   const [novaNota, setNovaNota] = React.useState<Record<string, string>>({ ...NOTA_VAZIA });
   const [textoColagem, setTextoColagem] = React.useState('');
+  const [modalNotificacao, setModalNotificacao] = React.useState(false);
 
   const filtrados = React.useMemo(
     () => filtrarRegistros(dados.registros, estadoFiltros), [dados.registros, estadoFiltros]);
@@ -232,6 +234,16 @@ export function Manage({ dados, estadoFiltros }: ManageProps): React.JSX.Element
             <Button
               variant="outline"
               size="sm"
+              className="h-9 px-3 text-xs font-semibold gap-1.5 border-line hover:border-accent hover:text-accent"
+              onClick={() => setModalNotificacao(true)}
+              title="Consolidar e enviar notificações diárias aos engenheiros por regional"
+            >
+              <Mail className="h-3.5 w-3.5 text-accent" />
+              Notificar Engenheiros
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               className="h-9 px-3 text-xs"
               disabled={salvando}
               onClick={desfazer}
@@ -242,6 +254,8 @@ export function Manage({ dados, estadoFiltros }: ManageProps): React.JSX.Element
           </div>
         )}
       </div>
+
+      <NotificacaoModal aberto={modalNotificacao} onFechar={() => setModalNotificacao(false)} />
 
       {base === 'ramal' ? (
         <Ramal dadosPrincipais={dados} estadoFiltros={estadoFiltros} />

@@ -6,6 +6,7 @@ import {
   Search,
   Trash2,
   User,
+  Mail,
 } from 'lucide-react';
 import { InputApi } from './api';
 import type { LogArquivo, LogRegistro } from './types';
@@ -20,6 +21,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { NotificacaoModal } from './notificacao-modal';
 
 type SubAba = 'notas' | 'arquivos' | 'timeline';
 type TipoAcao = 'todos' | 'criacao' | 'edicao' | 'exclusao';
@@ -61,6 +63,7 @@ export function Logs(): React.JSX.Element {
   const [filtroUsuario, setFiltroUsuario] = React.useState('');
   const [filtroTipo, setFiltroTipo] = React.useState<TipoAcao>('todos');
   const [notaTimeline, setNotaTimeline] = React.useState('');
+  const [modalNotificacao, setModalNotificacao] = React.useState(false);
 
   const logs = useQuery({ queryKey: ['input-logs'], queryFn: InputApi.logs });
   const logsArquivos = useQuery({ queryKey: ['input-logs-arquivos'], queryFn: InputApi.logsArquivos });
@@ -94,10 +97,11 @@ export function Logs(): React.JSX.Element {
     );
   }, [todosLogs, termosTimeline]);
 
-  const usuarios = React.useMemo(
-    () => [...new Set(todosLogs.map((r) => r.Usuario))].sort(),
-    [todosLogs],
-  );
+  const usuarios = React.useMemo(() => {
+    const s = new Set<string>();
+    for (const r of todosLogs) if (r.Usuario) s.add(r.Usuario);
+    return Array.from(s).sort();
+  }, [todosLogs]);
 
   const stats = React.useMemo(() => {
     let criacoes = 0;
@@ -113,8 +117,21 @@ export function Logs(): React.JSX.Element {
 
   return (
     <div className="p-6 flex flex-col gap-6 max-w-full">
+      <NotificacaoModal aberto={modalNotificacao} onFechar={() => setModalNotificacao(false)} />
       <div className="flex items-center justify-between gap-4 flex-wrap bg-surface p-4 rounded-lg border border-line shadow-xs">
-        <SegTabs tabs={LOG_TABS} value={sub} onChange={setSub} ariaLabel="Tipo de log" />
+        <div className="flex items-center gap-3">
+          <SegTabs tabs={LOG_TABS} value={sub} onChange={setSub} ariaLabel="Tipo de log" />
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 text-xs font-semibold gap-1.5 border-line hover:border-accent hover:text-accent"
+            onClick={() => setModalNotificacao(true)}
+            title="Consolidar e enviar notificações diárias aos engenheiros por regional"
+          >
+            <Mail className="h-3.5 w-3.5 text-accent" />
+            Notificar Engenheiros
+          </Button>
+        </div>
 
         {sub === 'notas' && (
           <div className="flex items-center gap-2 text-xs flex-wrap">

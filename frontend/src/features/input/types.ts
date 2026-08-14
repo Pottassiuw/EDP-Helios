@@ -103,4 +103,37 @@ export interface Status10Resumo {
   registros: NotaInput[];
 }
 
+export interface ItemAlteracaoNotificacao {
+  ID_Log: number;
+  Numero_Nota: number;
+  Regional: string;
+  Conjunto: string;
+  Circuito: string;
+  Tipo_Evento: string;
+  Campo_Alterado: string;
+  Valor_Antigo: string;
+  Valor_Novo: string;
+  Detalhe: string;
+  Usuario: string;
+  Data_Hora: string;
+}
+
+export interface EngenheiroResumoNotificacao {
+  engenheiro: string;
+  email: string;
+  regionais: string[];
+  total_alteracoes: number;
+  total_notas_afetadas: number;
+  notas_afetadas: number[];
+  alteracoes: ItemAlteracaoNotificacao[];
+}
+
+export interface ResumoNotificacoesDiarias {
+  data_referencia: string;
+  total_alteracoes: number;
+  total_notas_afetadas: number;
+  engenheiros: Record<string, EngenheiroResumoNotificacao>;
+}
+
 export type AbaInput = 'visao' | 'gerenciar' | 'ramal' | 'relatorios' | 'logs' | 'config';
+

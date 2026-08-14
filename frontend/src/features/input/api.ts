@@ -119,6 +119,21 @@ export const InputApi = {
   enviarEmailStatus10: async (): Promise<{ ok: boolean; mensagem: string }> => {
     return req<{ ok: boolean; mensagem: string }>('/status10/enviar-email', escrita('POST'));
   },
+
+  obterEmailsResponsaveis: () =>
+    req<Record<string, string>>('/responsaveis/emails'),
+  gravarEmailsResponsaveis: (novo: Record<string, string>) =>
+    req<{ ok: boolean }>('/responsaveis/emails', escrita('PUT', novo)),
+
+  obterResumoNotificacoesDiarias: (data?: string) =>
+    req<import('./types').ResumoNotificacoesDiarias>(
+      data ? `/notificacoes/resumo-diario?data=${encodeURIComponent(data)}` : '/notificacoes/resumo-diario'
+    ),
+  enviarEmailNotificacao: (engenheiro: string = '__todos__', data?: string) =>
+    req<{ ok: boolean; mensagem: string; enviados?: number }>(
+      '/notificacoes/enviar-email',
+      escrita('POST', { engenheiro, data })
+    ),
 };
 
 export function baixarBlob(blob: Blob, nome: string): void {

@@ -1473,3 +1473,49 @@ def test_ramal_nota_nova_continua_a_numeracao(banco_temporario):
     df = db.carregar_dados_ramal()
     cronologias = sorted(int(x) for x in df["ID_Cronologia"])
     assert cronologias == [1, 2, 3]
+
+
+# ── Notificações Diárias aos Engenheiros ───────────────────────────────────────
+def test_notificacoes_resumo_diario_por_regional_e_engenheiro(banco_temporario):
+    from input_module import db, service, notificacoes_service
+    import datetime
+
+    hoje = datetime.date.today().isoformat()
+    # 1. Cria notas em diferentes regionais (Guarulhos -> James, Suzano -> Danilo)
+    n1 = service.NovaNota(Numero_Nota=9001, Regional="Guarulhos", Status_Nota="00 Pendente", Prioridade_Nota="Programável", Local_Instalacao="045RL00000001")
+    n2 = service.NovaNota(Numero_Nota=9002, Regional="Suzano", Status_Nota="00 Pendente", Prioridade_Nota="Programável", Local_Instalacao="050RL00000001")
+    service.criar_notas([n1, n2], usuario="felip")
+
+    # 2. Aplica edição em 9001
+    db.aplicar_edicoes([{"Numero_Nota": 9001, "Planejado_DDPM": 3.5}], usuario="felip")
+
+    # 3. Consulta resumo diário
+    resumo = notificacoes_service.obter_resumo_alteracoes_diarias(data_referencia=hoje)
+    assert resumo["total_alteracoes"] >= 3  # criações + edição
+    assert "James" in resumo["engenheiros"]
+    assert "Danilo" in resumo["engenheiros"]
+
+    james_data = resumo["engenheiros"]["James"]
+    assert james_data["total_alteracoes"] >= 2  # criação + edição da nota de Guarulhos
+    assert 9001 in james_data["notas_afetadas"]
+
+
+def test_notificacoes_api_e_emails_responsaveis(cliente):
+    # Teste de endpoints de e-mails dos responsáveis
+    r_get = cliente.get("/api/input/responsaveis/emails")
+    assert r_get.status_code == 200
+    emails_iniciais = r_get.json()
+    assert "James" in emails_iniciais
+
+    r_put = cliente.put(
+        "/api/input/responsaveis/emails",
+        json={"James": "james.novo@edp.com", "Danilo": "danilo.novo@edp.com"},
+        headers=CABECALHO_USER,
+    )
+    assert r_put.status_code == 200
+    assert cliente.get("/api/input/responsaveis/emails").json()["James"] == "james.novo@edp.com"
+
+    # Teste de endpoint de resumo diário
+    r_resumo = cliente.get("/api/input/notificacoes/resumo-diario")
+    assert r_resumo.status_code == 200
+    assert "engenheiros" in r_resumo.json()

@@ -525,4 +525,17 @@ Na visualização hierárquica (`NotesTable` com `agruparGavetinhas=true`):
 - **Cadastro Direto de Nota Filha (`Manage` / `HierarquiaCard`):** Permite inserir novas notas diretamente como filhas de uma Nota Mãe existente, herdando metadados (Conjunto, Circuito, Local de Instalação, Mês) e ajustando a medida da mãe no banco de dados para evitar esquecimentos.
 - **Detetive de Notas (`varrerVinculos`):** Realiza varredura inteligente no campo `Observacao` e `Status_Obra`, identificando vínculos mãe-filha diretos e bidirecionais (inclusive para notas com medida planejada maior que zero).
 
+## Notificações Diárias aos Engenheiros por Regional
+
+- **Serviço de Notificações (`notificacoes_service.py`):** Consolida eventos diários (`log_alteracoes` + `notas`) agrupando alterações em notas por `Regional` e `Engenheiro Responsável`.
+  - Categoriza eventos em: **✏️ Edições de Campo**, **🔗 Vínculos de Hierarquia**, **🗑️ Exclusões** e **➕ Criações**.
+  - Filtra e gera e-mails apenas quando houver alterações nas regionais do engenheiro (*caso necessário*).
+- **Geração via Outlook (`win32com.client`):** Monta e-mail HTML corporativo EDP com tabela detalhada, destinatário preenchido (`To: email_engenheiro`, `CC: usuario/gestor`) e abre o rascunho no Outlook.
+- **Endpoints de API:**
+  - `GET /api/input/notificacoes/resumo-diario`: resumo das alterações do dia por engenheiro e regional.
+  - `POST /api/input/notificacoes/enviar-email`: dispara a criação de rascunhos no Outlook (individual ou para todos com alterações).
+  - `GET/PUT /api/input/responsaveis/emails`: gerenciamento dos endereços de e-mail dos engenheiros responsáveis.
+- **Frontend (`NotificacaoModal`):** Modal acessível no cabeçalho de **Logs** e **Gerenciar**, com preview das alterações, status por engenheiro e botão de disparo com 1 clique.
+
+
 

@@ -480,6 +480,11 @@ DE_PARA_RESPONSAVEIS_PADRAO = {
     "Guarulhos": "James",
     "Mogi das Cruzes": "Fabricio",
 }
+EMAILS_RESPONSAVEIS_PADRAO = {
+    "Danilo": "danilop.vilela@edp.com",
+    "James": "james.junior@edp.com",
+    "Fabricio": "fabricio.viana@edp.com",
+}
 MAP_PROJETO_CONSTRUCAO_PADRAO = {
     "ALEX SANFORD PETRASOLI": "SIM",
     "ALTOS DA VILA PAIVA": "-",

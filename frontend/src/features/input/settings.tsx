@@ -29,9 +29,11 @@ export function Settings({ dados }: { dados: InputDataset }): React.JSX.Element 
   const [msg, setMsg] = React.useState('');
   const [nome, setNome] = React.useState(getUsuario() ?? '');
   const [linhasResp, setLinhasResp] = React.useState<[string, string][] | null>(null);
+  const [linhasEmail, setLinhasEmail] = React.useState<[string, string][] | null>(null);
   const [sincronizando, setSincronizando] = React.useState(false);
 
   const responsaveis = useQuery({ queryKey: ['input-resp'], queryFn: InputApi.responsaveis });
+  const emailsQuery = useQuery({ queryKey: ['input-emails-resp'], queryFn: InputApi.obterEmailsResponsaveis });
   const backups = useQuery({ queryKey: ['input-backups'], queryFn: InputApi.backups });
   const dashboard = useDashboardRelatorios(null);
 
@@ -47,6 +49,7 @@ export function Settings({ dados }: { dados: InputDataset }): React.JSX.Element 
   }
 
   const linhas = linhasResp ?? Object.entries(responsaveis.data ?? {});
+  const linhasEmailsAtuais = linhasEmail ?? Object.entries(emailsQuery.data ?? {});
 
   async function agir(fn: () => Promise<unknown>, ok: string): Promise<void> {
     setMsg('');
@@ -149,6 +152,71 @@ export function Settings({ dados }: { dados: InputDataset }): React.JSX.Element 
             }, 'Mapeamento de responsáveis atualizado.'); }}
           >
             Salvar Alterações
+          </Button>
+        </div>
+      </Cartao>
+
+      <Cartao eyebrow="Comunicação & Notificações" titulo="E-mails dos Engenheiros Responsáveis">
+        <div className="flex flex-col gap-2 mb-4">
+          {linhasEmailsAtuais.map(([pessoa, email], i) => (
+            <div key={i} className="flex gap-2 items-center">
+              <Input
+                value={pessoa}
+                placeholder="Nome do Engenheiro (ex: James)"
+                className="w-56 h-9 text-xs bg-bg-2 border-line font-semibold"
+                onChange={(e) => {
+                  const c = [...linhasEmailsAtuais] as [string, string][];
+                  c[i] = [e.target.value, email];
+                  setLinhasEmail(c);
+                }}
+              />
+              <Input
+                value={email}
+                placeholder="E-mail (ex: james.junior@edp.com)"
+                className="w-80 h-9 text-xs bg-bg-2 border-line font-mono"
+                onChange={(e) => {
+                  const c = [...linhasEmailsAtuais] as [string, string][];
+                  c[i] = [pessoa, e.target.value];
+                  setLinhasEmail(c);
+                }}
+              />
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-9 w-9 p-0 text-text-mute hover:text-red"
+                aria-label={`Remover e-mail de ${pessoa || i + 1}`}
+                onClick={() => setLinhasEmail(linhasEmailsAtuais.filter((_, j) => j !== i) as [string, string][])}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-2 pt-2 border-t border-line">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-9 text-xs text-accent"
+            onClick={() => setLinhasEmail([...linhasEmailsAtuais, ['', '']] as [string, string][])}
+          >
+            <Plus className="mr-1.5 h-3.5 w-3.5" />
+            Adicionar Engenheiro
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 px-4 text-xs"
+            onClick={() => {
+              void agir(async () => {
+                await InputApi.gravarEmailsResponsaveis(
+                  Object.fromEntries(linhasEmailsAtuais.filter(([p]) => p.trim() !== ''))
+                );
+                await emailsQuery.refetch();
+                setLinhasEmail(null);
+              }, 'E-mails dos engenheiros responsáveis atualizados.');
+            }}
+          >
+            Salvar E-mails
           </Button>
         </div>
       </Cartao>
