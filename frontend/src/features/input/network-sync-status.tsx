@@ -20,7 +20,7 @@ export function NetworkSyncStatus({
 }: NetworkSyncStatusProps): React.JSX.Element {
   if (estado === 'sincronizada') {
     return (
-      <div className="flex items-center gap-2 px-3 py-1 rounded-md bg-green/10 border border-green/20 text-green text-xs font-medium">
+      <div role="status" className="flex items-center gap-2 px-3 py-1 rounded-md bg-green/10 border border-green/20 text-green text-xs font-medium">
         <div className="carteira-sync-dot" />
         <span>Sincronizada</span>
       </div>
@@ -29,7 +29,7 @@ export function NetworkSyncStatus({
 
   if (estado === 'indisponivel') {
     return (
-      <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-red/10 border border-red/20 text-red text-xs font-medium">
+      <div role="alert" className="flex items-center gap-2 px-2 py-1 rounded-md bg-red/10 border border-red/20 text-red text-xs font-medium">
         <span>Rede indisponível</span>
         <Button
           variant="outline"
@@ -46,7 +46,7 @@ export function NetworkSyncStatus({
 
   const sincronizando = estado === 'sincronizando';
   return (
-    <div className="flex items-center gap-2 px-3 py-1 rounded-md bg-amber/10 border border-amber/30 text-amber text-xs font-medium">
+    <div role="status" className="flex items-center gap-2 px-3 py-1 rounded-md bg-amber/10 border border-amber/30 text-amber text-xs font-medium">
       <Loader2 className={`h-3.5 w-3.5 ${sincronizando ? 'animate-spin' : ''}`} />
       <span>{sincronizando ? 'Sincronizando…' : 'Verificando rede…'}</span>
     </div>

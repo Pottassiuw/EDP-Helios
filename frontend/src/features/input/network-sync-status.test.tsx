@@ -27,9 +27,11 @@ describe('NetworkSyncStatus', () => {
     );
 
     expect(indisponivel).toContain('Rede indisponível');
+    expect(indisponivel).toContain('role="alert"');
     expect(indisponivel).toContain('Tentar novamente');
     expect(indisponivel).toContain('aria-label="Tentar novamente a verificação da rede"');
     expect(sincronizada).toContain('Sincronizada');
+    expect(sincronizada).toContain('role="status"');
     expect(sincronizada).not.toContain('Rede indisponível');
   });
 });
