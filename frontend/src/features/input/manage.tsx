@@ -34,7 +34,7 @@ const MODOS: { id: Modo; rotulo: string }[] = [
   { id: 'rateio', rotulo: 'Rateio de Medidas' },
   { id: 'exclusao', rotulo: 'Exclusão' },
   { id: 'cadastro', rotulo: 'Cadastrar Nota' },
-  { id: 'colagem', rotulo: 'Colar Planilha' },
+  { id: 'colagem', rotulo: 'Inserir em Massa (Planilha)' },
 ];
 
 interface Mensagem { tipo: 'ok' | 'erro'; texto: string; }
@@ -578,7 +578,7 @@ export function Manage({ dados, estadoFiltros }: ManageProps): React.JSX.Element
 
           {modo === 'colagem' && (
             <ColagemPlanilha
-              titulo="Colar Planilha (TSV / Excel)"
+              titulo="Planilha de Inserção de Notas em Massa"
               colunasColagem={COLUNAS_COLAGEM}
               colunasPreview={COLUNAS.filter((c) => COLUNAS_COLAGEM.includes(c.key))}
               rotulos={ROTULOS}
