@@ -1,4 +1,5 @@
 """Testes do modulo Carteira (backend). Origem Databricks sempre mockada."""
+import json
 import sqlite3
 
 import pytest
@@ -529,6 +530,39 @@ def test_enriquecimento_expoe_avisos_e_preserva_zero_valido(carteira_tmp):
     assert resultado["dados"]["kit"] is None
     assert resultado["avisos"][0]["campos"] == ["kit", "n_trafo"]
     assert "Pessoa sigilosa" not in str(resultado["avisos"])
+
+
+def test_enriquecimento_canoniza_avisos_sem_vazar_metadado(carteira_tmp):
+    from carteira_module import db, service
+
+    conn = db.conectar()
+    db.definir_meta(conn, "versao", "1")
+    db.definir_meta(
+        conn,
+        "avisos_enriquecimento",
+        json.dumps([{
+            "codigo": "diagnostico_indisponivel",
+            "bloco": "texto alterado",
+            "campos": ["sintoma"],
+            "mensagem": "conteudo interno",
+            "acao": "instrucao interna",
+        }]),
+    )
+    conn.commit()
+    conn.close()
+
+    resultado = service.enriquecimento_por_sap(700500)
+
+    assert resultado["avisos"] == [{
+        "codigo": "diagnostico_indisponivel",
+        "bloco": "diagnostico",
+        "campos": ["sintoma"],
+        "mensagem": "Os dados de diagnóstico estão indisponíveis.",
+        "acao": (
+            "Sincronize novamente. Se o aviso persistir, verifique a "
+            "compatibilidade da fonte."
+        ),
+    }]
 
 
 def test_sync_skip_preserva_avisos_e_nova_versao_os_limpa(carteira_tmp):

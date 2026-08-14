@@ -54,6 +54,55 @@ _ACAO_AVISO = (
 )
 
 
+def _montar_aviso(bloco: dict, campos: list[str]) -> dict:
+    return {
+        "codigo": bloco["codigo"],
+        "bloco": bloco["bloco"],
+        "campos": campos,
+        "mensagem": bloco["mensagem"],
+        "acao": _ACAO_AVISO,
+    }
+
+
+def normalizar_avisos(avisos: object) -> list[dict]:
+    """Reconstrói avisos públicos a partir do catálogo fixo.
+
+    O metadado persistido guarda somente o código e os campos afetados como
+    referência; mensagem, ação e bloco sempre vêm deste módulo para que
+    nenhum conteúdo interno alcance o contrato.
+    """
+    if not isinstance(avisos, list):
+        return []
+
+    blocos_por_codigo = {
+        bloco["codigo"]: bloco
+        for bloco in _BLOCOS_ENRIQUECIMENTO
+    }
+    normalizados = []
+    codigos_vistos = set()
+    for aviso in avisos:
+        if not isinstance(aviso, dict):
+            continue
+        codigo = aviso.get("codigo")
+        if not isinstance(codigo, str) or codigo in codigos_vistos:
+            continue
+        bloco = blocos_por_codigo.get(codigo)
+        campos_recebidos = aviso.get("campos")
+        if bloco is None or not isinstance(campos_recebidos, list):
+            continue
+
+        campos = [
+            campo_publico
+            for campo_publico in bloco["campos"].values()
+            if campo_publico in campos_recebidos
+        ]
+        if not campos:
+            continue
+        normalizados.append(_montar_aviso(bloco, campos))
+        codigos_vistos.add(codigo)
+    return normalizados
+
+
 def de_para_regional(csd: str | None) -> str | None:
     if csd is None:
         return None
@@ -127,13 +176,7 @@ def normalizar_linhas(origens: list[dict]) -> tuple[list[dict], list[dict]]:
                 if any(campo_origem not in origem for origem in origens)
             ]
             if campos_ausentes:
-                avisos.append({
-                    "codigo": bloco["codigo"],
-                    "bloco": bloco["bloco"],
-                    "campos": campos_ausentes,
-                    "mensagem": bloco["mensagem"],
-                    "acao": _ACAO_AVISO,
-                })
+                avisos.append(_montar_aviso(bloco, campos_ausentes))
     return [normalizar_linha(origem) for origem in origens], avisos
 
 
