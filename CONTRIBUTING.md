@@ -89,8 +89,8 @@ Um PR não está pronto para merge sem:
 
 Após o merge em `develop` e a confirmação dos checks:
 
-1. confirme que a Issue foi fechada pelo vínculo `Closes #...` ou feche-a com uma nota objetiva;
-2. mova o item do Project para **Done**;
+1. confirme no job `Synchronize merged delivery` que a Issue foi fechada e o Project foi movido para **Done**;
+2. se o job falhar por acesso ao Project, valide o secret em **Settings → Secrets and variables → Actions** e execute o `workflow_dispatch` de `Delivery synchronization` para reconciliar o PR;
 3. anote bloqueios, acompanhamento ou rollback em uma Issue separada quando necessário;
 4. remova o worktree quando não precisar mais dele:
 
