@@ -502,3 +502,21 @@ obter_estado_metas() -> {
 
 Colunas extras/vazias são ignoradas; linhas com valores faltantes em
 `Regionais`/`Mês`/`Plano` são descartadas.
+
+## Auditoria e Logs de Alterações
+
+Todas as operações de escrita no cadastro de notas registram eventos na tabela `log_alteracoes`:
+
+- **Criação de Notas (`service.criar_notas`):** Registra evento `"CRIAÇÃO DE NOTA"` com usuário autenticado (`X-User`), timestamp e metadados contextuais (`Origem`, `Status_Nota`, `Conjunto`).
+- **Edições Parciais (`db.aplicar_edicoes`):** Registra diff campo a campo (`Valor_Antigo` → `Valor_Novo`).
+- **Exclusões (`db.deletar_notas`):** Registra `"EXCLUSÃO DE NOTA"`.
+- **Desfazer / Undo (`db.reverter_ultima_alteracao`):** Reverte a última transação e remove os registros correspondentes do log.
+
+O frontend (`Logs`) suporta busca de múltiplas notas simultâneas (separadas por vírgula, espaço ou coladas de planilhas), filtros por tipo de evento e exibição cronológica de timeline.
+
+## Visualização Hierárquica e Agregação
+
+Na visualização hierárquica (`NotesTable` com `agruparGavetinhas=true`):
+- **Nota Mãe Fechada / Recolhida:** A coluna `Planejado_DDPM` (e métricas de ordem/modular) exibe a **soma consolidada do grupo** (`Mãe + Filhas`) acompanhada da tag `Σ grupo` e tooltip descritivo.
+- **Nota Mãe Aberta / Expandida:** A linha da Nota Mãe exibe apenas seu valor próprio individual, e as linhas filhas exibem seus respectivos valores individuais logo abaixo.
+

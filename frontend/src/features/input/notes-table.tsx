@@ -40,6 +40,7 @@ interface LinhaHierarquica {
   nivel: number;
   temFilhas: boolean;
   qtdFilhas: number;
+  filhas?: NotaInput[];
 }
 
 const HEADER_STICKY_CLASS =
@@ -148,6 +149,7 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
         nivel: 0,
         temFilhas,
         qtdFilhas: filhas.length,
+        filhas,
       });
 
       if (temFilhas && expandidos.has(r.Numero_Nota)) {
@@ -163,7 +165,7 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
     }
 
     return { linhasProcessadas: resultado, totalMaesComFilhas: filhasPorMae.size };
-  }, [ordenados, agruparGavetinhas, expandidos]);
+  }, [ordenados, agruparGavetinhas, expandidos, todosOsRegistros]);
 
   const inicio = Math.max(0, Math.floor(scrollTop / ALTURA_LINHA) - 5);
   const qtdVisiveis = Math.ceil(altura / ALTURA_LINHA) + 10;
@@ -316,16 +318,16 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
               <button
                 type="button"
                 onClick={(e) => toggleExpandir(r.Numero_Nota, e)}
-                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-sans font-semibold transition-all shadow-xs cursor-pointer ${
+                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11.5px] font-sans transition-all cursor-pointer shadow-2xs ${
                   estaExpandido
-                    ? "bg-accent text-accent-foreground ring-1 ring-accent/50 hover:brightness-110"
-                    : "bg-accent/15 text-accent hover:bg-accent/30 border border-accent/30"
+                    ? "bg-green text-white font-bold border border-green hover:brightness-110 shadow-xs"
+                    : "bg-green/12 dark:bg-green/20 text-green dark:text-green-2 font-bold border border-green/40 hover:bg-green/25 hover:border-green/60"
                 }`}
                 title={estaExpandido ? "Recolher notas filhas" : "Expandir notas filhas (gavetinha)"}
               >
-                <Folder size={11} className={estaExpandido ? "fill-current" : ""} />
+                <Folder size={12} className={estaExpandido ? "fill-current text-white" : "text-green dark:text-green-2 shrink-0"} />
                 <span>{item.qtdFilhas} {item.qtdFilhas === 1 ? "filha" : "filhas"}</span>
-                {estaExpandido ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+                {estaExpandido ? <ChevronUp size={12} className="shrink-0" /> : <ChevronDown size={12} className="shrink-0" />}
               </button>
             ) : null}
           </div>
@@ -333,10 +335,39 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
       );
     }
 
+    const COLUNAS_SOMA_HIERARQUICA = new Set([
+      "Planejado_DDPM",
+      "Total_planejado_ordem",
+      "Total_real_ordem",
+      "Modular",
+      "Total_planejado_modular",
+    ]);
+
+    const estaExpandido = expandidos.has(r.Numero_Nota);
+    const deveSomarHierarquia =
+      item.temFilhas && !estaExpandido && COLUNAS_SOMA_HIERARQUICA.has(c.key);
+
+    let valorExibicao = v;
+    let tooltipSoma: string | undefined = undefined;
+
+    if (deveSomarHierarquia) {
+      const valorProprio = Number(v) || 0;
+      const somaFilhas = (item.filhas ?? []).reduce(
+        (acc, f) => acc + (Number(valor(f, c.key)) || 0),
+        0,
+      );
+      const somaTotal = valorProprio + somaFilhas;
+      valorExibicao = somaTotal;
+      tooltipSoma = `Soma consolidada do grupo: ${formatarNumero(somaTotal, 2)} (Mãe: ${formatarNumero(valorProprio, 2)} + ${item.qtdFilhas} ${item.qtdFilhas === 1 ? 'filha' : 'filhas'}: ${formatarNumero(somaFilhas, 2)})`;
+    }
+
     return (
       <TableCell
         key={c.key}
-        title={editavel ? "Clique ou duplo clique para editar" : undefined}
+        title={
+          tooltipSoma ??
+          (editavel ? "Clique ou duplo clique para editar" : undefined)
+        }
         onClick={
           editavel
             ? () => setEditando({ numero: r.Numero_Nota, campo: c.key })
@@ -352,15 +383,31 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
         }`}
         style={{
           cursor: editavel ? "pointer" : "default",
-          color: alterada ? "var(--accent)" : undefined,
-          fontWeight: alterada ? 600 : undefined,
+          color: alterada
+            ? "var(--accent)"
+            : deveSomarHierarquia
+              ? "var(--green)"
+              : undefined,
+          fontWeight: alterada || deveSomarHierarquia ? 600 : undefined,
         }}
       >
-        {c.numeric
-          ? c.key === "ranking"
-            ? formatarNumero(v, 0, false)
-            : formatarNumero(v, 2)
-          : String(v ?? "")}
+        {deveSomarHierarquia ? (
+          <div className="flex items-center justify-between gap-1.5 w-full">
+            <span>{formatarNumero(valorExibicao, 2)}</span>
+            <span
+              className="inline-flex items-center px-1.5 py-0.2 text-[10px] font-mono font-bold bg-green/15 text-green dark:text-green-2 border border-green/30 rounded"
+              title={tooltipSoma}
+            >
+              Σ grupo
+            </span>
+          </div>
+        ) : c.numeric ? (
+          c.key === "ranking"
+            ? formatarNumero(valorExibicao, 0, false)
+            : formatarNumero(valorExibicao, 2)
+        ) : (
+          String(valorExibicao ?? "")
+        )}
       </TableCell>
     );
   }
@@ -372,9 +419,9 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
       {agruparGavetinhas && totalMaesComFilhas > 0 && (
         <div className="flex items-center justify-between px-3.5 py-2 bg-surface border border-line rounded-t-[8px] text-xs text-foreground shadow-xs">
           <span className="flex items-center gap-2 font-medium">
-            <FolderOpen className="h-4 w-4 text-accent" />
+            <FolderOpen className="h-4 w-4 text-green" />
             <span>
-              <strong className="text-accent">{totalMaesComFilhas}</strong> nota(s) mãe(s) com filhas agrupadas em gavetinhas.
+              <strong className="text-green font-bold">{totalMaesComFilhas}</strong> nota(s) mãe(s) com filhas agrupadas em gavetinhas.
             </span>
           </span>
           <div className="flex items-center gap-2">
@@ -382,9 +429,9 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
               variant="outline"
               size="sm"
               onClick={expandirTodas}
-              className="h-7 px-2.5 text-[11px] font-semibold gap-1 text-foreground bg-surface hover:bg-accent/15 hover:text-accent border-line cursor-pointer"
+              className="h-7 px-2.5 text-[11px] font-semibold gap-1 text-foreground bg-surface hover:bg-green/15 hover:text-green border-line cursor-pointer"
             >
-              <FolderOpen size={12} className="text-accent" />
+              <FolderOpen size={12} className="text-green" />
               Expandir Todas
             </Button>
             <Button
@@ -446,7 +493,7 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
                     ehFilha
                       ? "border-l-4 border-l-blue-400 bg-surface-2/90 font-medium hover:bg-surface-2 transition-colors"
                       : item.temFilhas
-                        ? "border-l-4 border-l-accent font-semibold bg-accent/5 hover:bg-accent/15 transition-colors"
+                        ? "border-l-4 border-l-green font-semibold bg-green/5 hover:bg-green/12 transition-colors"
                         : undefined
                   }
                 >

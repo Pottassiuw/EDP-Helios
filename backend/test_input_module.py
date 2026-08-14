@@ -258,6 +258,13 @@ def test_service_criar_notas(banco_temporario):
     linha = df[df["Numero_Nota"] == 555001].iloc[0]
     assert linha["Regional"] == "Guarulhos"          # derivada de Local_Instalacao[:3]
     assert linha["ID_Cronologia"] == 1
+
+    logs = db.carregar_logs()
+    assert (logs["Numero_Nota"] == 555001).any()
+    log_criacao = logs[logs["Numero_Nota"] == 555001].iloc[0]
+    assert log_criacao["Usuario"] == "teste"
+    assert log_criacao["Campo_Alterado"] == "CRIAÇÃO DE NOTA"
+
     with pytest.raises(service.NotasDuplicadasErro):
         service.criar_notas([nota], usuario="teste")
 

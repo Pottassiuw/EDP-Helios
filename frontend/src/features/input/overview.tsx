@@ -1,12 +1,14 @@
 import React from 'react';
-import { Loader2, Download, RefreshCw, CheckCircle2, GitMerge } from 'lucide-react';
+import { Loader2, Download, RefreshCw, CheckCircle2, GitMerge, TableProperties, FolderOpen } from 'lucide-react';
 import type { InputDataset, NotaInput } from './types';
 import { InputApi, baixarBlob } from './api';
 import { toast } from 'sonner';
 import { aplicarFiltros, parseBuscaGlobal } from './lib';
 import { COLUNAS } from './columns';
 import { type FiltersState } from './filters';
+import { DataGrid } from './data-grid';
 import { NotesTable } from './notes-table';
+import { InputNotaInspector } from './input-nota-inspector';
 import { useRecarregarInput } from './use-input-data';
 import { useAutoVinculos } from './use-auto-vinculos';
 import { Button } from '@/components/ui/button';
@@ -65,13 +67,25 @@ interface OverviewProps {
 export function Overview({
   dados,
   estado,
+  onIrParaSincronizacao = () => {},
 }: OverviewProps): React.JSX.Element {
   const [exportando, setExportando] = React.useState(false);
-  const [agruparGavetinhas, setAgruparGavetinhas] = React.useState(true);
+  const [modoVisualizacao, setModoVisualizacao] = React.useState<'planilha' | 'hierarquia'>('planilha');
+  const [notaDetalhe, setNotaDetalhe] = React.useState<NotaInput | null>(null);
+  const botaoDetalheRef = React.useRef<HTMLButtonElement | null>(null);
+
   const recarregar = useRecarregarInput();
   const { status: vinculoStatus } = useAutoVinculos(dados.registros);
   const filtrados = React.useMemo(
     () => filtrarRegistros(dados.registros, estado), [dados.registros, estado]);
+
+  const abrirDetalhes = React.useCallback(
+    (nota: NotaInput, trigger: HTMLButtonElement): void => {
+      botaoDetalheRef.current = trigger;
+      setNotaDetalhe(nota);
+    },
+    [],
+  );
 
   async function exportar(): Promise<void> {
     setExportando(true);
@@ -101,16 +115,31 @@ export function Overview({
             {filtrado ? `de ${dados.registros.length.toLocaleString('pt-BR')} notas encontradas` : 'notas cadastradas'}
           </Eyebrow>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3 flex-wrap">
           <Button
-            variant={agruparGavetinhas ? "secondary" : "outline"}
+            variant="outline"
             size="sm"
-            className="h-9 px-3 text-xs"
-            onClick={() => setAgruparGavetinhas((prev) => !prev)}
-            title="Alternar visualização agrupada (gavetinhas) de notas mães e filhas"
+            className="h-9 px-3 text-xs font-semibold gap-2 border-line bg-surface hover:bg-surface-2 transition-colors cursor-pointer shadow-2xs"
+            onClick={() => setModoVisualizacao((prev) => (prev === 'planilha' ? 'hierarquia' : 'planilha'))}
+            title={
+              modoVisualizacao === 'planilha'
+                ? "Clique para alternar para a Visão Hierárquica (gavetinhas de notas mães/filhas)"
+                : "Clique para alternar para a Visão Planilha (grid interativo com cópia e seleção)"
+            }
           >
-            {agruparGavetinhas ? "📁 Visão Hierárquica" : "📄 Visão Plana"}
+            {modoVisualizacao === 'planilha' ? (
+              <>
+                <TableProperties className="h-4 w-4 text-green shrink-0" />
+                <span>📊 Visão Planilha</span>
+              </>
+            ) : (
+              <>
+                <FolderOpen className="h-4 w-4 text-green shrink-0" />
+                <span>📁 Visão Hierárquica</span>
+              </>
+            )}
           </Button>
+
           <Button
             variant="outline"
             size="sm"
@@ -164,13 +193,29 @@ export function Overview({
       </div>
 
       <div className="rounded-lg border border-line bg-surface overflow-hidden shadow-sm">
-        <NotesTable
-          registros={filtrados}
-          todosOsRegistros={dados.registros}
-          colunas={COLUNAS}
-          agruparGavetinhas={agruparGavetinhas}
-        />
+        {modoVisualizacao === 'planilha' ? (
+          <DataGrid
+            registros={filtrados}
+            colunas={COLUNAS}
+            altura={580}
+            onOpenDetails={abrirDetalhes}
+          />
+        ) : (
+          <NotesTable
+            registros={filtrados}
+            todosOsRegistros={dados.registros}
+            colunas={COLUNAS}
+            agruparGavetinhas={true}
+          />
+        )}
       </div>
+
+      <InputNotaInspector
+        nota={notaDetalhe}
+        onClose={() => setNotaDetalhe(null)}
+        returnFocusRef={botaoDetalheRef}
+        onIrParaSincronizacao={onIrParaSincronizacao}
+      />
 
       <div className="flex items-center justify-between text-xs text-text-mute font-mono px-3 py-2 bg-surface-2/50 rounded-md border border-line">
         <div className="flex items-center gap-2">
@@ -188,3 +233,4 @@ export function Overview({
     </div>
   );
 }
+

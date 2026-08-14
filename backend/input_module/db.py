@@ -985,7 +985,7 @@ def carregar_base_dataframe(nome_tabela: str) -> pd.DataFrame | None:
 # ==============================================================================
 # Campos que o usuário pode editar pela UI (Input/app.py:540)
 CAMPOS_EDITAVEIS = [
-    "Status_Nota", "Prioridade_Nota", "Planejado_DDPM", "Observacao",
+    "Status_Nota", "Status_Obra", "Prioridade_Nota", "Planejado_DDPM", "Observacao",
     "Conjunto", "Circuito", "Local_Instalacao",
     "Mes_Execucao_Planejado", "Data_Envio_Projeto", "Check",
 ]

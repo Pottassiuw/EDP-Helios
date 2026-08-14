@@ -102,9 +102,24 @@ def _preparar_novas(notas: list[NovaNota], df_banco: pd.DataFrame,
 
 
 def criar_notas(notas: list[NovaNota], usuario: str, origem: str = "manual") -> int:
-    """Insere notas novas no plano; levanta NotasDuplicadasErro em conflito."""
+    """Insere notas novas no plano e registra no log de auditoria; levanta NotasDuplicadasErro em conflito."""
     df_novas = _preparar_novas(notas, db.carregar_dados(), origem)
     db.salvar_em_massa(df_novas)
+
+    agora = datetime.datetime.now()
+    usuario_log = (usuario or "sistema").strip()
+    logs_criacao = [
+        (
+            int(n.Numero_Nota),
+            usuario_log,
+            agora,
+            "CRIAÇÃO DE NOTA",
+            "-",
+            f"Origem: {origem} | Status: {n.Status_Nota or '-'} | Conjunto: {n.Conjunto or '-'}",
+        )
+        for n in notas
+    ]
+    db.salvar_log_alteracoes(logs_criacao)
     return len(df_novas)
 
 
