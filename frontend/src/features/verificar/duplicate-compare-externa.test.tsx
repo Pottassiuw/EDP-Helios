@@ -54,9 +54,9 @@ function renderCard(note: Note, candidate: DuplicateCandidate): string {
 }
 
 describe('mergeConsultaCampos', () => {
-  it('preenche poste/referencia buscados, sem mexer no resto da candidata', () => {
-    const candidate = candidataMatch({ local_instalacao: 'LI anterior', problema: 'Problema anterior', poste: '', referencia: '', observacao: 'Observação anterior' });
-    const resultado = mergeConsultaCampos(candidate, { local_instalacao: 'LI COFFEE', problema: 'Problema COFFEE', poste: 'TR-088', referencia: 'SER-11', observacao: 'Observação COFFEE' });
+  it('preenche poste/referencia/referencia_eletrica buscados, sem mexer no resto da candidata', () => {
+    const candidate = candidataMatch({ local_instalacao: 'LI anterior', problema: 'Problema anterior', poste: '', referencia: '', referencia_eletrica: '', observacao: 'Observação anterior' });
+    const resultado = mergeConsultaCampos(candidate, { local_instalacao: 'LI COFFEE', problema: 'Problema COFFEE', poste: 'TR-088', referencia: 'SER-11', referencia_eletrica: 'FF-655816', observacao: 'Observação COFFEE' });
     expect(resultado).not.toBe(candidate);
     expect(candidate.local_instalacao).toBe('LI anterior');
     expect(candidate.observacao).toBe('Observação anterior');
@@ -64,16 +64,18 @@ describe('mergeConsultaCampos', () => {
     expect(resultado.problema).toBe('Problema COFFEE');
     expect(resultado.poste).toBe('TR-088');
     expect(resultado.referencia).toBe('SER-11');
+    expect(resultado.referencia_eletrica).toBe('FF-655816');
     expect(resultado.observacao).toBe('Observação COFFEE');
   });
 
   it('campos nulos da busca caem pro que já existia na candidata', () => {
-    const candidate = candidataMatch({ local_instalacao: 'LI anterior', problema: 'Problema anterior', poste: 'ja-tinha', referencia: 'REF anterior', observacao: 'Observação anterior' });
-    const resultado = mergeConsultaCampos(candidate, { local_instalacao: null, problema: ' ', poste: '', referencia: null, observacao: '   ' });
+    const candidate = candidataMatch({ local_instalacao: 'LI anterior', problema: 'Problema anterior', poste: 'ja-tinha', referencia: 'REF anterior', referencia_eletrica: 'ELE anterior', observacao: 'Observação anterior' });
+    const resultado = mergeConsultaCampos(candidate, { local_instalacao: null, problema: ' ', poste: '', referencia: null, referencia_eletrica: null, observacao: '   ' });
     expect(resultado.local_instalacao).toBe('LI anterior');
     expect(resultado.problema).toBe('Problema anterior');
     expect(resultado.poste).toBe('ja-tinha');
     expect(resultado.referencia).toBe('REF anterior');
+    expect(resultado.referencia_eletrica).toBe('ELE anterior');
     expect(resultado.observacao).toBe('Observação anterior');
   });
 });
@@ -113,8 +115,9 @@ describe('ExternalCandidateCard', () => {
     expect(html).toContain('Observação candidata');
     expect(html).toContain('Pendente');
     expect(html).toContain('POSTE DEMANDA');
-    expect(html).toContain('Forte');
-    expect(html).toContain('100%');
+    // poste/referencia/referencia_eletrica em branco na Carteira: só 2 dos 5
+    // campos ponderados são conhecidos, cobertura abaixo do corte de confiança.
+    expect(html).toContain('Evidência insuficiente');
     expect(html).toContain('Buscar dados no COFFEE');
     expect(html).not.toContain('≠');
   });
@@ -161,6 +164,7 @@ describe('Dashboard — indicador de compatibilidade', () => {
   it('prioriza evidência forte sobre score bruto com cobertura insuficiente', () => {
     const forte = candidataMatch({
       id: '101', local_instalacao: '718ET00026773', problema: 'chave · queda', poste: 'P1', referencia: 'REF-1',
+      referencia_eletrica: 'ELE-1',
     });
     const semEvidencia = candidataMatch({
       id: '102', local_instalacao: '', problema: '', poste: '', referencia: '',
@@ -169,7 +173,7 @@ describe('Dashboard — indicador de compatibilidade', () => {
       <QueryClientProvider client={new QueryClient()}>
         <Dashboard
           showKpis={false}
-          notes={[nota({ duplicates: [semEvidencia, forte] })]}
+          notes={[nota({ duplicates: [semEvidencia, forte], referencia_eletrica: 'ELE-1' })]}
           completed={new Set()}
           encaminhamentos={{}}
           encaminhadasHoje={[]}
