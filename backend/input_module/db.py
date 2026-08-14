@@ -1056,6 +1056,7 @@ def vincular_nota_mae_lote(dados: dict, usuario: str) -> int:
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
+        cursor.execute("BEGIN IMMEDIATE")
         data_hora_log = datetime.datetime.now()
         logs, updates = [], []
         for nota_mae, filhas in dados.items():
@@ -1064,6 +1065,15 @@ def vincular_nota_mae_lote(dados: dict, usuario: str) -> int:
                 row = cursor.execute(
                     "SELECT Nota_Mae FROM notas WHERE Numero_Nota = ?", (filha_int,)
                 ).fetchone()
+                if row is None:
+                    continue
+                bloqueio = cursor.execute(
+                    "SELECT Usuario, Data_Hora FROM bloqueios WHERE Numero_Nota = ?",
+                    (filha_int,),
+                ).fetchone()
+                if (bloqueio and not _bloqueio_expirado(bloqueio[1])
+                        and bloqueio[0] != usuario):
+                    continue
                 valor_antigo = row[0] if row and row[0] else "-"
                 logs.append((filha_int, usuario, data_hora_log,
                              "VÍNCULO MÃE", str(valor_antigo), str(nota_mae)))
