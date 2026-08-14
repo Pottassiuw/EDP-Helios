@@ -238,11 +238,17 @@ def desfazer(tasks: BackgroundTasks, usuario: str = Depends(usuario_atual)):
 @router.post("/export")
 def exportar(pedido: ExportPedido):
     garantir_banco()
+    desconhecidas = [c for c in pedido.colunas if c not in config.COLUNAS_PAINEL]
+    if desconhecidas:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Coluna(s) desconhecida(s) para exportação: {', '.join(desconhecidas)}",
+        )
     df = engine.get_dataset()
     df = df[df["Numero_Nota"].isin(pedido.numeros)]
-    colunas = [c for c in pedido.colunas if c in df.columns]
-    df = df[colunas].rename(columns=config.NOMES_AMIGAVEIS)
+    df = df[pedido.colunas].rename(columns=config.NOMES_AMIGAVEIS)
     buffer = io.BytesIO()
+
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         df.to_excel(writer, index=False, sheet_name="Selecao_Filtrada")
     return Response(

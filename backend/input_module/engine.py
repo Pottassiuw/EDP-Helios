@@ -22,7 +22,7 @@ import time
 import numpy as np
 import pandas as pd
 
-from input_module import config, db
+from input_module import config, db, sla
 from input_module.db import carregar_dados, carregar_projeto_construcao
 
 
@@ -712,6 +712,12 @@ def enriquecer_dados():
     )
 
     df["Auditoria_Cronograma"] = df.apply(avaliar_prazo_sap, axis=1)
+    sla_df = pd.DataFrame(
+        [sla.calcular_sla(row) for _, row in df.iterrows()],
+        index=df.index,
+        columns=["Status_SLA", "Desvio_SLA"],
+    )
+    df[["Status_SLA", "Desvio_SLA"]] = sla_df
     return df
 
 
