@@ -16,7 +16,7 @@ from fastapi import (APIRouter, BackgroundTasks, Depends, File, Header,
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from input_module import config, db, engine, metas, relatorios
+from input_module import config, db, engine, metas, relatorios, sap_sync
 from input_module.service import (NotasDuplicadasErro, NovaNota, criar_notas,
                                   garantir_banco, pos_escrita, resetar_migracao,
                                   executar_correcao_medidas)
@@ -55,6 +55,7 @@ def listar_notas(request: Request, response: Response):
             "colunas": config.COLUNAS_PAINEL,
             "versao": versao,
             "sincronizando": engine.esta_sincronizando_rede(),
+            "sap": sap_sync.estado(),
         },
     }
 
@@ -66,6 +67,7 @@ def sync():
         "ultima_alteracao": db.obter_data_ultima_alteracao(),
         "versao": db.obter_versao_dataset(),
         "sincronizando": engine.esta_sincronizando_rede(),
+        "sap": sap_sync.estado(),
     }
 
 
@@ -446,6 +448,7 @@ def _rotina_sap_background():
         engine.invalidar_status_bases()
     except Exception as e:
         print(f"Erro na execução em background do SAP: {e}")
+        raise
 
 
 
@@ -453,8 +456,22 @@ def _rotina_sap_background():
 def sync_sap(tasks: BackgroundTasks, x_user: Optional[str] = Header(default="Sistema", alias="X-User"), payload: dict = Body(None)):
     """Inicia a extração SAP em background."""
     garantir_banco()
-    tasks.add_task(_rotina_sap_background)
-    return {"mensagem": "Sincronização SAP iniciada em background."}
+    try:
+        estado = sap_sync.reservar()
+    except sap_sync.SapSyncEmAndamento as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    tasks.add_task(sap_sync.executar, _rotina_sap_background)
+    return {
+        "mensagem": "Sincronização SAP iniciada em background.",
+        "sap": estado,
+    }
+
+
+@router.get("/bases/sync-sap/status")
+def sync_sap_status():
+    """Estado exclusivo da execução SAP, sem inferir estado por outra operação."""
+    garantir_banco()
+    return {"sap": sap_sync.estado()}
 
 
 @router.post("/bases/{nome_arquivo}")

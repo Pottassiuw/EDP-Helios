@@ -8,7 +8,6 @@ import { COLUNAS } from './columns';
 import { type FiltersState } from './filters';
 import { NotesTable } from './notes-table';
 import { DataGrid } from './data-grid';
-import { useRecarregarInput } from './use-input-data';
 import { useAutoVinculos } from './use-auto-vinculos';
 import { Button } from '@/components/ui/button';
 import { Eyebrow, StatNumber, SegTabs } from '@/components/branded/section';
@@ -75,7 +74,6 @@ export function Overview({
 }: OverviewProps): React.JSX.Element {
   const [exportando, setExportando] = React.useState(false);
   const [agruparGavetinhas, setAgruparGavetinhas] = React.useState(true);
-  const recarregar = useRecarregarInput();
   const { status: vinculoStatus } = useAutoVinculos(dados.registros);
   const filtrados = React.useMemo(
     () => filtrarRegistros(dados.registros, estado), [dados.registros, estado]);
@@ -119,12 +117,11 @@ export function Overview({
             variant="outline"
             size="sm"
             className="h-9 px-3 text-xs"
-            disabled={dados.meta.sincronizando}
+            disabled={dados.meta.sap?.estado === 'executando'}
             onClick={() => {
               toast.promise(
                 (async () => {
                   await InputApi.syncSap();
-                  recarregar();
                 })(),
                 {
                   loading: 'Iniciando extração do SAP...',
@@ -134,7 +131,7 @@ export function Overview({
               );
             }}
           >
-            {dados.meta.sincronizando ? (
+            {dados.meta.sap?.estado === 'executando' ? (
               <>
                 <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
                 Sincronizando...
