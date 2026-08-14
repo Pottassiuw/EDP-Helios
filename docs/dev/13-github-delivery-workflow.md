@@ -45,7 +45,7 @@ A Sprint 1 do Input inicia com `#15` bloqueada para reconciliação do baseline 
 3. **Implementação**: criar branch/worktree a partir de `origin/develop`; para mudança de comportamento, seguir teste primeiro e adicionar regressão.
 4. **Revisão local**: revisar o diff, verificar escopo, segredos, arquivos gerados, testes e documentação.
 5. **PR**: abrir contra `develop`, usar `Closes #<número>`, preencher o template e mover o item para **In Review**.
-6. **Merge**: somente depois de evidência dos gates e revisão; o vínculo fecha a Issue. Então mover o Project para **Done**.
+6. **Merge**: somente depois de evidência dos gates e revisão. O workflow `delivery-sync.yml` fecha a Issue vinculada, garante sua presença no Project e move o item para **Done**.
 
 O procedimento operacional e os comandos de worktree estão em [`CONTRIBUTING.md`](../../CONTRIBUTING.md).
 
@@ -59,9 +59,19 @@ O procedimento operacional e os comandos de worktree estão em [`CONTRIBUTING.md
 | `Backend / Input regression suite` | Windows + Python 3.13 | instala `backend/requirements.txt` e executa `test_upload.py test_input_module.py`. |
 | `Frontend / Input validation and build` | Ubuntu + Node 24 | `npm ci`, testes de `src/features/input`, build TypeScript/Vite e `git diff --check`. |
 
+`.github/workflows/delivery-sync-contract.yml` valida a lógica pura do sincronizador sem rede, banco ou dados de produção. Depois de um PR ser mesclado em `develop`, `.github/workflows/delivery-sync.yml` executa a sincronização real:
+
+1. extrai referências `Closes`, `Fixes` ou `Resolves #<n>` do corpo do PR;
+2. fecha a Issue como `completed`;
+3. adiciona a Issue ao Project se ainda não estiver presente;
+4. atualiza `Status` para **Done**;
+5. registra um resumo no job e falha de forma explícita se o Project não puder ser atualizado.
+
+O workflow também aceita `workflow_dispatch` com um número de PR específico ou, sem número, reconcilia os PRs já mesclados em `develop`. Ele usa o secret de repositório `PROJECT_TOKEN`, que deve ter acesso de escrita às Issues do repositório e ao Project privado. O valor do secret nunca deve ser colocado em código, Issue, PR ou chat.
+
 Os testes de backend já forçam perfil local, diretório temporário e raiz de rede inexistente em `backend/conftest.py`; a CI não deve receber caminhos, bases ou credenciais de produção.
 
-A workflow ainda não é uma proteção remota enquanto esta branch não for revisada, commitada e enviada. Depois de seu primeiro run verde, configure proteção em `develop` para exigir Pull Request, revisão e os três checks acima. Fazer isso antes de existirem checks registrados pode bloquear merges sem oferecer uma rota de recuperação clara.
+A workflow ainda não é uma proteção remota enquanto esta branch não for revisada, commitada e enviada. Depois de seus primeiros runs verdes, configure proteção em `develop` para exigir Pull Request, revisão e os checks de validação e sincronização. Fazer isso antes de existirem checks registrados pode bloquear merges sem oferecer uma rota de recuperação clara.
 
 ## Templates do GitHub
 
