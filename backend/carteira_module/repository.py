@@ -15,7 +15,7 @@ _COLUNAS_NEGOCIO = (
     "prioridade", "prioridade_sap", "status_sap", "data_encerramento_exec",
     "local_instalacao", "alimentador", "executor", "sintoma",
     "componente_novo", "kit", "n_trafo", "dispositivo_protecao",
-    "latitude", "longitude",
+    "latitude", "longitude", "observacao", "referencia_eletrica",
 )
 
 _ORDENAVEIS = {

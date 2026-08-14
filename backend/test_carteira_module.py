@@ -27,6 +27,62 @@ def test_inicializar_cria_tabelas(carteira_tmp):
             "carteira_logs", "carteira_meta"} <= nomes
 
 
+def test_inicializar_adiciona_colunas_em_banco_existente(monkeypatch, tmp_path):
+    """Banco criado antes de observacao/referencia_eletrica existirem: rodar
+    inicializar_banco() de novo tem que adicionar as colunas via ALTER TABLE,
+    sem apagar dado já gravado (CREATE TABLE IF NOT EXISTS sozinho não faz isso)."""
+    monkeypatch.setenv("CARTEIRA_DATA_DIR", str(tmp_path))
+    from carteira_module import db
+    conn = db.conectar()
+    conn.execute(
+        """
+        CREATE TABLE nota_carteira (
+            id_onr INTEGER PRIMARY KEY,
+            id_sap TEXT,
+            sap_real INTEGER,
+            conjunto TEXT,
+            descricao_conjunto TEXT,
+            regional TEXT,
+            csd_origem TEXT,
+            empresa TEXT,
+            quantidade INTEGER,
+            quantidade_valida INTEGER,
+            prioridade TEXT,
+            prioridade_sap INTEGER,
+            status_sap TEXT,
+            data_encerramento_exec TEXT,
+            local_instalacao TEXT,
+            alimentador TEXT,
+            executor TEXT,
+            sintoma TEXT,
+            componente_novo TEXT,
+            kit TEXT,
+            n_trafo TEXT,
+            dispositivo_protecao TEXT,
+            latitude TEXT,
+            longitude TEXT,
+            hash_conteudo TEXT,
+            sincronizado_em TEXT,
+            criado_em TEXT,
+            atualizado_em TEXT,
+            ausente_na_origem_em TEXT
+        )
+        """
+    )
+    conn.execute("INSERT INTO nota_carteira (id_onr, conjunto) VALUES (1, 'POSTE')")
+    conn.commit()
+    conn.close()
+
+    db.inicializar_banco()
+
+    conn = db.conectar()
+    colunas = {r[1] for r in conn.execute("PRAGMA table_info(nota_carteira)").fetchall()}
+    assert {"observacao", "referencia_eletrica"} <= colunas
+    row = conn.execute("SELECT conjunto FROM nota_carteira WHERE id_onr = 1").fetchone()
+    conn.close()
+    assert row["conjunto"] == "POSTE"
+
+
 def test_versao_e_meta(carteira_tmp):
     from carteira_module import db
     v0 = db.obter_versao()
@@ -206,6 +262,22 @@ def test_reconciliar_idempotente_e_tombstone(carteira_tmp):
     ).fetchone()
     assert row["ausente_na_origem_em"] is None
     conn.close()
+
+
+def test_observacao_e_referencia_eletrica_fluem_pelo_reconciliar(carteira_tmp):
+    """Colunas de negocio novas: staging/reconciliar precisam persisti-las
+    (a origem Databricks ainda não é lida pra elas — mapping.py fica de fora
+    dessa mudança até confirmar o nome real da coluna lá; aqui só garante
+    que, uma vez presentes no dict normalizado, elas não se perdem no banco)."""
+    from carteira_module import db, repository
+    conn = db.conectar()
+    nota = {"id_onr": 1, "conjunto": "POSTE", "observacao": "Poste inclinado",
+            "referencia_eletrica": "FF-655816"}
+    _inserir(conn, [nota])
+    linha = repository.obter(conn, 1, set())
+    conn.close()
+    assert linha["observacao"] == "Poste inclinado"
+    assert linha["referencia_eletrica"] == "FF-655816"
 
 
 def test_reconciliar_detecta_alteracao(carteira_tmp):
