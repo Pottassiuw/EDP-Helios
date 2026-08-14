@@ -1,5 +1,6 @@
 """Servico de sincronizacao da Carteira: completo + skip-signal, idempotente."""
 import datetime
+import json
 import threading
 
 from carteira_module import config, db, mapping, repository
@@ -65,15 +66,18 @@ def sincronizar(*, ler_origem=None, ler_marker=None, agora=None) -> dict:
             _registrar(execucao)
             return execucao
 
-        notas = [mapping.normalizar_linha(o) for o in ler_origem()]
+        notas, avisos = mapping.normalizar_linhas(ler_origem())
         conn = db.conectar()
         try:
             repository.carregar_staging(conn, notas)
             contagens = repository.reconciliar(conn, iniciado)
-            db_conn = db.conectar()
-            db.definir_meta(db_conn, "ultimo_refresh_marker", marker)
-            db_conn.commit()
-            db_conn.close()
+            db.definir_meta(conn, "ultimo_refresh_marker", marker)
+            db.definir_meta(
+                conn,
+                "avisos_enriquecimento",
+                json.dumps(avisos, ensure_ascii=False),
+            )
+            conn.commit()
         finally:
             conn.close()
         execucao.update(estrategia="completa", status="ok",

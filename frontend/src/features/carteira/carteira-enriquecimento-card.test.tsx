@@ -21,6 +21,7 @@ const encontrada: CarteiraEnriquecimento = {
     prioridade_sap: 2,
   },
   ausente_na_origem_em: null,
+  avisos: [],
   versao: '7',
 };
 
@@ -63,6 +64,33 @@ describe('CarteiraEnriquecimentoContent', () => {
 
     expect(html).toContain('Ausente na origem desde');
     expect(html).toContain('POSTES - CAPEX');
+  });
+
+  it('mostra aviso acionável, preserva dados válidos e distingue zero de indisponível', () => {
+    const html = render({
+      ...encontrada,
+      dados: {
+        ...encontrada.dados!,
+        kit: null,
+        prioridade_sap: 0,
+      },
+      avisos: [{
+        codigo: 'equipamentos_indisponiveis',
+        bloco: 'equipamentos',
+        campos: ['kit'],
+        mensagem: 'Parte dos dados de equipamentos está indisponível.',
+        acao: 'Sincronize novamente. Se o aviso persistir, verifique a compatibilidade da fonte.',
+      }],
+    });
+
+    expect(html).toContain('role="status"');
+    expect(html).toContain('Dados parcialmente indisponíveis');
+    expect(html).toContain('Parte dos dados de equipamentos está indisponível.');
+    expect(html).toContain('Sincronize novamente.');
+    expect(html).toContain('Ir para Sincronização');
+    expect(html).toContain('POSTES - CAPEX');
+    expect(html).toContain('>Indisponível<');
+    expect(html).toContain('>0<');
   });
 
   it('exibe travessão quando a data de tombstone é vazia', () => {

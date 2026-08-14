@@ -160,6 +160,13 @@ export function CarteiraEnriquecimentoContent({
     );
   }
 
+  const camposIndisponiveis = new Set(
+    resultado.avisos.flatMap((aviso) => aviso.campos),
+  );
+  const exibirCampo = (chave: keyof DadosCarteiraEnriquecimento): string => (
+    camposIndisponiveis.has(chave) ? 'Indisponível' : exibir(dados[chave])
+  );
+
   return (
     <Card>
       <CardHeader className="gap-2 p-4">
@@ -168,10 +175,10 @@ export function CarteiraEnriquecimentoContent({
           <Badge variant="outline">Somente leitura</Badge>
         </div>
         <CardTitle className="text-lg">
-          {exibir(dados.descricao_conjunto)}
+          {exibirCampo('descricao_conjunto')}
         </CardTitle>
         <p className="font-mono text-sm text-text-mute">
-          Conjunto {exibir(dados.conjunto)}
+          Conjunto {exibirCampo('conjunto')}
         </p>
         {resultado.estado === 'ausente_na_origem' && (
           <p
@@ -182,6 +189,45 @@ export function CarteiraEnriquecimentoContent({
             {formatarData(resultado.ausente_na_origem_em)}.
           </p>
         )}
+        {resultado.avisos.length > 0 && (
+          <section
+            role="status"
+            aria-live="polite"
+            aria-labelledby="carteira-enriquecimento-avisos"
+            className="rounded-md bg-amber/10 p-3 text-sm"
+          >
+            <div className="flex items-start gap-2">
+              <AlertTriangle
+                aria-hidden="true"
+                className="mt-0.5 size-4 shrink-0 text-amber"
+              />
+              <div>
+                <p
+                  id="carteira-enriquecimento-avisos"
+                  className="font-medium"
+                >
+                  Dados parcialmente indisponíveis
+                </p>
+                <ul className="mt-1 list-disc space-y-1 pl-4 text-text-mute">
+                  {resultado.avisos.map((aviso) => (
+                    <li key={aviso.codigo}>{aviso.mensagem}</li>
+                  ))}
+                </ul>
+                <p className="mt-2 text-text-mute">
+                  {resultado.avisos[0].acao}
+                </p>
+                <Button
+                  type="button"
+                  variant="link"
+                  className="mt-2 min-h-11 px-0"
+                  onClick={onIrParaSincronizacao}
+                >
+                  Ir para Sincronização
+                </Button>
+              </div>
+            </div>
+          </section>
+        )}
       </CardHeader>
       <CardContent className="p-4 pt-0">
         <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -189,7 +235,7 @@ export function CarteiraEnriquecimentoContent({
             <div key={chave} className="min-w-0 rounded-md bg-surface-2 p-3">
               <Eyebrow asChild><dt>{rotulo}</dt></Eyebrow>
               <dd className="mt-1 break-words font-mono text-sm">
-                {exibir(dados[chave])}
+                {exibirCampo(chave)}
               </dd>
             </div>
           ))}
