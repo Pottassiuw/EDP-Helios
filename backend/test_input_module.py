@@ -276,6 +276,26 @@ def test_service_criar_notas_duplicata_no_lote(banco_temporario):
         service.criar_notas([n, n], usuario="teste")
 
 
+def test_service_criar_nota_filha_diretamente(banco_temporario):
+    from input_module import db, service
+    mae = service.NovaNota(
+        Numero_Nota=555100, Status_Nota="00 Pendente",
+        Prioridade_Nota="Programável", Planejado_DDPM=5.0,
+    )
+    filha = service.NovaNota(
+        Numero_Nota=555101, Status_Nota="00 Pendente",
+        Prioridade_Nota="Programável", Planejado_DDPM=1.0,
+        Nota_Mae="555100",
+    )
+    assert service.criar_notas([mae, filha], usuario="teste") == 2
+    df = db.carregar_dados()
+    linha_filha = df[df["Numero_Nota"] == 555101].iloc[0]
+    assert str(linha_filha["Nota_Mae"]) == "555100"
+    logs = db.carregar_logs()
+    log_filha = logs[logs["Numero_Nota"] == 555101].iloc[0]
+    assert "Mãe: 555100" in log_filha["Valor_Novo"]
+
+
 # ── Task 13: versão do dataset (cache/ETag de GET /notas) ────────────────
 def test_versao_dataset_muda_com_escritas(banco_temporario):
     from input_module import db, service

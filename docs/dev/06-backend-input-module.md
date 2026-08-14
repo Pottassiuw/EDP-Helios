@@ -520,3 +520,9 @@ Na visualização hierárquica (`NotesTable` com `agruparGavetinhas=true`):
 - **Nota Mãe Fechada / Recolhida:** A coluna `Planejado_DDPM` (e métricas de ordem/modular) exibe a **soma consolidada do grupo** (`Mãe + Filhas`) acompanhada da tag `Σ grupo` e tooltip descritivo.
 - **Nota Mãe Aberta / Expandida:** A linha da Nota Mãe exibe apenas seu valor próprio individual, e as linhas filhas exibem seus respectivos valores individuais logo abaixo.
 
+## Criação Direta de Notas Filhas & Detetive de Notas
+
+- **Cadastro Direto de Nota Filha (`Manage` / `HierarquiaCard`):** Permite inserir novas notas diretamente como filhas de uma Nota Mãe existente, herdando metadados (Conjunto, Circuito, Local de Instalação, Mês) e ajustando a medida da mãe no banco de dados para evitar esquecimentos.
+- **Detetive de Notas (`varrerVinculos`):** Realiza varredura inteligente no campo `Observacao` e `Status_Obra`, identificando vínculos mãe-filha diretos e bidirecionais (inclusive para notas com medida planejada maior que zero).
+
+

@@ -573,7 +573,7 @@ def salvar_em_massa(df: pd.DataFrame) -> None:
         "Numero_Nota", "Status_Obra", "Conjunto", "Circuito", "Local_Instalacao",
         "Regional", "Planejado_DDPM", "Mes_Execucao_Planejado", "Data_Envio_Projeto",
         "Status_Nota", "Prioridade_Nota", "Observacao", "Check", "Status_Anterior",
-        "Centro_Responsavel", "origem"
+        "Centro_Responsavel", "origem", "Nota_Mae"
     ]
 
     # Garante que todas as colunas necessárias existam antes de criar os registros
@@ -587,9 +587,18 @@ def salvar_em_massa(df: pd.DataFrame) -> None:
     cursor = conn.cursor()
 
     try:
-        update_assignments = ',\n'.join([
-            f'"{col}" = excluded."{col}"' for col in colunas_upsert if col != "Numero_Nota"
-        ])
+        assignments = []
+        for col in colunas_upsert:
+            if col == "Numero_Nota":
+                continue
+            if col == "Nota_Mae":
+                assignments.append(
+                    '"Nota_Mae" = CASE WHEN excluded."Nota_Mae" NOT IN (\'-\', \'\', \'None\', \'null\') AND excluded."Nota_Mae" IS NOT NULL '
+                    'THEN excluded."Nota_Mae" ELSE notas."Nota_Mae" END'
+                )
+            else:
+                assignments.append(f'"{col}" = excluded."{col}"')
+        update_assignments = ',\n'.join(assignments)
 
         sql_upsert = f'''
             INSERT INTO notas ({', '.join(f'"{c}"' for c in colunas_upsert)})

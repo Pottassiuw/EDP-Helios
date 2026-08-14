@@ -49,8 +49,10 @@ export const MESES_ABREV_PT = ['jan', 'fev', 'mar', 'abr', 'maio', 'jun',
 
 /** Filtro por mês de execução planejado (ex.: mes=7, ano=2026 -> "jul-2026"). */
 export function filtroPorMes(mes: number, ano: number): Filtro {
-  return { campo: 'Mes_Execucao_Planejado', tipo: 'multi',
-    valores: [`${MESES_ABREV_PT[mes - 1]}-${ano}`] };
+  return {
+    campo: 'Mes_Execucao_Planejado', tipo: 'multi',
+    valores: [`${MESES_ABREV_PT[mes - 1]}-${ano}`]
+  };
 }
 
 /** Filtro por Conjunto (plano), opcionalmente combinado com Regional_CSD. */
@@ -139,30 +141,69 @@ const PALAVRAS_PROIBIDAS = ['SUBSTITUIDA', 'SUBSTITUÍDA', 'SUBST.', 'SUBST ', '
 
 export function varrerVinculos(registros: NotaInput[]): SugestaoDetetive[] {
   const dictConj: Record<string, string> = {};
+  const todasNotas = new Set<string>();
+
   for (const r of registros) {
-    dictConj[String(r.Numero_Nota)] = String(r['Conjunto'] ?? '').trim().toUpperCase();
+    const nStr = String(r.Numero_Nota);
+    todasNotas.add(nStr);
+    dictConj[nStr] = String(r['Conjunto'] ?? '').trim().toUpperCase();
   }
-  const orfas = registros.filter((r) => {
+
+  const ehOrfa = (r: NotaInput): boolean => {
     const mae = String(r['Nota_Mae'] ?? '-').trim();
-    return (mae === '-' || mae === '' || mae === 'None') && Number(r['Planejado_DDPM']) === 0;
-  });
+    return mae === '-' || mae === '' || mae === 'None' || mae === 'null';
+  };
+
   const seen = new Set<number>();
   const sugestoes: SugestaoDetetive[] = [];
-  for (const row of orfas) {
-    const texto = `${String(row['Status_Obra'] ?? '')} ${String(row['Observacao'] ?? '')}`.toUpperCase();
+
+  // 1. Varredura Direta: Notas órfãs que citam a nota mãe ou referência no texto
+  for (const row of registros) {
+    if (!ehOrfa(row)) continue;
+    const obs = String(row['Observacao'] ?? '');
+    const statusObra = String(row['Status_Obra'] ?? '');
+    const texto = `${statusObra} ${obs}`.toUpperCase();
     if (PALAVRAS_PROIBIDAS.some((p) => texto.includes(p))) continue;
+
+    // Se o texto diz "FILHAS:" no plural listando notas filhas, este registro é mãe (tratado no passo 2)
+    if (/\bFILHAS\s*[:\s]/i.test(texto)) continue;
+
     const nums = [...texto.matchAll(/\b\d{6,9}\b/g)].map((m) => m[0]);
     const conjOrfa = String(row['Conjunto'] ?? '').trim().toUpperCase();
+
     for (const num of nums) {
-      if (num in dictConj && num !== String(row.Numero_Nota) && dictConj[num] === conjOrfa) {
-        if (!seen.has(row.Numero_Nota)) {
+      if (todasNotas.has(num) && num !== String(row.Numero_Nota)) {
+        const conjMae = dictConj[num] ?? '';
+        const mesmoConjunto = !conjOrfa || !conjMae || conjOrfa === '-' || conjMae === '-' || conjOrfa === conjMae;
+        if (mesmoConjunto && !seen.has(row.Numero_Nota)) {
           seen.add(row.Numero_Nota);
           sugestoes.push({ Nota_Filha_Orfa: row.Numero_Nota, Possivel_Nota_Mae: num });
+          break;
         }
-        break;
       }
     }
   }
+
+  // 2. Varredura Inversa: Uma Nota Mãe que lista suas filhas em Observacao (ex: "Filhas vinculadas: 16000001 e 16000002")
+  for (const row of registros) {
+    if (seen.has(row.Numero_Nota)) continue;
+    const obsMae = String(row['Observacao'] ?? '').toUpperCase();
+    if (!obsMae || PALAVRAS_PROIBIDAS.some((p) => obsMae.includes(p))) continue;
+    if (!/\bFILHA/i.test(obsMae)) continue;
+
+    const numsCitados = [...obsMae.matchAll(/\b\d{6,9}\b/g)].map((m) => Number(m[0]));
+    const maeIdStr = String(row.Numero_Nota);
+
+    for (const numFilha of numsCitados) {
+      if (numFilha === row.Numero_Nota || seen.has(numFilha)) continue;
+      const filhaRow = registros.find((r) => r.Numero_Nota === numFilha);
+      if (filhaRow && ehOrfa(filhaRow)) {
+        seen.add(numFilha);
+        sugestoes.push({ Nota_Filha_Orfa: numFilha, Possivel_Nota_Mae: maeIdStr });
+      }
+    }
+  }
+
   return sugestoes;
 }
 

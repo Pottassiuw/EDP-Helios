@@ -176,8 +176,10 @@ export function Manage({ dados, estadoFiltros }: ManageProps): React.JSX.Element
   const cadastrar = (): void => {
     if (!/^\d+$/.test(novaNota.Numero_Nota)) { setMsg({ tipo: 'erro', texto: 'Nº da Nota inválido.' }); return; }
     void executar(`Nota ${novaNota.Numero_Nota} cadastrada.`, async () => {
-      await InputApi.criar({ ...novaNota, Numero_Nota: Number(novaNota.Numero_Nota),
-                             Planejado_DDPM: Number(novaNota.Planejado_DDPM) || 0 });
+      await InputApi.criar({
+        ...novaNota, Numero_Nota: Number(novaNota.Numero_Nota),
+        Planejado_DDPM: Number(novaNota.Planejado_DDPM) || 0
+      });
       setNovaNota({ ...NOTA_VAZIA });
     });
   };
@@ -262,7 +264,7 @@ export function Manage({ dados, estadoFiltros }: ManageProps): React.JSX.Element
                   <CardContent>
                     <div className="flex gap-3 items-center flex-wrap">
                       <Select value={loteStatus || undefined}
-                              onValueChange={(v) => setLoteStatus(v === '__manter' ? '' : v)}>
+                        onValueChange={(v) => setLoteStatus(v === '__manter' ? '' : v)}>
                         <SelectTrigger className="w-56 h-9 text-xs bg-bg-2 border-line">
                           <SelectValue placeholder="Status: (manter atual)" />
                         </SelectTrigger>
@@ -272,7 +274,7 @@ export function Manage({ dados, estadoFiltros }: ManageProps): React.JSX.Element
                         </SelectContent>
                       </Select>
                       <Select value={lotePrioridade || undefined}
-                              onValueChange={(v) => setLotePrioridade(v === '__manter' ? '' : v)}>
+                        onValueChange={(v) => setLotePrioridade(v === '__manter' ? '' : v)}>
                         <SelectTrigger className="w-56 h-9 text-xs bg-bg-2 border-line">
                           <SelectValue placeholder="Prioridade: (manter atual)" />
                         </SelectTrigger>
@@ -282,8 +284,8 @@ export function Manage({ dados, estadoFiltros }: ManageProps): React.JSX.Element
                         </SelectContent>
                       </Select>
                       <MesExecucaoPicker value={loteMes} onChange={setLoteMes}
-                                         valorNeutro="" rotuloNeutro="Mês: (manter atual)"
-                                         className="w-60 h-9" />
+                        valorNeutro="" rotuloNeutro="Mês: (manter atual)"
+                        className="w-60 h-9" />
                       <Button size="sm" className="h-9 px-4 text-xs" disabled={salvando} onClick={aplicarLote}>
                         {salvando ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
                         Aplicar em ({selecionados.size}) Notas
@@ -322,7 +324,7 @@ export function Manage({ dados, estadoFiltros }: ManageProps): React.JSX.Element
                           Salvar Alterações
                         </Button>
                         <Button variant="ghost" size="sm" className="h-9 text-xs" disabled={edicoes.size === 0}
-                                onClick={() => setEdicoes(new Map())}>Descartar</Button>
+                          onClick={() => setEdicoes(new Map())}>Descartar</Button>
                       </div>
                     </div>
                   </CardContent>
@@ -331,14 +333,14 @@ export function Manage({ dados, estadoFiltros }: ManageProps): React.JSX.Element
 
               <div className="rounded-lg border border-line bg-surface overflow-hidden shadow-sm">
                 <NotesTable registros={filtrados} todosOsRegistros={dados.registros} colunas={COLUNAS}
-                            selecionados={comSelecao ? selecionados : undefined}
-                            onToggleSelecionado={comSelecao ? toggleSelecionado : undefined}
-                            onToggleTodos={comSelecao ? toggleTodos : undefined}
-                            edicoes={modo === 'rapida' ? edicoes : undefined}
-                            onEditar={modo === 'rapida' ? onEditar : undefined}
-                            statusOpcoes={dados.meta.status_opcoes}
-                            prioridadeOpcoes={dados.meta.prioridade_opcoes}
-                            agruparGavetinhas={agruparGavetinhas} />
+                  selecionados={comSelecao ? selecionados : undefined}
+                  onToggleSelecionado={comSelecao ? toggleSelecionado : undefined}
+                  onToggleTodos={comSelecao ? toggleTodos : undefined}
+                  edicoes={modo === 'rapida' ? edicoes : undefined}
+                  onEditar={modo === 'rapida' ? onEditar : undefined}
+                  statusOpcoes={dados.meta.status_opcoes}
+                  prioridadeOpcoes={dados.meta.prioridade_opcoes}
+                  agruparGavetinhas={agruparGavetinhas} />
               </div>
             </React.Fragment>
           )}
@@ -370,8 +372,8 @@ export function Manage({ dados, estadoFiltros }: ManageProps): React.JSX.Element
                         </Select>
                       ) : (
                         <Input id={`nova-${campo}`} value={novaNota[campo]}
-                               className="h-9 text-xs bg-bg-2 border-line"
-                               onChange={(e) => setNovaNota({ ...novaNota, [campo]: e.target.value })} />
+                          className="h-9 text-xs bg-bg-2 border-line"
+                          onChange={(e) => setNovaNota({ ...novaNota, [campo]: e.target.value })} />
                       )}
                     </div>
                   ))}
