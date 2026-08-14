@@ -1,0 +1,86 @@
+import React from 'react';
+import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+
+import { InputApi } from './api';
+import { INPUT_DADOS_KEY } from './use-input-data';
+import type { NetworkSyncState } from './network-sync-status';
+
+export const INPUT_SYNC_KEY = ['input', 'sync'] as const;
+export const SYNC_INTERVALO_REPOUSO_MS = 60_000;
+export const SYNC_INTERVALO_ATIVO_MS = 3_000;
+
+interface RespostaSincronizacao {
+  versao: string;
+  sincronizando?: boolean;
+}
+
+export function intervaloPollingSincronizacao(
+  resposta: Pick<RespostaSincronizacao, 'sincronizando'> | undefined,
+): number {
+  return resposta?.sincronizando ? SYNC_INTERVALO_ATIVO_MS : SYNC_INTERVALO_REPOUSO_MS;
+}
+
+export function aplicarRespostaSincronizacao(
+  queryClient: QueryClient,
+  versaoConhecida: string | undefined,
+  resposta: Pick<RespostaSincronizacao, 'versao'>,
+): boolean {
+  if (versaoConhecida === undefined || resposta.versao === versaoConhecida) return false;
+  void queryClient.invalidateQueries({ queryKey: INPUT_DADOS_KEY });
+  return true;
+}
+
+interface UseInputSyncResultado {
+  estado: NetworkSyncState['estado'];
+  tentarNovamente: () => void;
+}
+
+/** Fonte única do status e da detecção de mudanças do Input por aba montada. */
+export function useInputSync(
+  versaoConhecida: string | undefined,
+): UseInputSyncResultado {
+  const queryClient = useQueryClient();
+  const ultimaVersaoNotificada = React.useRef<string>();
+  const consulta = useQuery({
+    queryKey: INPUT_SYNC_KEY,
+    queryFn: () => InputApi.sync(),
+    refetchInterval: (query) => intervaloPollingSincronizacao(query.state.data),
+    retry: false,
+  });
+
+  React.useEffect(() => {
+    if (!consulta.data) return;
+    if (consulta.data.versao === ultimaVersaoNotificada.current) return;
+    const mudou = aplicarRespostaSincronizacao(queryClient, versaoConhecida, consulta.data);
+    if (mudou) {
+      ultimaVersaoNotificada.current = consulta.data.versao;
+      toast.info('Dados atualizados por outro usuário', {
+        description: 'A tabela foi recarregada em segundo plano.',
+      });
+    }
+  }, [consulta.data, queryClient, versaoConhecida]);
+
+  React.useEffect(() => {
+    if (!consulta.data?.sincronizando) return;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = 'Sincronização com a rede em andamento. Suas alterações podem ser perdidas se fechar o sistema agora.';
+      return event.returnValue;
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [consulta.data?.sincronizando]);
+
+  let estado: NetworkSyncState['estado'] = 'verificando';
+  if (consulta.isError) estado = 'indisponivel';
+  else if (consulta.data?.sincronizando) estado = 'sincronizando';
+  else if (consulta.data) estado = 'sincronizada';
+
+  return {
+    estado,
+    tentarNovamente: () => { void consulta.refetch(); },
+  };
+}
