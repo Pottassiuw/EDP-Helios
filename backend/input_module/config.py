@@ -45,31 +45,52 @@ def caminho_sap_robot() -> Path:
 
 
 def caminho_controle_recomposicao() -> Path:
-    """Retorna a cópia local do Excel hospedado no SharePoint.
+    """Planilha Controle Plano de Recomposição (OneDrive/SharePoint sincronizado).
 
-    ``CONTROLE_RECOMPOSICAO_PATH`` vence para ambientes que usam outro
-    diretório. No padrão, a pasta sincronizada é montada com o usuário da
-    máquina, evitando deixar o perfil do servidor fixo no código.
+    Busca dinamicamente no perfil do usuário atual (permitindo acesso de qualquer
+    computador da empresa) ou respeita o override explícito via CONTROLE_RECOMPOSICAO_PATH.
     """
-    caminho_configurado = os.environ.get("CONTROLE_RECOMPOSICAO_PATH", "").strip()
-    if caminho_configurado:
-        return Path(caminho_configurado)
+    env_override = os.environ.get("CONTROLE_RECOMPOSICAO_PATH", "").strip()
+    if env_override:
+        return Path(env_override)
 
-    usuario = (
-        os.environ.get("USER")
-        or os.environ.get("USERNAME")
-        or Path.home().name
+    subcaminho = (
+        Path("PLANO RECOMPOSIÇÃO") / "SP" / "2026" / "Controle Plano de Recomposição 2026.xlsx"
     )
-    return (
-        Path("C:/Users")
-        / usuario
-        / "EDP"
-        / "O365_Planejamento_Manutencao_EDP_Brasil - Documentos"
-        / "PLANO RECOMPOSIÇÃO"
-        / "SP"
-        / "2026"
-        / "Controle Plano de Recomposição 2026.xlsx"
-    )
+    nome_pasta_sp = "O365_Planejamento_Manutencao_EDP_Brasil - Documentos"
+
+    home = Path.home()
+    userprofile_str = os.environ.get("USERPROFILE")
+    userprofile = Path(userprofile_str) if userprofile_str else home
+
+    pastas_candidatas = [
+        home / "EDP" / nome_pasta_sp,
+        userprofile / "EDP" / nome_pasta_sp,
+        home / "OneDrive - EDP" / nome_pasta_sp,
+        userprofile / "OneDrive - EDP" / nome_pasta_sp,
+        home / "OneDrive - EDP Brasil" / nome_pasta_sp,
+        userprofile / "OneDrive - EDP Brasil" / nome_pasta_sp,
+        home / "OneDrive" / nome_pasta_sp,
+        userprofile / "OneDrive" / nome_pasta_sp,
+    ]
+
+    for env_var in ("OneDriveCommercial", "OneDrive", "ONEDRIVE"):
+        valor_env = os.environ.get(env_var, "").strip()
+        if valor_env:
+            p_env = Path(valor_env)
+            pastas_candidatas.append(p_env / nome_pasta_sp)
+            pastas_candidatas.append(p_env.parent / "EDP" / nome_pasta_sp)
+
+    # Fallback para o usuário histórico caso ainda exista naquela máquina específica
+    pastas_candidatas.append(Path(r"C:\Users\e713611\EDP") / nome_pasta_sp)
+
+    for pasta in pastas_candidatas:
+        candidato = pasta / subcaminho
+        if candidato.exists():
+            return candidato
+
+    # Default dinâmico padrão para o usuário logado
+    return home / "EDP" / nome_pasta_sp / subcaminho
 
 
 # ── Caminhos da rede EDP ─────────────────────────────────────────────────
@@ -577,6 +598,7 @@ COLUNAS_PAINEL = [
     "Regional",
     "Numero_Nota",
     "Nota_Mae",
+    "Status_Obra",
     "Conjunto",
     "Circuito",
     "Local_Instalacao",

@@ -39,7 +39,9 @@ CAMINHO_SAP_LOGON = r"C:\Program Files (x86)\SAP\FrontEnd\SAPgui\saplogon.exe"
 # Descobre a pasta onde o script está rodando e procura o arquivo JSON
 caminho_script = os.path.dirname(os.path.abspath(__file__))
 caminho_credenciais = os.path.join(caminho_script, 'credenciais.json')
-caminho_credenciais_alt = r"c:\Users\E713105\Documents\INPUT SQL\credenciais.json"
+caminho_credenciais_alt = os.path.join(
+    os.environ.get("USERPROFILE", os.path.expanduser("~")), "Documents", "INPUT SQL", "credenciais.json"
+)
 
 if not os.path.exists(caminho_credenciais) and os.path.exists(caminho_credenciais_alt):
     caminho_credenciais = caminho_credenciais_alt

@@ -637,16 +637,11 @@ no SQLite local.
 
 ### Caminho e configuração
 
-A planilha é definida por `config.caminho_controle_recomposicao()`. Por
-padrão, ela aponta para a pasta SharePoint sincronizada em cada máquina:
-
-```text
-C:\Users\<USER>\EDP\O365_Planejamento_Manutencao_EDP_Brasil - Documentos\PLANO RECOMPOSIÇÃO\SP\2026\Controle Plano de Recomposição 2026.xlsx
-```
-
-O nome do perfil vem de `USER`. Em Windows, quando essa variável não existe,
-o código usa `USERNAME` e depois o nome de `Path.home()`. Uma configuração
-explícita continua vencendo todos os defaults:
+A planilha é definida por `config.caminho_controle_recomposicao()`, que
+resolve dinamicamente o caminho relativo ao perfil do usuário conectado no Windows
+(`%USERPROFILE%` / `Path.home()`) e variações de pastas corporativas sincronizadas do OneDrive/SharePoint
+(`EDP/O365_...`, `OneDrive - EDP/O365_...`, etc.), funcionando em qualquer computador da empresa.
+Também pode ser sobrescrito via variável de ambiente:
 
 ```python
 CONTROLE_RECOMPOSICAO_PATH=/caminho/alternativo/Controle.xlsx
