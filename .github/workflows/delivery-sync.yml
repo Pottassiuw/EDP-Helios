@@ -206,7 +206,7 @@ jobs:
             await core.summary
               .addHeading("Delivery synchronization")
               .addTable([
-                [{ data: "PR", header: true }, { data: "Issue", header: true }, { data: "Issue", header: true }, { data: "Project", header: true }],
+                [{ data: "PR", header: true }, { data: "Issue", header: true }, { data: "Issue state", header: true }, { data: "Project", header: true }],
                 ...results.map((result) => [
                   String(result.pr),
                   `#${result.issue}`,
