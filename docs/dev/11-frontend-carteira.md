@@ -116,12 +116,28 @@ contexto e o `dl` responsivo mostra os outros sete campos, totalizando os nove
 campos do contrato. Valores `null` ou vazios aparecem como travessão; nenhuma
 PII entra no tipo ou na UI.
 
+O sync valida o esquema recebido por blocos de enriquecimento e persiste em
+`carteira_meta` avisos estruturados com código, bloco, campos públicos, mensagem
+e ação fixos. O contrato de `GET /api/carteira/notas/por-sap/{numeroSap}` expõe
+esses avisos sem copiar valores, exceções, caminhos ou identificadores da fonte.
+Como o metadado acompanha a versão da projeção, o ETag continua usando a mesma
+moeda de revalidação.
+
+Quando há aviso, o card mantém os campos válidos e apresenta um banner de status
+com ação para a aba Sincronização. Campos pertencentes ao bloco incompatível
+aparecem como `Indisponível`; valores válidos iguais a zero continuam aparecendo
+como `0`, sem serem confundidos com ausência.
+
 Os estados são intencionalmente distintos: carregamento é local ao card;
 erro real de consulta (ou resposta incompatível) mostra alerta com retry;
 `sem_correspondencia` é uma ausência neutra sem retry; e
 `base_nao_sincronizada` explica a pré-condição e oferece a ação de navegação.
 Em `ausente_na_origem` (tombstone), os dados preservados continuam visíveis
 junto do aviso e da data. Nenhum outro estado oferece retry.
+
+Durante uma atualização gradual, o card também trata `avisos` ausente como uma
+lista vazia. Assim, um corpo legado em cache não quebra o inspector; o ETag da
+nova representação obriga sua revalidação antes da próxima resposta normal.
 
 ## Direção visual — Supabaze (DESIGN.md)
 

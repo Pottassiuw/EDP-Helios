@@ -1,5 +1,7 @@
 """Casos de uso da Carteira: leitura paginada, resumo e sincronizacao."""
-from carteira_module import db, repository, sync
+import json
+
+from carteira_module import db, mapping, repository, sync
 from input_module import db as input_db
 
 
@@ -94,11 +96,18 @@ def enriquecimento_por_sap(numero: int) -> dict:
     try:
         conn.execute("BEGIN")
         versao = db.obter_meta_na_conexao(conn, "versao") or "0"
+        avisos_json = db.obter_meta_na_conexao(
+            conn, "avisos_enriquecimento") or "[]"
+        try:
+            avisos_brutos = json.loads(avisos_json)
+        except (TypeError, json.JSONDecodeError):
+            avisos_brutos = []
         resposta = {
             "numero_sap": numero,
             "estado": "base_nao_sincronizada",
             "dados": None,
             "ausente_na_origem_em": None,
+            "avisos": mapping.normalizar_avisos(avisos_brutos),
             "versao": versao,
         }
         if versao == "0":

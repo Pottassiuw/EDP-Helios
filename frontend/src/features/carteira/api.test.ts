@@ -24,6 +24,7 @@ describe('CarteiraApi.enriquecimento', () => {
         prioridade_sap: 2,
       },
       ausente_na_origem_em: null,
+      avisos: [],
       versao: '7',
     };
     const fetchMock = vi.fn().mockResolvedValue(
