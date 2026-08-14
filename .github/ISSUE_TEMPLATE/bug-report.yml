@@ -1,0 +1,65 @@
+name: Relato de defeito
+description: Registre um comportamento incorreto com impacto, evidência e critério de aceite.
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Obrigado por registrar o defeito. Este é um repositório público: não inclua credenciais, dados pessoais, caminhos internos, dados de produção ou detalhes exploráveis de segurança.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Resumo e impacto
+      description: O que falhou, quem é afetado e qual é o impacto operacional?
+      placeholder: "Ao..., o sistema...; o impacto é..."
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Passos para reproduzir
+      description: Use dados fictícios ou anonimizados.
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Comportamento esperado e atual
+      placeholder: |
+        Esperado: ...
+        Atual: ...
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Critérios de aceite e teste de regressão
+      description: Como saberemos que a correção resolveu o problema sem regressão?
+    validations:
+      required: true
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Prioridade sugerida
+      options:
+        - P0 - Critical
+        - P1 - High
+        - P2 - Performance
+        - P3 - Quality
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Confirmações
+      options:
+        - label: Pesquisei Issues existentes para evitar duplicidade.
+          required: true
+        - label: Removi ou anonimizei conteúdo sensível.
+          required: true
