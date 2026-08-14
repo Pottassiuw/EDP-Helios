@@ -170,12 +170,12 @@ uma mudança de esquema força novo enriquecimento mesmo com o mesmo marker. A
 versão resultante inclui mudanças nos avisos sem criar uma segunda moeda de
 estado; o caminho `skip` conserva o metadado vigente.
 
-Em cada ciclo do Databricks, o sync le apenas o esquema (`LIMIT 0`) e compara
-sua assinatura com `assinatura_esquema` em `carteira_meta`. Marker igual so
-permite `skip` quando a assinatura tambem e igual; uma mudanca no esquema faz
-o refresh completo, atualiza os avisos e incrementa a versao. A assinatura e
-interna e nunca integra a resposta. O ETag do enriquecimento combina a versao
-da representacao (`enriquecimento-v2`) com a versao da projecao, para que
+Em cada ciclo do Databricks, o sync lê apenas o esquema (`LIMIT 0`) e compara
+sua assinatura com `assinatura_esquema` em `carteira_meta`. Marker igual só
+permite `skip` quando a assinatura também é igual; uma mudança no esquema faz
+o refresh completo, atualiza os avisos e incrementa a versão. A assinatura é
+interna e nunca integra a resposta. O ETag do enriquecimento combina a versão
+da representação (`enriquecimento-v2`) com a versão da projeção, para que
 corpos em cache de contratos anteriores sejam revalidados uma vez.
 
 ## Testes
