@@ -1,5 +1,5 @@
 import React from 'react';
-import { Loader2, Undo2, Save, Trash2, Mail } from 'lucide-react';
+import { Loader2, Undo2, Save, Trash2, Mail, GitBranch, Copy } from 'lucide-react';
 import type { Celula, InputDataset, NotaInput } from './types';
 import { InputApi } from './api';
 import { toast } from 'sonner';
@@ -74,11 +74,77 @@ export function Manage({ dados, estadoFiltros }: ManageProps): React.JSX.Element
   const [novaNota, setNovaNota] = React.useState<Record<string, string>>({ ...NOTA_VAZIA });
   const [textoColagem, setTextoColagem] = React.useState('');
   const [modalNotificacao, setModalNotificacao] = React.useState(false);
+  const [descontarMaeCadastro, setDescontarMaeCadastro] = React.useState(true);
+  const [descontarMaesColagem, setDescontarMaesColagem] = React.useState(true);
 
   const filtrados = React.useMemo(
     () => filtrarRegistros(dados.registros, estadoFiltros), [dados.registros, estadoFiltros]);
   const previewColagem = React.useMemo(
     () => parseColagemTsv(textoColagem, COLUNAS_COLAGEM), [textoColagem]);
+
+  // Detecção da Nota Mãe no cadastro individual e cálculo da dedução
+  const notaMaeCadastro = React.useMemo(() => {
+    const maeStr = novaNota.Nota_Mae?.trim();
+    if (!maeStr || maeStr === '-' || !/^\d+$/.test(maeStr)) return null;
+    const num = Number(maeStr);
+    const maeObj = dados.registros.find((r) => r.Numero_Nota === num);
+    if (!maeObj) return null;
+    const medAtual = Number(maeObj.Planejado_DDPM) || 0;
+    const medFilha = Number(novaNota.Planejado_DDPM) || 0;
+    const novaMed = Math.max(0, medAtual - medFilha);
+    return {
+      obj: maeObj,
+      medidaAtual: medAtual,
+      medidaFilha: medFilha,
+      novaMedida: novaMed,
+      diferenca: medFilha,
+    };
+  }, [novaNota.Nota_Mae, novaNota.Planejado_DDPM, dados.registros]);
+
+  const copiarMetadadosMae = (): void => {
+    if (!notaMaeCadastro) return;
+    const m = notaMaeCadastro.obj;
+    setNovaNota((prev) => ({
+      ...prev,
+      Conjunto: String(m.Conjunto || prev.Conjunto || '-'),
+      Circuito: String(m.Circuito || prev.Circuito || '-'),
+      Local_Instalacao: String(m.Local_Instalacao || prev.Local_Instalacao || '-'),
+      Mes_Execucao_Planejado: String(m.Mes_Execucao_Planejado || prev.Mes_Execucao_Planejado || '-'),
+      Status_Nota: String(m.Status_Nota || prev.Status_Nota || '00 Pendente'),
+      Prioridade_Nota: String(m.Prioridade_Nota || prev.Prioridade_Nota || 'Programável'),
+    }));
+    toast.success(`Metadados da Nota Mãe ${m.Numero_Nota} copiados para a nova filha!`);
+  };
+
+  // Agrupamento de deduções de Notas Mães detectadas na colagem em lote
+  const ajustesMaesColagem = React.useMemo(() => {
+    if (previewColagem.length === 0) return [];
+    const deducoesPorMae = new Map<number, number>();
+    for (const r of previewColagem) {
+      const maeStr = r.Nota_Mae ? String(r.Nota_Mae).trim() : '';
+      if (maeStr && maeStr !== '-' && /^\d+$/.test(maeStr)) {
+        const numMae = Number(maeStr);
+        const med = Number(r.Planejado_DDPM) || 0;
+        deducoesPorMae.set(numMae, (deducoesPorMae.get(numMae) ?? 0) + med);
+      }
+    }
+
+    const lista: Array<{ numeroMae: number; medidaAtual: number; deducao: number; novaMedida: number }> = [];
+    for (const [numMae, deducao] of deducoesPorMae.entries()) {
+      const maeObj = dados.registros.find((r) => r.Numero_Nota === numMae);
+      if (maeObj && deducao > 0) {
+        const medAtual = Number(maeObj.Planejado_DDPM) || 0;
+        const novaMed = Math.max(0, medAtual - deducao);
+        lista.push({
+          numeroMae: numMae,
+          medidaAtual: medAtual,
+          deducao: deducao,
+          novaMedida: novaMed,
+        });
+      }
+    }
+    return lista;
+  }, [previewColagem, dados.registros]);
 
   async function executar(rotuloOk: string, fn: () => Promise<unknown>): Promise<void> {
     setSalvando(true); setMsg(null);
@@ -110,17 +176,17 @@ export function Manage({ dados, estadoFiltros }: ManageProps): React.JSX.Element
       return s;
     });
   }
-  function toggleTodos(numeros: number[], marcar: boolean): void {
-    setSelecionados((prev) => {
-      const s = new Set(prev);
-      numeros.forEach((n) => { if (marcar) s.add(n); else s.delete(n); });
-      return s;
-    });
+  function toggleTodos(): void {
+    if (selecionados.size === filtrados.length) setSelecionados(new Set());
+    else setSelecionados(new Set(filtrados.map((r) => r.Numero_Nota)));
   }
 
   const salvarRapida = (): void => {
-    void executar(`${edicoes.size} nota(s) atualizada(s).`, async () => {
-      const linhas = [...edicoes.entries()].map(([n, campos]) => ({ Numero_Nota: n, ...campos }));
+    if (edicoes.size === 0) return;
+    const linhas = Array.from(edicoes.entries()).map(([Numero_Nota, patch]) => ({
+      Numero_Nota, ...patch,
+    }));
+    void executar(`${linhas.length} nota(s) atualizada(s).`, async () => {
       await InputApi.editar(linhas);
       setEdicoes(new Map());
     });
@@ -138,19 +204,16 @@ export function Manage({ dados, estadoFiltros }: ManageProps): React.JSX.Element
   }, [modo, edicoes, salvando]);
 
   const aplicarLote = (): void => {
-    const linhas = [...selecionados].map((n) => {
-      const linha: Partial<NotaInput> = { Numero_Nota: n };
-      if (loteStatus) linha.Status_Nota = loteStatus;
-      if (lotePrioridade) linha.Prioridade_Nota = lotePrioridade;
-      if (loteMes.trim()) linha.Mes_Execucao_Planejado = loteMes.trim();
-      return linha;
-    });
-    if (linhas.length === 0 || (!loteStatus && !lotePrioridade && !loteMes.trim())) {
-      setMsg({ tipo: 'erro', texto: 'Selecione notas e escolha pelo menos um novo valor.' });
-      return;
-    }
-    void executar(`Lote aplicado em ${linhas.length} nota(s).`, async () => {
+    if (selecionados.size === 0) { setMsg({ tipo: 'erro', texto: 'Selecione ao menos uma nota.' }); return; }
+    const patch: Partial<NotaInput> = {};
+    if (loteStatus) patch.Status_Nota = loteStatus;
+    if (lotePrioridade) patch.Prioridade_Nota = lotePrioridade;
+    if (loteMes) patch.Mes_Execucao_Planejado = loteMes;
+    if (Object.keys(patch).length === 0) { setMsg({ tipo: 'erro', texto: 'Preencha ao menos um campo para alteração em lote.' }); return; }
+    const linhas = Array.from(selecionados).map((Numero_Nota) => ({ Numero_Nota, ...patch }));
+    void executar(`${linhas.length} nota(s) atualizada(s) em lote.`, async () => {
       await InputApi.editar(linhas);
+      setLoteStatus(''); setLotePrioridade(''); setLoteMes('');
       setSelecionados(new Set());
     });
   };
@@ -158,15 +221,16 @@ export function Manage({ dados, estadoFiltros }: ManageProps): React.JSX.Element
   const [confirmDeleteOpen, setConfirmDeleteOpen] = React.useState(false);
   const [confirmUndoOpen, setConfirmUndoOpen] = React.useState(false);
 
-  const excluirSelecionadas = (): void => {
-    if (selecionados.size === 0) { setMsg({ tipo: 'erro', texto: 'Nenhuma nota selecionada.' }); return; }
+  const excluirSelecionados = (): void => {
+    if (selecionados.size === 0) { setMsg({ tipo: 'erro', texto: 'Selecione ao menos uma nota para excluir.' }); return; }
     setConfirmDeleteOpen(true);
   };
 
-  const confirmarExcluir = (): void => {
+  const confirmarExclusao = (): void => {
     setConfirmDeleteOpen(false);
-    void executar(`${selecionados.size} nota(s) excluída(s).`, async () => {
-      await InputApi.excluir([...selecionados]);
+    const numeros = Array.from(selecionados);
+    void executar(`${numeros.length} nota(s) excluída(s).`, async () => {
+      await InputApi.excluir(numeros);
       setSelecionados(new Set());
     });
   };
@@ -185,14 +249,28 @@ export function Manage({ dados, estadoFiltros }: ManageProps): React.JSX.Element
 
   const cadastrar = (): void => {
     if (!/^\d+$/.test(novaNota.Numero_Nota)) { setMsg({ tipo: 'erro', texto: 'Nº da Nota inválido.' }); return; }
+    const numNova = Number(novaNota.Numero_Nota);
     const notaMaeLimpa = novaNota.Nota_Mae && novaNota.Nota_Mae.trim() !== '' ? novaNota.Nota_Mae.trim() : '-';
-    void executar(`Nota ${novaNota.Numero_Nota} cadastrada.`, async () => {
+    const medFilha = Number(novaNota.Planejado_DDPM) || 0;
+
+    void executar(`Nota ${novaNota.Numero_Nota} cadastrada com sucesso.`, async () => {
+      // 1. Cria a nota filha/nova
       await InputApi.criar({
         ...novaNota,
-        Numero_Nota: Number(novaNota.Numero_Nota),
+        Numero_Nota: numNova,
         Nota_Mae: notaMaeLimpa,
-        Planejado_DDPM: Number(novaNota.Planejado_DDPM) || 0,
+        Planejado_DDPM: medFilha,
       });
+
+      // 2. Se houver Nota Mãe e desconto ativo, ajusta a medida da mãe no banco
+      if (descontarMaeCadastro && notaMaeCadastro && medFilha > 0) {
+        await InputApi.editar([{
+          Numero_Nota: notaMaeCadastro.obj.Numero_Nota,
+          Planejado_DDPM: notaMaeCadastro.novaMedida,
+        }]);
+        toast.info(`Medida da Nota Mãe ${notaMaeCadastro.obj.Numero_Nota} ajustada de ${notaMaeCadastro.medidaAtual} para ${notaMaeCadastro.novaMedida}.`);
+      }
+
       setNovaNota({ ...NOTA_VAZIA });
     });
   };
@@ -200,12 +278,23 @@ export function Manage({ dados, estadoFiltros }: ManageProps): React.JSX.Element
   const salvarColagem = (): void => {
     if (previewColagem.length === 0) { setMsg({ tipo: 'erro', texto: 'Cole os dados antes de salvar.' }); return; }
     void executar(`${previewColagem.length} nota(s) integradas ao banco.`, async () => {
+      // 1. Insere as notas em lote
       await InputApi.criarLote(previewColagem.map((r) => ({
         ...r,
         Numero_Nota: Number(r.Numero_Nota),
         Nota_Mae: r.Nota_Mae && String(r.Nota_Mae).trim() !== '' ? String(r.Nota_Mae).trim() : '-',
         Planejado_DDPM: Number(r.Planejado_DDPM) || 0,
       })));
+
+      // 2. Ajusta as medidas de todas as notas mães detectadas simultaneamente
+      if (descontarMaesColagem && ajustesMaesColagem.length > 0) {
+        await InputApi.editar(ajustesMaesColagem.map((aj) => ({
+          Numero_Nota: aj.numeroMae,
+          Planejado_DDPM: aj.novaMedida,
+        })));
+        toast.info(`Medidas de ${ajustesMaesColagem.length} Nota(s) Mãe(s) ajustadas automaticamente.`);
+      }
+
       setTextoColagem('');
     });
   };
@@ -329,7 +418,7 @@ export function Manage({ dados, estadoFiltros }: ManageProps): React.JSX.Element
                       <span className="text-xs text-text-dim">
                         Selecione as notas na tabela abaixo para excluir do banco. <strong className="text-foreground">{selecionados.size} selecionada(s).</strong>
                       </span>
-                      <Button variant="destructive" size="sm" className="h-9 text-xs" disabled={salvando} onClick={excluirSelecionadas}>
+                      <Button variant="destructive" size="sm" className="h-9 text-xs" disabled={salvando} onClick={excluirSelecionados}>
                         {salvando ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Trash2 className="mr-1.5 h-3.5 w-3.5" />}
                         Excluir Selecionadas
                       </Button>
@@ -415,6 +504,64 @@ export function Manage({ dados, estadoFiltros }: ManageProps): React.JSX.Element
                     </div>
                   ))}
                 </div>
+
+                {notaMaeCadastro && (
+                  <div className="mt-4 p-3.5 bg-surface-2/80 rounded-lg border border-accent/30 flex flex-col gap-2.5">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-2">
+                        <GitBranch className="h-4 w-4 text-accent" />
+                        <span className="text-xs font-semibold text-foreground">
+                          Vínculo com Nota Mãe #{notaMaeCadastro.obj.Numero_Nota} Detectado
+                        </span>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2.5 text-[11px] font-medium gap-1 text-accent border-accent/40 hover:bg-surface"
+                        onClick={copiarMetadadosMae}
+                        title="Copiar Conjunto, Circuito, Local de Instalação e Mês da Nota Mãe"
+                      >
+                        <Copy className="h-3 w-3" />
+                        Copiar Metadados da Mãe
+                      </Button>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono bg-surface p-2.5 rounded border border-line">
+                      <div>
+                        <span className="text-[10.5px] uppercase tracking-wider text-text-mute block">Regional / Cj:</span>
+                        <span className="font-semibold text-foreground truncate block">
+                          {notaMaeCadastro.obj.Regional} · {notaMaeCadastro.obj.Conjunto}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[10.5px] uppercase tracking-wider text-text-mute block">Planejado Mãe:</span>
+                        <span className="font-semibold text-foreground">{notaMaeCadastro.medidaAtual}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10.5px] uppercase tracking-wider text-text-mute block">Medida Desta Filha:</span>
+                        <span className="font-bold text-accent">{notaMaeCadastro.medidaFilha}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10.5px] uppercase tracking-wider text-text-mute block">Nova Medida da Mãe:</span>
+                        <span className="font-bold text-green">{notaMaeCadastro.novaMedida}</span>
+                      </div>
+                    </div>
+
+                    <label className="flex items-center gap-2 text-xs text-text-dim cursor-pointer select-none pt-0.5">
+                      <input
+                        type="checkbox"
+                        checked={descontarMaeCadastro}
+                        onChange={(e) => setDescontarMaeCadastro(e.target.checked)}
+                        className="rounded border-line text-accent focus:ring-accent"
+                      />
+                      <span className="font-medium text-foreground">
+                        Descontar automaticamente a medida desta filha na Nota Mãe ao salvar ({notaMaeCadastro.medidaAtual} ➔ {notaMaeCadastro.novaMedida})
+                      </span>
+                    </label>
+                  </div>
+                )}
+
                 <div className="mt-6 flex justify-end">
                   <Button size="sm" className="h-9 px-4 text-xs" disabled={salvando} onClick={cadastrar}>
                     {salvando ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
@@ -440,7 +587,11 @@ export function Manage({ dados, estadoFiltros }: ManageProps): React.JSX.Element
               preview={previewColagem}
               salvando={salvando}
               rotuloSalvar={`Salvar Lote (${previewColagem.length})`}
-              onSalvar={salvarColagem} />
+              onSalvar={salvarColagem}
+              ajustesMaes={ajustesMaesColagem}
+              descontarMaes={descontarMaesColagem}
+              onToggleDescontarMaes={setDescontarMaesColagem}
+            />
           )}
 
           {/* Ferramenta de Hierarquia Manual (Vincular Nota-Mãe e Filhas na Mão) */}
@@ -453,7 +604,7 @@ export function Manage({ dados, estadoFiltros }: ManageProps): React.JSX.Element
             confirmLabel="Excluir"
             tone="danger"
             requireJustification={false}
-            onConfirm={confirmarExcluir}
+            onConfirm={confirmarExclusao}
             onCancel={() => setConfirmDeleteOpen(false)}
           />
 
