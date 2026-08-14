@@ -40,10 +40,18 @@ const MODOS: { id: Modo; rotulo: string }[] = [
 interface Mensagem { tipo: 'ok' | 'erro'; texto: string; }
 
 const NOTA_VAZIA: Record<string, string> = {
-  Numero_Nota: '', Status_Nota: '00 Pendente', Prioridade_Nota: 'Programável',
-  Planejado_DDPM: '0', Conjunto: '-', Circuito: '-',
-  Local_Instalacao: '-', Mes_Execucao_Planejado: '-',
-  Data_Envio_Projeto: new Date().toLocaleDateString('pt-BR'), Observacao: '', Check: '-',
+  Numero_Nota: '',
+  Nota_Mae: '-',
+  Status_Nota: '00 Pendente',
+  Prioridade_Nota: 'Programável',
+  Planejado_DDPM: '0',
+  Conjunto: '-',
+  Circuito: '-',
+  Local_Instalacao: '-',
+  Mes_Execucao_Planejado: '-',
+  Data_Envio_Projeto: new Date().toLocaleDateString('pt-BR'),
+  Observacao: '',
+  Check: '-',
 };
 
 interface ManageProps {
@@ -177,10 +185,13 @@ export function Manage({ dados, estadoFiltros }: ManageProps): React.JSX.Element
 
   const cadastrar = (): void => {
     if (!/^\d+$/.test(novaNota.Numero_Nota)) { setMsg({ tipo: 'erro', texto: 'Nº da Nota inválido.' }); return; }
+    const notaMaeLimpa = novaNota.Nota_Mae && novaNota.Nota_Mae.trim() !== '' ? novaNota.Nota_Mae.trim() : '-';
     void executar(`Nota ${novaNota.Numero_Nota} cadastrada.`, async () => {
       await InputApi.criar({
-        ...novaNota, Numero_Nota: Number(novaNota.Numero_Nota),
-        Planejado_DDPM: Number(novaNota.Planejado_DDPM) || 0
+        ...novaNota,
+        Numero_Nota: Number(novaNota.Numero_Nota),
+        Nota_Mae: notaMaeLimpa,
+        Planejado_DDPM: Number(novaNota.Planejado_DDPM) || 0,
       });
       setNovaNota({ ...NOTA_VAZIA });
     });
@@ -190,7 +201,9 @@ export function Manage({ dados, estadoFiltros }: ManageProps): React.JSX.Element
     if (previewColagem.length === 0) { setMsg({ tipo: 'erro', texto: 'Cole os dados antes de salvar.' }); return; }
     void executar(`${previewColagem.length} nota(s) integradas ao banco.`, async () => {
       await InputApi.criarLote(previewColagem.map((r) => ({
-        ...r, Numero_Nota: Number(r.Numero_Nota),
+        ...r,
+        Numero_Nota: Number(r.Numero_Nota),
+        Nota_Mae: r.Nota_Mae && String(r.Nota_Mae).trim() !== '' ? String(r.Nota_Mae).trim() : '-',
         Planejado_DDPM: Number(r.Planejado_DDPM) || 0,
       })));
       setTextoColagem('');
@@ -385,9 +398,19 @@ export function Manage({ dados, estadoFiltros }: ManageProps): React.JSX.Element
                           </SelectContent>
                         </Select>
                       ) : (
-                        <Input id={`nova-${campo}`} value={novaNota[campo]}
+                        <Input
+                          id={`nova-${campo}`}
+                          value={novaNota[campo]}
+                          placeholder={
+                            campo === 'Nota_Mae'
+                              ? '- (ou Nº da Mãe para vincular)'
+                              : campo === 'Numero_Nota'
+                              ? 'Ex: 14118256'
+                              : ''
+                          }
                           className="h-9 text-xs bg-bg-2 border-line"
-                          onChange={(e) => setNovaNota({ ...novaNota, [campo]: e.target.value })} />
+                          onChange={(e) => setNovaNota({ ...novaNota, [campo]: e.target.value })}
+                        />
                       )}
                     </div>
                   ))}

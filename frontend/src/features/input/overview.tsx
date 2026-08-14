@@ -10,7 +10,6 @@ import { DataGrid } from './data-grid';
 import { NotesTable } from './notes-table';
 import { InputNotaInspector } from './input-nota-inspector';
 import { useRecarregarInput } from './use-input-data';
-import { useAutoVinculos } from './use-auto-vinculos';
 import { Button } from '@/components/ui/button';
 import { Eyebrow, StatNumber } from '@/components/branded/section';
 
@@ -75,7 +74,6 @@ export function Overview({
   const botaoDetalheRef = React.useRef<HTMLButtonElement | null>(null);
 
   const recarregar = useRecarregarInput();
-  const { status: vinculoStatus } = useAutoVinculos(dados.registros);
   const filtrados = React.useMemo(
     () => filtrarRegistros(dados.registros, estado), [dados.registros, estado]);
 
@@ -220,13 +218,7 @@ export function Overview({
       <div className="flex items-center justify-between text-xs text-text-mute font-mono px-3 py-2 bg-surface-2/50 rounded-md border border-line">
         <div className="flex items-center gap-2">
           <GitMerge className="h-3.5 w-3.5 text-accent shrink-0" />
-          <span>
-            {vinculoStatus === null
-              ? 'Verificando vínculos Nota_Mae...'
-              : vinculoStatus.atualizadas > 0
-                ? `${vinculoStatus.atualizadas} vínculo(s) Nota_Mae aplicados · ${vinculoStatus.hora}`
-                : `Nenhum vínculo Nota_Mae pendente · ${vinculoStatus.hora}`}
-          </span>
+          <span>Base de dados operacional · {dados.registros.length} notas no plano</span>
         </div>
         <CheckCircle2 className="h-3.5 w-3.5 text-green shrink-0" />
       </div>

@@ -80,7 +80,18 @@ export const FILTROS_MULTI = [
   'Circuito', 'Medida_SAP', 'Medida_vs_Planejado'
 ];
 
-/** Colunas da colagem em massa, na ordem (Input/app.py:674-679). */
-export const COLUNAS_COLAGEM = ['Numero_Nota', 'Status_Nota', 'Prioridade_Nota',
-  'Planejado_DDPM', 'Conjunto', 'Circuito', 'Local_Instalacao',
-  'Mes_Execucao_Planejado', 'Data_Envio_Projeto', 'Observacao', 'Check'];
+/** Colunas da colagem em massa, na ordem. */
+export const COLUNAS_COLAGEM = [
+  'Numero_Nota',
+  'Nota_Mae',
+  'Status_Nota',
+  'Prioridade_Nota',
+  'Planejado_DDPM',
+  'Conjunto',
+  'Circuito',
+  'Local_Instalacao',
+  'Mes_Execucao_Planejado',
+  'Data_Envio_Projeto',
+  'Observacao',
+  'Check',
+];

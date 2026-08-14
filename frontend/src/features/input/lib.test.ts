@@ -82,4 +82,15 @@ describe('varrerVinculos (Detetive de Notas)', () => {
     const sugestoes = varrerVinculos(registros);
     expect(sugestoes).toHaveLength(0);
   });
+
+  it('faz parse de colagem TSV incluindo coluna Nota_Mae', async () => {
+    const { parseColagemTsv } = await import('./lib');
+    const { COLUNAS_COLAGEM } = await import('./columns');
+    const tsv = '16958288\t14118256\t00 Pendente\tProgramável\t1.5\tPOSTES\tGUA-01\t045RL00000001\tjul-2026\t14/08/2026\tObservacao teste\t-';
+    const resultado = parseColagemTsv(tsv, COLUNAS_COLAGEM);
+    expect(resultado).toHaveLength(1);
+    expect(resultado[0].Numero_Nota).toBe('16958288');
+    expect(resultado[0].Nota_Mae).toBe('14118256');
+    expect(resultado[0].Planejado_DDPM).toBe('1.5');
+  });
 });
