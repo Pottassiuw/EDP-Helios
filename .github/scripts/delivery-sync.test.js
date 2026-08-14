@@ -37,10 +37,17 @@ const workflow = fs.readFileSync(
   path.join(__dirname, "..", "workflows", "delivery-sync.yml"),
   "utf8",
 );
+const branchWorkflow = fs.readFileSync(
+  path.join(__dirname, "..", "workflows", "update-delivery-branches.yml"),
+  "utf8",
+);
 assert.match(workflow, /types:\s*\n\s+- closed/);
 assert.match(workflow, /PROJECT_TOKEN_CONFIGURED/);
 assert.match(workflow, /addProjectV2ItemById/);
 assert.match(workflow, /updateProjectV2ItemFieldValue/);
 assert.match(workflow, /state: "closed"/);
+assert.match(branchWorkflow, /contents: write/);
+assert.match(branchWorkflow, /headRepository\.nameWithOwner/);
+assert.match(branchWorkflow, /gh pr update-branch/);
 
 console.log("delivery-sync contract: passed");

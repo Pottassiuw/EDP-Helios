@@ -69,9 +69,11 @@ O procedimento operacional e os comandos de worktree estão em [`CONTRIBUTING.md
 
 O workflow também aceita `workflow_dispatch` com um número de PR específico ou, sem número, reconcilia os PRs já mesclados em `develop`. A configuração humana única fica em **Settings → Secrets and variables → Actions → New repository secret**, no repositório `Pottassiuw/EDP-Helios`: crie `PROJECT_TOKEN` com um token de escopo mínimo que tenha `Issues: Read and write` no repositório e `Projects: Read and write` no Project privado. O valor do secret nunca deve ser colocado em código, Issue, PR ou chat.
 
+Em cada `push` para `develop`, `.github/workflows/update-delivery-branches.yml` lista os PRs abertos do próprio repositório e executa `gh pr update-branch --rebase`. PRs de forks são ignorados; conflitos geram falha explícita para impedir auto-merge de uma branch que não pôde ser atualizada.
+
 Os testes de backend já forçam perfil local, diretório temporário e raiz de rede inexistente em `backend/conftest.py`; a CI não deve receber caminhos, bases ou credenciais de produção.
 
-A workflow ainda não é uma proteção remota enquanto esta branch não for revisada, commitada e enviada. Depois de seus primeiros runs verdes, configure proteção em `develop` para exigir Pull Request, revisão e os checks de validação e sincronização. Fazer isso antes de existirem checks registrados pode bloquear merges sem oferecer uma rota de recuperação clara.
+A proteção remota de `develop` exige Pull Request, uma aprovação, branches atualizadas, os quatro checks de validação/sincronização e resolução de conversas; force-push e deleção da branch estão bloqueados. Auto-merge squash fica habilitado nos PRs, mas continua bloqueado até a aprovação humana.
 
 ## Templates do GitHub
 
