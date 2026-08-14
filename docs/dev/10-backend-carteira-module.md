@@ -162,8 +162,9 @@ campos públicos dos blocos de identificação, diagnóstico, equipamentos e SAP
 Chave ausente gera um aviso; chave presente com `null` não gera, preservando a
 diferença entre dado indisponível e ausência válida. Os avisos são gravados em
 `carteira_meta` junto ao refresh e contêm apenas código, bloco, campos públicos,
-mensagem e ação fixos. Valores da origem, mensagens de exceção, caminhos,
-credenciais e PII nunca entram nesse metadado. Um sync com marker novo incrementa
+mensagem e ação fixos. Na leitura, o serviço reconstitui cada aviso a partir
+desse catálogo, sem ecoar texto persistido. Valores da origem, mensagens de
+exceção, caminhos, credenciais e PII nunca entram no contrato. Um sync com marker novo incrementa
 a versão como antes, portanto mudanças nos avisos participam do ETag sem criar
 uma segunda moeda de estado; o caminho `skip` conserva o metadado vigente.
 
