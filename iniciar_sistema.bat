@@ -82,18 +82,14 @@ if errorlevel 1 goto PROD_MODE
 
 :PROD_MODE
 cls
-echo [1/2] Verificando arquivos do Frontend (dist)...
-if not exist "%PROJECT_ROOT%frontend\dist" (
+echo [1/2] Compilando a versao mais recente do Frontend (dist)...
+cd /d "%PROJECT_ROOT%frontend"
+call npm run build
+if errorlevel 1 (
     echo.
-    echo Frontend ainda nao foi compilado. Gerando build agora...
-    cd /d "%PROJECT_ROOT%frontend"
-    call npm run build
-    if errorlevel 1 (
-        echo.
-        echo Build falhou. O servidor nao sera iniciado.
-        pause
-        goto FIM
-    )
+    echo Build falhou. O servidor nao sera iniciado.
+    pause
+    goto FIM
 )
 
 echo [2/2] Iniciando o servidor EDP Verify (Backend + Frontend)...
