@@ -67,7 +67,7 @@ O procedimento operacional e os comandos de worktree estão em [`CONTRIBUTING.md
 4. atualiza `Status` para **Done**;
 5. registra um resumo no job e falha de forma explícita se o Project não puder ser atualizado.
 
-O workflow também aceita `workflow_dispatch` com um número de PR específico ou, sem número, reconcilia os PRs já mesclados em `develop`. Ele usa o secret de repositório `PROJECT_TOKEN`, que deve ter acesso de escrita às Issues do repositório e ao Project privado. O valor do secret nunca deve ser colocado em código, Issue, PR ou chat.
+O workflow também aceita `workflow_dispatch` com um número de PR específico ou, sem número, reconcilia os PRs já mesclados em `develop`. A configuração humana única fica em **Settings → Secrets and variables → Actions → New repository secret**, no repositório `Pottassiuw/EDP-Helios`: crie `PROJECT_TOKEN` com um token de escopo mínimo que tenha `Issues: Read and write` no repositório e `Projects: Read and write` no Project privado. O valor do secret nunca deve ser colocado em código, Issue, PR ou chat.
 
 Os testes de backend já forçam perfil local, diretório temporário e raiz de rede inexistente em `backend/conftest.py`; a CI não deve receber caminhos, bases ou credenciais de produção.
 
