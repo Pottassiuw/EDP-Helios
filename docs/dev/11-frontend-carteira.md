@@ -135,6 +135,10 @@ erro real de consulta (ou resposta incompatível) mostra alerta com retry;
 Em `ausente_na_origem` (tombstone), os dados preservados continuam visíveis
 junto do aviso e da data. Nenhum outro estado oferece retry.
 
+Durante uma atualização gradual, o card também trata `avisos` ausente como uma
+lista vazia. Assim, um corpo legado em cache não quebra o inspector; o ETag da
+nova representação obriga sua revalidação antes da próxima resposta normal.
+
 ## Direção visual — Supabaze (DESIGN.md)
 
 A Carteira foi a primeira feature construída na direção visual do
