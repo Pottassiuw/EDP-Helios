@@ -430,7 +430,7 @@ Router `/api/input` (prefixo). Todo endpoint de leitura/escrita chama
 | `POST /bases/sync-sap` | Dispara a extração SAP em background — é o que o botão **"Sincronizar SAP"** do frontend chama (`InputApi.syncSap()`, ver [`03-frontend-input.md`](03-frontend-input.md)). Roda `Sap_Robot.py` num subprocesso, depois importa os três Excel gerados (IW28/IW38/IW66) para o SQLite via `_processar_upload_base` e invalida o cache do engine. |
 | `GET /backups`, `GET /backups/{nome}/download` | Lista/baixa backups rotativos do banco de notas. |
 | `GET /ramal`, `POST /ramal/bulk`, `DELETE /ramal` | CRUD da tabela `notas_ramal` (obras de ramal, schema paralelo ao de `notas`). |
-| `POST /hierarquia`, `GET /hierarquia/{numero_nota}` | Vínculo nota-mãe/nota-filha (`Nota_Mae`). |
+| `POST /hierarquia`, `GET /hierarquia/{numero_nota}` | Vínculo nota-mãe/nota-filha (`Nota_Mae`), respeitando o bloqueio por nota e disparando o pós-escrita canônico. |
 | `POST /migrar` | Força nova tentativa de migração do banco a partir da rede. |
 
 ### Upload atômico de bases (`POST /bases/{nome_arquivo}`)
@@ -567,6 +567,25 @@ só as notas novas continuam a numeração a partir do máximo. Antes disso,
 `POST /ramal/bulk` renumerava o lote inteiro para `1..n`, então uma edição
 parcial (a Edição Rápida manda só as notas alteradas) colidia com as
 demais linhas e embaralhava o `ORDER BY ID_Cronologia` da aba Ramal.
+
+### Concorrência da hierarquia
+
+`db.vincular_nota_mae_lote()` abre `BEGIN IMMEDIATE` antes de consultar a nota
+filha e seu bloqueio. Uma filha com lock ativo de outro usuário é ignorada sem
+alteração ou log; o lock permanece com seu dono. As atualizações permitidas e
+seus logs são confirmados na mesma transação. Quando há atualização, a rota usa
+`service.pos_escrita()` para invalidar o cache e agendar a cópia Excel de rede,
+como as demais mutações do plano.
+
+### Publicação local da IW66 após correção de medidas
+
+`service.atualizar_medidas_excel_local()` lê o alvo, monta a versão atualizada e
+a grava em um arquivo temporário no mesmo diretório. O temporário é reaberto com
+`openpyxl` para validar o workbook antes de `os.replace`, que publica a nova
+versão atomicamente no mesmo volume. Se gravação, validação ou substituição
+falhar, a exceção é propagada, o alvo anterior permanece intacto e somente o
+temporário criado pela própria operação é removido. A tabela `base_iw66` só é
+atualizada depois da publicação do arquivo.
 
 ## Robô SAP (`backend/Sap_Robot.py`) — setup
 
