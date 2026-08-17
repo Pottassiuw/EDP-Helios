@@ -11,14 +11,19 @@ import {
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { coffeeUrl } from '../../../api';
+import { alterarLocalInstalacao, coffeeUrl } from '../../../api';
 import { OPERACAO_KEY } from '../operacao/use-coffee-operacao';
-import { OperacaoApi } from '../operacao/operacao-api';
+import { invalidarConsultaCoffee } from '../coffee-query-keys';
 import type { NotaRevisao, OperacaoEtapa } from '../types';
 import { REVISAO_KEY, useNotaRevisao } from '../use-nota-revisao';
 import { useCoffeeNotaLogs } from '../use-coffee-logs';
 import { CarteiraEnriquecimentoCard } from '../../carteira/carteira-enriquecimento-card';
 import { Eyebrow } from '@/components/branded/section';
+import {
+  formatarLocalInstalacao,
+  localInstalacaoValido,
+  normalizarLocalInstalacao,
+} from '@/lib/local-instalacao';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -47,18 +52,6 @@ interface CoffeeNotaInspectorProps {
   onAction: (action: InspectorAction, revisao: NotaRevisao) => void;
   onIrParaSincronizacao: () => void;
 }
-
-function maskLocal(value: string): string {
-  const clean = value.toUpperCase().replace(/[^0-9A-Z]/g, '');
-  return [clean.slice(0, 3), clean.slice(3, 5), clean.slice(5)]
-    .filter(Boolean)
-    .join('-');
-}
-
-function unmaskLocal(value: string): string {
-  return value.toUpperCase().replace(/[^0-9A-Z]/g, '');
-}
-
 function formatDateTime(value: string | null | undefined): string {
   if (!value) return '—';
   const date = new Date(value);
@@ -99,13 +92,15 @@ export function CoffeeNotaInspector({
   const localMutation = useMutation({
     mutationFn: async (local: string) => {
       if (pk === null) throw new Error('Nota não selecionada.');
-      return OperacaoApi.alterarLocal(pk, local);
+      return alterarLocalInstalacao(pk, local);
     },
     onSuccess: async () => {
+      if (pk === null) return;
       setEditingLocal(false);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: REVISAO_KEY(pk) }),
         queryClient.invalidateQueries({ queryKey: OPERACAO_KEY }),
+        invalidarConsultaCoffee(queryClient, pk),
       ]);
       toast.success('Local de instalação atualizado');
     },
@@ -118,13 +113,13 @@ export function CoffeeNotaInspector({
 
   React.useEffect(() => {
     setEditingLocal(false);
-    setLocalValue(maskLocal(persistedLocal));
+    setLocalValue(formatarLocalInstalacao(persistedLocal));
     localMutation.reset();
   }, [pk, persistedLocal, localMutation.reset]);
 
   const canSaveLocal = (
-    unmaskLocal(localValue).length > 0
-    && unmaskLocal(localValue) !== unmaskLocal(persistedLocal)
+    localInstalacaoValido(normalizarLocalInstalacao(localValue))
+    && normalizarLocalInstalacao(localValue) !== normalizarLocalInstalacao(persistedLocal)
   );
   const canEditLocal = etapa === 'fila' || etapa === 'pronta';
 
@@ -172,7 +167,7 @@ export function CoffeeNotaInspector({
                   <div className="flex items-center gap-2">
                     <Input
                       value={localValue}
-                      onChange={(event) => setLocalValue(maskLocal(event.target.value))}
+                      onChange={(event) => setLocalValue(formatarLocalInstalacao(event.target.value))}
                       aria-label="Local de instalação"
                       className="font-mono"
                       disabled={localMutation.isPending}
@@ -181,7 +176,7 @@ export function CoffeeNotaInspector({
                       size="icon-sm"
                       aria-label="Salvar local"
                       disabled={!canSaveLocal || localMutation.isPending}
-                      onClick={() => localMutation.mutate(unmaskLocal(localValue))}
+                      onClick={() => localMutation.mutate(normalizarLocalInstalacao(localValue))}
                     >
                       <Check />
                     </Button>
@@ -191,7 +186,7 @@ export function CoffeeNotaInspector({
                       aria-label="Cancelar edição do local"
                       disabled={localMutation.isPending}
                       onClick={() => {
-                        setLocalValue(maskLocal(persistedLocal));
+                        setLocalValue(formatarLocalInstalacao(persistedLocal));
                         setEditingLocal(false);
                       }}
                     >
@@ -199,7 +194,7 @@ export function CoffeeNotaInspector({
                     </Button>
                   </div>
                 ) : (
-                  <p className="font-mono text-sm">{maskLocal(persistedLocal) || '—'}</p>
+                  <p className="font-mono text-sm">{formatarLocalInstalacao(persistedLocal) || '—'}</p>
                 )}
                 {Boolean(localMutation.error) && (
                   <p role="alert" className="mt-2 text-sm text-red">

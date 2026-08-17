@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import type { CoffeeConclusaoFiltro } from '../../../types';
 import { Eyebrow } from '@/components/branded/section';
 import { Button } from '@/components/ui/button';
+import { baixarBlob } from '@/lib/download';
 import { ConfirmModal } from '../confirm-modal';
 import {
   CoffeeNotaInspector,
@@ -15,6 +16,7 @@ import { REVISAO_KEY } from '../use-nota-revisao';
 import { OperacaoApi } from '../operacao/operacao-api';
 import { CONCLUIDAS_KEY, useCoffeeConcluidas } from './use-coffee-concluidas';
 import { completionDate, notaMatches } from './concluidas-utils';
+import { exportCoffeeConcluidas } from './concluidas-api';
 import {
   ConcluidasToolbar,
   type ConcluidasPeriodo,
@@ -120,6 +122,20 @@ export function CoffeeConcluidas({
     },
   });
 
+  const exportMutation = useMutation({
+    mutationFn: () => exportCoffeeConcluidas(filtered.map((nota) => nota.pk)),
+    onSuccess: (arquivo) => {
+      const hoje = new Date().toISOString().slice(0, 10);
+      baixarBlob(arquivo, `notas_concluidas_${hoje}.xlsx`);
+      toast.success(`${filtered.length} nota(s) exportada(s) para Excel`);
+    },
+    onError: (error: unknown) => {
+      toast.error('Não foi possível exportar as notas concluídas', {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    },
+  });
+
   function toggle(pk: number): void {
     if (!selectablePks.has(pk)) return;
 
@@ -210,6 +226,9 @@ export function CoffeeConcluidas({
         contagens={contagens}
         copyDisabled={filtered.length === 0}
         onCopy={() => void copyIds()}
+        exportDisabled={filtered.length === 0}
+        exportPending={exportMutation.isPending}
+        onExport={() => exportMutation.mutate()}
       />
       <div className="flex items-center gap-3 border-b border-line px-[22px] py-2">
         <span className="font-mono text-xs text-text-mute">

@@ -1,4 +1,7 @@
+import asyncio
 import re
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 import pytest
@@ -111,6 +114,119 @@ def test_gzip_comprime_resposta_grande(monkeypatch):
     assert r.headers.get("content-encoding") == "gzip"
     # httpx descomprime transparentemente: o corpo continua íntegro
     assert len(r.json()["records"]) == 500
+
+
+def test_upload_processa_csv_e_triagem_fora_da_thread_da_event_loop(monkeypatch):
+    """A leitura e a triagem do upload não podem bloquear a event loop."""
+    from fastapi.testclient import TestClient
+    import main
+
+    thread_da_event_loop = []
+    threads_do_processamento = []
+    to_thread_original = asyncio.to_thread
+
+    async def observar_to_thread(funcao, /, *args, **kwargs):
+        thread_da_event_loop.append(threading.get_ident())
+        return await to_thread_original(funcao, *args, **kwargs)
+
+    def ler_csv(*args, **kwargs):
+        threads_do_processamento.append(threading.get_ident())
+        return pd.DataFrame([{"id": 100}])
+
+    def montar_triagem(dataframe):
+        threads_do_processamento.append(threading.get_ident())
+        assert dataframe.to_dict("records") == [{"id": 100}]
+        return [{"id": "100", "raw": {}}]
+
+    monkeypatch.setattr(main.asyncio, "to_thread", observar_to_thread)
+    monkeypatch.setattr(main.pd, "read_csv", ler_csv)
+    monkeypatch.setattr(main, "montar_registros_triagem", montar_triagem)
+    monkeypatch.setattr(main, "save_state", lambda: None)
+
+    resposta = TestClient(main.app).post(
+        "/api/upload", files={"file": ("notas.csv", b"id\n100\n")}
+    )
+
+    assert resposta.status_code == 200
+    assert resposta.json() == {"status": "ok", "total": 1}
+    assert thread_da_event_loop
+    assert threads_do_processamento
+    assert set(threads_do_processamento).isdisjoint(thread_da_event_loop)
+
+
+def test_upload_mantem_erro_de_leitura_quando_processamento_vai_para_worker(monkeypatch):
+    """Erro de leitura continua 400, mesmo quando o helper roda em worker."""
+    from fastapi.testclient import TestClient
+    import main
+
+    thread_da_event_loop = []
+    thread_da_leitura = []
+    to_thread_original = asyncio.to_thread
+
+    async def observar_to_thread(funcao, /, *args, **kwargs):
+        thread_da_event_loop.append(threading.get_ident())
+        return await to_thread_original(funcao, *args, **kwargs)
+
+    def falhar_leitura(*args, **kwargs):
+        thread_da_leitura.append(threading.get_ident())
+        raise ValueError("arquivo inválido")
+
+    monkeypatch.setattr(main.asyncio, "to_thread", observar_to_thread)
+    monkeypatch.setattr(main.pd, "read_csv", falhar_leitura)
+
+    resposta = TestClient(main.app).post(
+        "/api/upload", files={"file": ("notas.csv", b"id\n100\n")}
+    )
+
+    assert resposta.status_code == 400
+    assert resposta.json()["detail"] == "Erro ao ler arquivo: arquivo inválido"
+    assert len(thread_da_event_loop) == 1
+    assert set(thread_da_leitura).isdisjoint(thread_da_event_loop)
+
+
+def test_uploads_simultaneos_publicam_e_persistem_o_proprio_estado(monkeypatch):
+    """Sem publicação atômica, o primeiro upload responde e salva dados do segundo."""
+    from fastapi.testclient import TestClient
+    import main
+
+    primeiro_save_iniciado = threading.Event()
+    segundo_save_iniciado = threading.Event()
+    estados_persistidos = []
+
+    def processar_upload(_filename, content):
+        if content == b"primeiro":
+            return [{"id": "primeiro", "raw": {}}]
+        assert primeiro_save_iniciado.wait(timeout=1)
+        return [
+            {"id": "segundo-1", "raw": {}},
+            {"id": "segundo-2", "raw": {}},
+        ]
+
+    def salvar_estado():
+        if main.RECORDS[0]["id"] == "primeiro":
+            primeiro_save_iniciado.set()
+            segundo_save_iniciado.wait(timeout=1)
+        else:
+            segundo_save_iniciado.set()
+        estados_persistidos.append([registro["id"] for registro in main.RECORDS])
+
+    def enviar(cliente, nome, content):
+        resposta = cliente.post("/api/upload", files={"file": (nome, content)})
+        return nome, resposta
+
+    monkeypatch.setattr(main, "processar_upload", processar_upload)
+    monkeypatch.setattr(main, "save_state", salvar_estado)
+
+    with TestClient(main.app) as cliente:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            resultados = dict(executor.map(
+                lambda args: enviar(cliente, *args),
+                [("primeiro.csv", b"primeiro"), ("segundo.csv", b"segundo")],
+            ))
+
+    assert resultados["primeiro.csv"].json() == {"status": "ok", "total": 1}
+    assert resultados["segundo.csv"].json() == {"status": "ok", "total": 2}
+    assert estados_persistidos == [["primeiro"], ["segundo-1", "segundo-2"]]
 
 
 def test_slim_raw_mantem_so_colunas_consumidas():
@@ -344,3 +460,106 @@ def test_get_data_retorna_503_quando_carteira_indisponivel(monkeypatch):
 
     assert resposta.status_code == 503
     assert "Carteira" in resposta.json()["detail"]
+
+
+def test_marcar_duplicata_grava_sap_sentinel_e_arquiva(monkeypatch):
+    """Marcar duplicata escreve id_sap=99999999 ao vivo no COFFEE, arquiva e tira da fila."""
+    from fastapi.testclient import TestClient
+    import main
+    from coffee_module import config as coffee_config
+
+    chamadas = []
+    nota_fake = {"pk": 355617, "id_sap": coffee_config.SAP_DUPLICATA, "fields": {}}
+
+    monkeypatch.setattr(main._coffee_client, "definir_sap",
+                         lambda id_, sap: chamadas.append(("definir_sap", id_, sap)))
+    monkeypatch.setattr(main._coffee_client, "buscar_nota", lambda id_: nota_fake)
+    monkeypatch.setattr(main._coffee_db, "upsert_nota",
+                         lambda pk, id_sap, fields: chamadas.append(("upsert_nota", pk, id_sap)))
+    monkeypatch.setattr(main._coffee_db, "arquivar_nota",
+                         lambda pk: chamadas.append(("arquivar_nota", pk)))
+    monkeypatch.setattr(main._coffee_db, "remover_item_operacao",
+                         lambda pk: chamadas.append(("remover_item_operacao", pk)))
+    monkeypatch.setattr(main._coffee_db, "marcar_gerar",
+                         lambda pk, a_gerar: chamadas.append(("marcar_gerar", pk, a_gerar)))
+    monkeypatch.setattr(main._coffee_db, "registrar_log",
+                         lambda *a, **k: chamadas.append(("registrar_log", a)))
+    monkeypatch.setattr(main, "save_state", lambda: None)
+
+    resposta = TestClient(main.app).post(
+        "/api/duplicata/355617", json={"justificativa": "mesma ocorrencia da nota 100"}
+    )
+
+    assert resposta.status_code == 200
+    assert ("definir_sap", "355617", coffee_config.SAP_DUPLICATA) in chamadas
+    assert ("arquivar_nota", 355617) in chamadas
+    assert ("remover_item_operacao", 355617) in chamadas
+    assert ("marcar_gerar", 355617, False) in chamadas
+    assert "355617" in main.COMPLETED
+
+
+def test_marcar_duplicata_sem_justificativa_funciona(monkeypatch):
+    """Justificativa é opcional: nenhum corpo/campo vazio não deve falhar."""
+    from fastapi.testclient import TestClient
+    import main
+    from coffee_module import config as coffee_config
+
+    nota_fake = {"pk": 355617, "id_sap": coffee_config.SAP_DUPLICATA, "fields": {}}
+    monkeypatch.setattr(main._coffee_client, "definir_sap", lambda id_, sap: None)
+    monkeypatch.setattr(main._coffee_client, "buscar_nota", lambda id_: nota_fake)
+    monkeypatch.setattr(main._coffee_db, "upsert_nota", lambda pk, id_sap, fields: None)
+    monkeypatch.setattr(main._coffee_db, "arquivar_nota", lambda pk: None)
+    monkeypatch.setattr(main._coffee_db, "remover_item_operacao", lambda pk: None)
+    monkeypatch.setattr(main._coffee_db, "marcar_gerar", lambda pk, a_gerar: None)
+    monkeypatch.setattr(main._coffee_db, "registrar_log", lambda *a, **k: None)
+    monkeypatch.setattr(main, "save_state", lambda: None)
+
+    resposta = TestClient(main.app).post("/api/duplicata/355617")
+    assert resposta.status_code == 200
+
+
+def test_marcar_duplicata_nota_nao_encontrada_retorna_404(monkeypatch):
+    """Nota inexistente no COFFEE vira 404, não 500."""
+    from fastapi.testclient import TestClient
+    import main
+
+    def levantar(id_):
+        raise main._coffee_client.NotaNaoEncontradaErro(id_)
+
+    monkeypatch.setattr(main._coffee_client, "definir_sap", lambda id_, sap: None)
+    monkeypatch.setattr(main._coffee_client, "buscar_nota", levantar)
+
+    resposta = TestClient(main.app).post("/api/duplicata/999999999")
+    assert resposta.status_code == 404
+
+
+def test_desfazer_duplicata_restaura_sap_pendente_e_desarquiva(monkeypatch):
+    """Desfazer duplicata escreve id_sap=10000000 ao vivo e desarquiva localmente."""
+    from fastapi.testclient import TestClient
+    import main
+    from coffee_module import config as coffee_config
+
+    chamadas = []
+    nota_fake = {"pk": 355617, "id_sap": coffee_config.SAP_PENDENTE, "fields": {}}
+
+    monkeypatch.setattr(main._coffee_client, "definir_sap",
+                         lambda id_, sap: chamadas.append(("definir_sap", id_, sap)))
+    monkeypatch.setattr(main._coffee_client, "desarquivar",
+                         lambda id_: chamadas.append(("desarquivar_api", id_)))
+    monkeypatch.setattr(main._coffee_client, "buscar_nota", lambda id_: nota_fake)
+    monkeypatch.setattr(main._coffee_db, "upsert_nota",
+                         lambda pk, id_sap, fields: chamadas.append(("upsert_nota", pk, id_sap)))
+    monkeypatch.setattr(main._coffee_db, "desarquivar_nota",
+                         lambda pk: chamadas.append(("desarquivar_nota", pk)))
+    monkeypatch.setattr(main._coffee_db, "registrar_log",
+                         lambda *a, **k: chamadas.append(("registrar_log", a)))
+    monkeypatch.setattr(main, "save_state", lambda: None)
+    main.COMPLETED.add("355617")
+
+    resposta = TestClient(main.app).post("/api/duplicata/355617/desfazer")
+
+    assert resposta.status_code == 200
+    assert ("definir_sap", "355617", coffee_config.SAP_PENDENTE) in chamadas
+    assert ("desarquivar_api", "355617") in chamadas
+    assert ("desarquivar_nota", 355617) in chamadas
+    assert "355617" not in main.COMPLETED

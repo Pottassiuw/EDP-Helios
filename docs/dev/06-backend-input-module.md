@@ -57,7 +57,9 @@ recebe o usuário e filtra o log por ele — sem isso o botão "Reverter Última
 Alteração" de uma pessoa desfaria o trabalho de outra, já que o agrupamento é
 por `MAX(Data_Hora)`. Além disso, cada campo só é revertido se ainda tiver o
 valor que *aquele* usuário gravou; se alguém editou depois, o campo é pulado e
-contabilizado como sobrescrito na mensagem de retorno.
+contabilizado como sobrescrito na mensagem de retorno. A leitura do log, a
+comparação do valor atual e o update do undo ficam sob o mesmo
+`BEGIN IMMEDIATE`, impedindo uma escrita concorrente entre o check e a reversão.
 
 **Bloqueios por nota (edição concorrente).** A tabela `bloqueios` já existia
 no schema real do banco da rede (legado, nunca portada por falta de uso) —
@@ -67,7 +69,9 @@ no schema real do banco da rede (legado, nunca portada por falta de uso) —
   travada por OUTRO usuário e o lock não expirou, devolve `{"ok": False,
   "usuario": ..., "desde": ...}` em vez de lançar erro — mesmo padrão de
   `reverter_ultima_alteracao` (conflito no corpo da resposta, não em HTTP 409).
-  Se o lock já é do próprio usuário, é um upsert que renova o `Data_Hora`.
+  A consulta e a reivindicação usam a mesma transação `BEGIN IMMEDIATE`: dois
+  usuários concorrentes nunca recebem sucesso para a mesma nota. Se o lock já
+  é do próprio usuário, o upsert renova o `Data_Hora`.
 - **Sem heartbeat dedicado.** Cada clique numa célula de uma nota já travada
   pelo mesmo usuário chama `travar_nota` de novo, renovando o TTL
   (`BLOQUEIO_TTL_MINUTOS = 20`) como efeito colateral. Se o usuário fecha a
@@ -82,6 +86,23 @@ no schema real do banco da rede (legado, nunca portada por falta de uso) —
   editar por fora da UI (outra aba, chamada direta à API) ou o TTL expirar
   entre o clique e o salvamento. `aplicar_edicoes` devolve as notas puladas em
   `bloqueadas`, para a UI manter a edição pendente em vez de descartá-la.
+  `deletar_notas` refaz a consulta dos locks dentro de `BEGIN IMMEDIATE`; um
+  lock adquirido depois da triagem inicial ainda impede o `DELETE` e permanece
+  pertencendo ao novo dono. A mesma transação confirma quais notas ainda
+  existem antes de gerar a auditoria, evitando dois logs de exclusão quando
+  chamadas concorrentes disputam a mesma nota. Números repetidos na mesma
+  requisição são deduplicados antes da triagem e geram no máximo um log.
+- `aplicar_edicoes` também usa `BEGIN IMMEDIATE` para manter leitura, validação
+  do lock, logs e updates no mesmo commit. A escrita atualiza apenas os campos
+  enviados pela UI, em vez de fazer UPSERT do registro inteiro a partir de um
+  snapshot antigo; edições simultâneas em campos diferentes não se apagam. Em
+  falha, logs e dados sofrem rollback juntos. Escritores concorrentes aguardam
+  timeout de 30 segundos configurado em `get_db_connection()`. Os campos são
+  filtrados pelo `PRAGMA table_info(notas)` da conexão: schemas legados sem uma
+  coluna derivada, como `Status_Anterior`, continuam aceitando a edição sem que
+  o app tente migrar o arquivo compartilhado. Se a mesma nota aparecer mais de
+  uma vez no payload, as linhas são consolidadas e o último valor enviado para
+  cada campo prevalece, com uma única contagem de nota alterada.
 - Escopo desta fase: só a tabela `notas` (Gerenciar → Geral → Edição
   Rápida/Lote/Exclusão). `notas_ramal` não trava — não há evidência de que o
   Numero_Nota colida entre as duas tabelas, mas a tabela `bloqueios` não tem
@@ -94,11 +115,42 @@ estiver acessível, `db.migrar_da_rede_se_preciso()` levanta
 notas desatualizadas de todo o setor — por isso o erro é explícito e é
 reavaliado a cada requisição.
 
-**Perfil local não espelha o banco.** As escritas ficam na máquina; só as
-planilhas Excel (`Base_Notas_Sincronizada.xlsx`, `Input Nota.xlsx`) vão
-para a rede. `garantir_banco()` e `gerar_copia_excel_rede()` avisam isso no
-log. A sincronização por `sqlite3.Connection.backup()` que existia até
-`ef19f4f` **não pode voltar**: ela sobrescreve o arquivo inteiro da rede e
+**Perfil local não publica na rede.** Ele ainda pode ler a rede durante a
+migração inicial descrita acima, mas suas escritas ficam na máquina:
+`gerar_copia_excel_rede()` sai logo no começo quando `config.em_producao()`
+é falso — antes de enriquecer os dados, antes de checar/remover locks `~$` e
+antes de gravar `Base_Notas_Sincronizada.xlsx` ou `Input Nota.xlsx`. Só o
+perfil `producao` publica essas planilhas. `garantir_banco()` e
+`gerar_copia_excel_rede()` avisam isso no log.
+
+**Backups locais usam o snapshot do SQLite.** `db.realizar_backup()` abre uma
+conexão somente de leitura (`mode=ro`, sem recriar uma origem que desapareça
+durante a abertura); caminhos UNC são convertidos para URI com authority vazia
+(`file:////servidor/share/...`), aceita pelo SQLite no Windows. A conexão chama
+`sqlite3.Connection.backup()` para criar cada cópia
+rotativa. Isso inclui transações já confirmadas por outra conexão, inclusive
+quando o journal local está em WAL; copiar o arquivo `.db` com `shutil.copy2`
+não oferece essa consistência. Cada tentativa recebe um identificador único no
+nome do arquivo, para que uma falha concorrente remova somente o snapshot
+parcial criado por ela e nunca um backup válido de outra chamada. O snapshot é
+gravado com sufixo `.partial` e só recebe o nome `.db` por troca atômica após a
+conclusão; a rotação ignora arquivos em andamento e relê os concluídos antes de
+aplicar o limite. Um lock em memória serializa checagem de intervalo, snapshot e
+rotação dentro do worker único usado pelos scripts de inicialização do projeto.
+O destino é
+sempre o diretório local de
+backups e a operação não publica nem substitui o arquivo compartilhado; a
+origem segue o perfil ativo (banco local no perfil `local`, banco compartilhado
+no perfil `producao`). Em compartilhamentos SMB, o backend mantém o journal de
+rollback e o timeout de 30 segundos documentados em `get_db_connection()`;
+não se deve assumir que WAL funciona sobre SMB. `get_db_connection()` nem
+tenta o `PRAGMA journal_mode = WAL` em produção: algumas configurações de
+share recusam o PRAGMA de cara com `OperationalError: locking protocol` em
+vez de virar no-op, o que derrubava qualquer rota que abrisse conexão nessas
+condições (visto em `/api/integracao/resumo-fora-do-plano`).
+
+A sincronização por `sqlite3.Connection.backup()` que existia até `ef19f4f`
+**não pode voltar**: ela sobrescreve o arquivo inteiro da rede e
 apaga o que os outros usuários gravaram. Se o perfil local algum dia
 precisar publicar, o caminho é UPSERT por `Numero_Nota`.
 
@@ -233,12 +285,13 @@ dataset, montada sem tabela nova nem migração de schema — só compõe um
 string a partir de colunas que já existem:
 
 ```
-f"{max_alt}|{qtd_alt}|{max_arq}|{qtd_notas}"
+f"{max_alt}|{qtd_alt}|{max_arq}|{qtd_notas}|{schema}"
 ```
 
 onde `max_alt`/`qtd_alt` vêm de `MAX(Data_Hora)`/`COUNT(*)` em
-`log_alteracoes`, `max_arq` de `MAX(Data_Hora)` em `log_arquivos`, e
-`qtd_notas` de `COUNT(*)` em `notas`.
+`log_alteracoes`, `max_arq` de `MAX(Data_Hora)` em `log_arquivos`,
+`qtd_notas` de `COUNT(*)` em `notas`, e `schema` de
+`PRAGMA schema_version`.
 
 O que essa string cobre:
 
@@ -263,6 +316,24 @@ O que essa string cobre:
   que falhar (ex.: coluna renomeada pelo robô SAP) não bumpa a versão do
   dataset nem dispara o aviso de "dados atualizados" no frontend para uma
   base que na prática não mudou.
+- **Importação de base sem auditoria** — `salvar_log_arquivo` é
+  best-effort (ver "Auditoria best-effort" abaixo): se o INSERT em
+  `log_arquivos` não passar, `max_arq` fica igual ao de antes do upload.
+  Como uma substituição de base não mexe em `log_alteracoes` nem no
+  `COUNT(*)` de `notas`, a versão inteira ficaria idêntica — e o ETag
+  junto, fazendo `GET /notas` responder `304` para um cliente que ainda
+  serve a base ANTIGA. O componente `schema` fecha esse buraco: toda
+  gravação de base passa por `salvar_base_dataframe`, que usa
+  `to_sql(if_exists="replace")` — o DROP + CREATE incrementa
+  `PRAGMA schema_version` no cabeçalho do arquivo `.db`, de forma
+  persistente entre conexões. Assim a versão do dataset é **independente
+  de `log_arquivos`** sem precisar de tabela nova nem migração no schema
+  compartilhado (que o robô SAP também usa). Regressão:
+  `test_upload_base_com_auditoria_perdida_ainda_muda_o_etag_das_notas`
+  aquece `GET /notas`, guarda o ETag, faz a auditoria falhar em silêncio,
+  publica um upload válido e exige que o ETag antigo **não** revalide.
+  `schema_version` só anda em DDL, então `CREATE TABLE IF NOT EXISTS` de
+  um banco já inicializado não bumpa a versão à toa.
 
 Limitação conhecida: uma escrita direta no `.db` (fora do CRUD deste
 módulo — ex.: script manual tocando `notas`/`log_*` no arquivo SQLite)
@@ -355,12 +426,124 @@ Router `/api/input` (prefixo). Todo endpoint de leitura/escrita chama
 | `POST /desfazer` | Reverte a última transação de edição (`db.reverter_ultima_alteracao`). |
 | `POST /export` | Gera um `.xlsx` filtrado (linhas/colunas selecionadas) com nomes amigáveis. |
 | `GET /responsaveis`, `PUT /responsaveis` | Mapa Regional → responsável (JSON local). |
-| `GET /bases`, `GET /bases/{nome}/download`, `POST /bases/{nome}` | Lista/baixa/substitui as bases de apoio na rede (`config.BASES_APOIO`); todo upload dispara `_processar_upload_base` para gravar também no SQLite. |
+| `GET /bases`, `GET /bases/{nome}/download`, `POST /bases/{nome}` | Lista/baixa/substitui as bases de apoio na rede (`config.BASES_APOIO`). O upload é atômico e só responde `200` se o import para o SQLite deu certo — ver "Upload atômico de bases" abaixo. |
 | `POST /bases/sync-sap` | Dispara a extração SAP em background — é o que o botão **"Sincronizar SAP"** do frontend chama (`InputApi.syncSap()`, ver [`03-frontend-input.md`](03-frontend-input.md)). Roda `Sap_Robot.py` num subprocesso, depois importa os três Excel gerados (IW28/IW38/IW66) para o SQLite via `_processar_upload_base` e invalida o cache do engine. |
 | `GET /backups`, `GET /backups/{nome}/download` | Lista/baixa backups rotativos do banco de notas. |
 | `GET /ramal`, `POST /ramal/bulk`, `DELETE /ramal` | CRUD da tabela `notas_ramal` (obras de ramal, schema paralelo ao de `notas`). |
 | `POST /hierarquia`, `GET /hierarquia/{numero_nota}` | Vínculo nota-mãe/nota-filha (`Nota_Mae`). |
 | `POST /migrar` | Força nova tentativa de migração do banco a partir da rede. |
+
+### Upload atômico de bases (`POST /bases/{nome_arquivo}`)
+
+Antes, a rota escrevia os bytes do `UploadFile` direto no Excel alvo da rede:
+qualquer falha no meio da gravação deixava a base compartilhada truncada. E
+como `_processar_upload_base` engole a exceção e devolve `False`, um arquivo
+que não dava para importar ainda respondia `{"ok": true}` com HTTP 200 — o
+usuário achava que tinha substituído a base.
+
+Fluxo atual (`substituir_base`):
+
+1. `tempfile.mkstemp()` cria um temporário **no mesmo diretório do alvo** (mesmo
+   volume, requisito para o `os.replace` ser atômico) e recebe os bytes enviados.
+2. `_importar_base_para_sqlite(nome_arquivo, temporario)` lê e grava as tabelas
+   a partir dessa cópia — a validação acontece sobre o temporário, nunca sobre
+   o alvo.
+3. Só depois do import bem-sucedido, `os.replace(temporario, caminho)` troca o
+   alvo. Aí sim vêm `db.salvar_log_arquivo` e as invalidações de cache.
+
+Em qualquer falha o alvo anterior fica intacto, o temporário é removido em
+best-effort (`_descartar_temporario`, que loga se não conseguir em vez de
+mascarar o erro original) e a rota devolve erro de verdade:
+
+| Falha | HTTP |
+|---|---|
+| Não dá para criar/gravar o temporário na rede | `502` |
+| Arquivo ilegível, aba faltando, erro ao gravar no SQLite | `422` (mensagem inclui a causa e diz que a base anterior foi mantida) |
+| `os.replace` falha ao trocar o alvo | `502` |
+| O SQLite já tinha recebido tabelas e o realinhamento com o alvo não passou | `500` — a mensagem diz que a consistência entre arquivo e banco **não pôde ser confirmada** |
+| `salvar_log_arquivo` falha, já com Excel e SQLite publicados | `200` com `aviso` — ver "Auditoria best-effort" abaixo |
+
+`_processar_upload_base` continua existindo com a mesma assinatura booleana —
+é o que `_rotina_sap_background` usa, onde uma base que falha só não entra em
+`log_arquivos` e as outras seguem. Ele agora é um wrapper fino sobre
+`_importar_base_para_sqlite`, que levanta em vez de devolver `False`.
+
+**Trava por base.** O import, o `os.replace` e o `salvar_log_arquivo` rodam
+dentro de `_trava_da_base(caminho)` — um `threading.Lock` por caminho de base.
+Dois uploads simultâneos da MESMA base se enfileiram (vence o último, com Excel
+e SQLite coerentes entre si); uploads de bases diferentes seguem em paralelo.
+`test_uploads_concorrentes_da_mesma_base_nao_cruzam` congela o primeiro upload
+exatamente entre o import e o `os.replace` e exige que o segundo fique preso na
+trava nessa janela — neutralizar a trava faz o teste falhar.
+
+**Leitura antes de escrita.** `_importar_base_para_sqlite` conclui a leitura de
+**todas** as abas do workbook antes da primeira gravação — inclusive nas bases
+multi-tabela, onde `Custo_Modular.xlsx` lê `Modulares` e a fatia sazonal do mesmo
+arquivo antes de gravar `base_custo_modular` e `base_sazonal`. Uma planilha que
+só revela o defeito na segunda leitura é recusada com `422` sem ter tocado o
+SQLite, e sem deixar realinhamento pendente.
+`test_upload_base_multi_aba_le_o_workbook_inteiro_antes_de_gravar` faz a segunda
+leitura levantar e exige zero gravações e `tabelas_tocadas` vazia.
+
+**Realinhamento do SQLite.** Como o Excel só muda no `os.replace` final, uma
+falha depois de o SQLite já ter recebido dados deixaria as tabelas com o
+conteúdo de um arquivo que nunca entrou na rede. Nos dois pontos de falha
+posteriores à primeira gravação — import que quebra no meio e `os.replace` que
+falha — a rota chama `_realinhar_sqlite_com_o_alvo`, que reimporta o arquivo que
+ficou no alvo. O caso que exige isso é o das bases multi-tabela:
+`Custo_Modular.xlsx` grava `base_custo_modular` e `base_sazonal` do mesmo Excel,
+então uma falha na segunda gravação deixaria a primeira com dados novos.
+
+**Só realinha se o SQLite foi tocado.** `_importar_base_para_sqlite` recebe uma
+lista `tabelas_tocadas`. `salvar_base_dataframe` separa a abertura da conexão do
+`to_sql(if_exists="replace")`: se o banco nem abre, levanta
+`GravacaoNaoIniciadaErro` e a tabela fica fora da lista, pois nenhuma escrita
+começou; depois que a conexão abre, a tabela é registrada **antes** do `to_sql`,
+que pode dropar a tabela antiga antes de levantar. Se a lista volta vazia
+(arquivo ilegível, aba faltando ou banco inalcançável antes da conexão), a rota
+**não** realinha: reimportar o alvo dropa e recria tabelas que estavam sãs, e uma
+falha nessa releitura destruiria dados que o upload recusado nem chegou a tocar.
+
+**Realinhamento que falha não é engolido.** `_realinhar_sqlite_com_o_alvo`
+devolve `bool`; `_exigir_sqlite_realinhado` transforma o `False` em `500`. Isso
+cobre os dois casos em que ninguém consegue provar que o banco voltou ao
+conteúdo do alvo: a reimportação também falhou, ou o alvo nem existe (primeiro
+upload que quebrou no meio, sem arquivo de onde realinhar). Nesse `500` a rota
+invalida `engine.invalidar_cache()` e `engine.invalidar_status_bases()` antes de
+levantar — os caches estariam servindo o estado anterior, que pode não ser mais
+o do banco — e a mensagem diz explicitamente que a consistência **não pôde ser
+confirmada** e que a base não deve ser usada até o suporte olhar.
+
+Ou seja: o arquivo na rede é sempre preservado, mas o SQLite só tem preservação
+garantida quando o realinhamento passa (`422`/`502`). Quando ele não passa, a
+promessa é outra — e é `500`, não sucesso disfarçado.
+
+**Auditoria best-effort, mas visível.** `db.salvar_log_arquivo` é o último passo
+do upload e continua best-effort: nada é desfeito porque o registro de auditoria
+não gravou. O que mudou é que ele agora devolve `bool` — `True` só quando a linha
+entrou em `log_arquivos` —, e captura inclusive a falha em `get_db_connection`
+(banco fora do ar) em vez de deixar vazar. As chamadas que ignoram o retorno
+(`_rotina_sap_background`, `metas.py`) seguem válidas sem mudança.
+
+Nesse ponto o Excel e o SQLite já foram trocados e estão consistentes entre si.
+Responder erro aqui seria um `500` falso: faria o usuário reenviar uma base que
+já entrou. Então `substituir_base`:
+
+- trata `False` **e** uma exceção defensiva de `salvar_log_arquivo` como
+  "auditoria indisponível" (o `try/except` cobre um call site que ainda levante,
+  ex.: mock/monkeypatch ou uma regressão futura);
+- **sempre** invalida `engine.invalidar_cache()` e `engine.invalidar_status_bases()`
+  depois da publicação, gravada a auditoria ou não — senão a tela seguiria no
+  conteúdo antigo;
+- responde `200` com `{"ok": true, "aviso": "..."}`, dizendo que a base foi
+  substituída na rede e no banco mas **não vai aparecer no histórico de
+  arquivos**, e que o suporte deve ser avisado. Sem auditoria, `aviso`; com
+  auditoria, o corpo continua sendo só `{"ok": true}`.
+
+A revalidação do frontend não depende dessa auditoria: quem garante que o ETag
+muda é o `PRAGMA schema_version` dentro de `obter_versao_dataset()` (ver "Versão
+do dataset"). Nada disso muda o comportamento **antes** da publicação — os
+caminhos de `422`/`502`/`500` acima são idênticos.
 
 ### Regra de executado em Relatórios
 
@@ -370,10 +553,11 @@ Sem `Encerram.por data`, a execução usa `Mes_Execucao_Planejado` e o payload
 incrementa `avisos.executadas_sem_data`, contado por nota no ano e no filtro
 regional ativo.
 
-Toda escrita bem-sucedida chama `_pos_escrita()` (`routes.py:83`), que
+Toda escrita bem-sucedida chama `service.pos_escrita()`, que
 invalida o cache do engine e agenda `engine.gerar_copia_excel_rede()`
-em background para manter o Excel espelhado na rede atualizado. O banco em
-si não é copiado por essa rotina — ver "Perfil de execução" acima.
+em background para manter o Excel espelhado na rede atualizado. Em perfil
+local a tarefa agendada retorna sem tocar em nenhum caminho de rede; o banco
+em si não é copiado por essa rotina — ver "Perfil de execução" acima.
 
 ### Ramal: `ID_Cronologia`
 

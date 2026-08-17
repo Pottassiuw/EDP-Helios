@@ -4,7 +4,12 @@ import { InputApi } from './api';
 import type { Bloqueio } from './types';
 
 const BLOQUEIOS_KEY = ['input', 'bloqueios'] as const;
-const INTERVALO_MS = 15_000;
+export const BLOQUEIOS_INTERVALO_REPOUSO_MS = 60_000;
+export const BLOQUEIOS_INTERVALO_ATIVO_MS = 15_000;
+
+export function intervaloPollingBloqueios(edicaoAtiva: boolean): number {
+  return edicaoAtiva ? BLOQUEIOS_INTERVALO_ATIVO_MS : BLOQUEIOS_INTERVALO_REPOUSO_MS;
+}
 
 export interface UseBloqueiosResultado {
   /** Numero_Nota -> bloqueio ativo. Vazio enquanto a primeira carga não chega. */
@@ -14,12 +19,12 @@ export interface UseBloqueiosResultado {
 
 /** Polling leve da tabela de bloqueios — não cacheia em disco: é estado
  * efêmero (TTL de minutos), diferente do dataset principal. */
-export function useBloqueios(): UseBloqueiosResultado {
+export function useBloqueios(edicaoAtiva: boolean): UseBloqueiosResultado {
   const qc = useQueryClient();
   const { data } = useQuery({
     queryKey: BLOQUEIOS_KEY,
     queryFn: () => InputApi.bloqueios(),
-    refetchInterval: INTERVALO_MS,
+    refetchInterval: intervaloPollingBloqueios(edicaoAtiva),
     staleTime: 0,
   });
 

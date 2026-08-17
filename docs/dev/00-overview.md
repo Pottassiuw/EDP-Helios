@@ -145,6 +145,7 @@ cd frontend && npm run build                    # type-check (tsc) + build
 | Backend — carteira_module | `backend/carteira_module/` | Projeção local da base COFFEE (Databricks), sync idempotente, situação derivada e API do explorador da Carteira de Notas | [10-backend-carteira-module.md](./10-backend-carteira-module.md) |
 | Carteira | `frontend/src/features/carteira/` | Explorador da base COFFEE (Databricks): tabela paginada, filtros, situação, detalhe e sincronização — referência de não-regressão da direção visual Supabaze (DESIGN.md), hoje global | [11-frontend-carteira.md](./11-frontend-carteira.md) |
 | Backend — Verificar | `backend/verificar_module/`, `backend/main.py` | Leitura read-only de `Verificar.db`, normalização da triagem e endpoint `/api/data`; o upload é só compatibilidade | [01-frontend-verificar.md](./01-frontend-verificar.md) |
+| Entrega no GitHub | `.github/`, `CONTRIBUTING.md`, GitHub Issues/Project/PRs | Processo de Issue → branch isolada → Pull Request → revisão → merge, templates e gates automatizados | [13-github-delivery-workflow.md](./13-github-delivery-workflow.md) |
 
 ## Pontos de atenção
 
@@ -152,6 +153,14 @@ cd frontend && npm run build                    # type-check (tsc) + build
   `app_state.json`: `GET /api/data` lê o `Verificar.db` compartilhado em modo
   somente leitura. Esses estados e o endpoint `/api/upload` restam apenas para
   compatibilidade/testes e não são restaurados no startup.
+- O upload de compatibilidade (`POST /api/upload`) recebe o corpo de forma
+  assíncrona, mas executa a leitura Pandas, a montagem da triagem e a gravação
+  do estado em worker via `asyncio.to_thread`. O helper síncrono
+  `processar_upload` permanece em `backend/main.py`; `publicar_upload` usa um
+  lock de módulo para publicar `RECORDS`/`COMPLETED`, gravar o estado e capturar
+  o total como uma operação indivisível entre uploads concorrentes. As respostas de sucesso,
+  erro de leitura (400), Carteira indisponível (503) e identificação (500)
+  preservam o contrato anterior.
 - `backend/main.py:17-22` — CORS liberado para `allow_origins=["*"]`,
   `allow_methods=["*"]`, `allow_headers=["*"]`.
 - `backend/main.py` — `GET /api/data` só envia em `raw` as colunas da

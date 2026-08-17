@@ -10,6 +10,10 @@ import os
 import re
 import shutil
 import sqlite3
+import threading
+import uuid
+from contextlib import closing
+from pathlib import Path
 
 import pandas as pd
 
@@ -25,6 +29,14 @@ class BancoRedeIndisponivelErro(RuntimeError):
     """
 
 
+class GravacaoNaoIniciadaErro(RuntimeError):
+    """O banco não pôde ser aberto — a gravação não chegou a começar.
+
+    Separa "não deu para escrever" de "escrevi pela metade": quem trata o erro
+    precisa saber se há algo para desfazer antes de mexer em dados sãos.
+    """
+
+
 def obter_caminho_banco() -> str:
     return config.caminho_banco_notas()
 
@@ -37,9 +49,12 @@ def get_db_connection() -> sqlite3.Connection:
         config.data_dir().mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(caminho, timeout=30, check_same_thread=False)
     # WAL não funciona em compartilhamento SMB (precisa de memória
-    # compartilhada); o SQLite mantém o journal de rollback e o PRAGMA vira
-    # no-op. Em produção a serialização vem do timeout de 30s.
-    conn.execute("PRAGMA journal_mode = WAL;")
+    # compartilhada). Algumas configurações de share recusam o PRAGMA de
+    # cara com "OperationalError: locking protocol" em vez de virar no-op —
+    # por isso nem tentamos em produção. A serialização em produção vem do
+    # timeout de 30s.
+    if not config.em_producao():
+        conn.execute("PRAGMA journal_mode = WAL;")
     return conn
 
 
@@ -331,7 +346,25 @@ def inicializar_banco() -> None:
 # ==============================================================================
 # BACKUP ROTATIVO (local, síncrono — a rota decide o background)
 # ==============================================================================
+_BACKUP_LOCK = threading.Lock()
+
+
+def _conectar_origem_backup(caminho: str) -> sqlite3.Connection:
+    """Abre a origem existente sem criar um banco vazio durante uma corrida."""
+    uri = Path(caminho).absolute().as_uri()
+    if uri.startswith("file://") and not uri.startswith("file:///"):
+        uri = f"file:////{uri.removeprefix('file://')}"
+    uri = f"{uri}?mode=ro"
+    return sqlite3.connect(uri, uri=True, timeout=30)
+
+
 def realizar_backup(limite: int = 20, intervalo_horas: int = 2) -> None:
+    """Serializa a criação e a rotação de backups dentro do worker."""
+    with _BACKUP_LOCK:
+        _realizar_backup_serializado(limite, intervalo_horas)
+
+
+def _realizar_backup_serializado(limite: int, intervalo_horas: int) -> None:
     """Cria um backup rotativo do banco em ``config.data_dir()/"backups"``.
 
     Só cria um novo se o último tiver sido feito há mais de ``intervalo_horas``
@@ -359,19 +392,36 @@ def realizar_backup(limite: int = 20, intervalo_horas: int = 2) -> None:
             return  # Já existe um backup recente, não cria duplicatas à toa
 
     data_hora_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    nome_backup = f"notas_departamento_{data_hora_str}.db"
+    identificador = uuid.uuid4().hex
+    nome_backup = f"notas_departamento_{data_hora_str}_{identificador}.db"
     caminho_backup = os.path.join(diretorio_backup, nome_backup)
+    caminho_parcial = f"{caminho_backup}.partial"
 
     try:
-        shutil.copy2(caminho_db, caminho_backup)
-        if caminho_backup not in backups_existentes:
-            backups_existentes.append(caminho_backup)
-        while len(backups_existentes) > limite:
-            backup_antigo = backups_existentes.pop(0)
+        with closing(_conectar_origem_backup(caminho_db)) as conexao_origem:
+            with closing(sqlite3.connect(caminho_parcial)) as conexao_backup:
+                conexao_origem.backup(conexao_backup)
+        os.replace(caminho_parcial, caminho_backup)
+    except Exception as e:
+        if os.path.exists(caminho_parcial):
+            os.remove(caminho_parcial)
+        print(f"Erro ao realizar backup: {e}")
+        return
+
+    backups_concluidos = glob.glob(
+        os.path.join(diretorio_backup, "notas_departamento_*.db")
+    )
+    backups_concluidos.sort(key=os.path.getmtime)
+    while len(backups_concluidos) > limite:
+        backup_antigo = backups_concluidos.pop(0)
+        try:
             if os.path.exists(backup_antigo):
                 os.remove(backup_antigo)
-    except Exception as e:
-        print(f"Erro ao realizar backup: {e}")
+        except FileNotFoundError:
+            pass
+        except OSError as e:
+            print(f"Erro ao remover backup antigo: {e}")
+            break
 
 
 # ==============================================================================
@@ -411,8 +461,10 @@ def carregar_projeto_construcao() -> dict:
 # ==============================================================================
 # CARGA E PERSISTÊNCIA DE DADOS
 # ==============================================================================
-def carregar_dados() -> pd.DataFrame:
-    conn = get_db_connection()
+def carregar_dados(conn: sqlite3.Connection | None = None) -> pd.DataFrame:
+    conexao_propria = conn is None
+    if conexao_propria:
+        conn = get_db_connection()
     try:
         df = pd.read_sql("SELECT * FROM notas ORDER BY ID_Cronologia ASC", conn)
 
@@ -421,7 +473,8 @@ def carregar_dados() -> pd.DataFrame:
         else:
             df['Centro_Responsavel'] = '-'
     finally:
-        conn.close()
+        if conexao_propria:
+            conn.close()
 
     if not df.empty:
         df['Status_Nota'] = df['Status_Nota'].map(STATUS_MAP)
@@ -680,21 +733,59 @@ def deletar_notas(lista_numeros_nota: list, usuario: str = "sistema") -> int:
     if not lista_numeros_nota:
         return 0
 
-    numeros = [int(n) for n in lista_numeros_nota]
+    numeros = list(dict.fromkeys(int(n) for n in lista_numeros_nota))
     bloqueios = obter_bloqueios(numeros)
     permitidos = [n for n in numeros
                  if not (bloqueios.get(n) and bloqueios[n]["usuario"] != usuario)]
     bloqueados = [n for n in numeros if n not in permitidos]
-    if bloqueados:
+    if not permitidos:
         print(f"Aviso: {len(bloqueados)} nota(s) não excluída(s) — em edição "
               f"por outro usuário: {bloqueados}")
-    if not permitidos:
         return 0
 
     conn = get_db_connection()
     cursor = conn.cursor()
 
     try:
+        cursor.execute("BEGIN IMMEDIATE")
+        marcadores = ",".join("?" * len(permitidos))
+        linhas_bloqueio = cursor.execute(
+            f"SELECT Numero_Nota, Usuario, Data_Hora FROM bloqueios "
+            f"WHERE Numero_Nota IN ({marcadores})",
+            permitidos,
+        ).fetchall()
+        bloqueios_atuais = {
+            numero: dono
+            for numero, dono, data_hora in linhas_bloqueio
+            if not _bloqueio_expirado(data_hora)
+        }
+        permitidos = [
+            numero for numero in permitidos
+            if bloqueios_atuais.get(numero, usuario) == usuario
+        ]
+        bloqueados = [numero for numero in numeros if numero not in permitidos]
+        if bloqueados:
+            print(f"Aviso: {len(bloqueados)} nota(s) não excluída(s) — em edição "
+                  f"por outro usuário: {bloqueados}")
+        if not permitidos:
+            conn.rollback()
+            return 0
+
+        marcadores_existentes = ",".join("?" * len(permitidos))
+        notas_existentes = {
+            linha[0] for linha in cursor.execute(
+                f"SELECT Numero_Nota FROM notas "
+                f"WHERE Numero_Nota IN ({marcadores_existentes})",
+                permitidos,
+            ).fetchall()
+        }
+        permitidos = [
+            numero for numero in permitidos if numero in notas_existentes
+        ]
+        if not permitidos:
+            conn.rollback()
+            return 0
+
         data_hora_log = datetime.datetime.now()
         logs_exclusao = [
             (nota, usuario, data_hora_log,
@@ -779,21 +870,29 @@ def travar_nota(numero: int, usuario: str) -> dict:
     travada pelo próprio ``usuario`` — renovando o TTL), ou ``{"ok": False,
     "usuario": ..., "desde": ...}`` se outra pessoa estiver editando agora.
     """
-    ativo = obter_bloqueios([numero]).get(numero)
-    if ativo and ativo["usuario"] != usuario:
-        return {"ok": False, **ativo}
-
     conn = get_db_connection()
     try:
+        conn.execute("BEGIN IMMEDIATE")
+        linha = conn.execute(
+            "SELECT Usuario, Data_Hora FROM bloqueios WHERE Numero_Nota = ?",
+            (numero,),
+        ).fetchone()
+        if linha and not _bloqueio_expirado(linha[1]) and linha[0] != usuario:
+            conn.rollback()
+            return {"ok": False, "usuario": linha[0], "desde": str(linha[1])}
+
         conn.execute(
             "INSERT INTO bloqueios (Numero_Nota, Usuario, Data_Hora) VALUES (?, ?, ?) "
             "ON CONFLICT(Numero_Nota) DO UPDATE SET "
             "Usuario = excluded.Usuario, Data_Hora = excluded.Data_Hora",
             (numero, usuario, datetime.datetime.now()))
         conn.commit()
+        return {"ok": True}
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
-    return {"ok": True}
 
 
 def destravar_notas(numeros: list[int], usuario: str) -> int:
@@ -1027,6 +1126,7 @@ def reverter_ultima_alteracao(usuario: str):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
+        cursor.execute("BEGIN IMMEDIATE")
         cursor.execute(
             "SELECT MAX(Data_Hora) FROM log_alteracoes WHERE Usuario = ?",
             (usuario,))
@@ -1122,8 +1222,18 @@ def obter_data_ultima_alteracao():
         conn.close()
 
 
-def salvar_log_arquivo(nome_arquivo, usuario, data_hora, acao) -> None:
-    conn = get_db_connection()
+def salvar_log_arquivo(nome_arquivo, usuario, data_hora, acao) -> bool:
+    """Registra a auditoria de um arquivo. Retorna se a linha foi gravada.
+
+    Continua best-effort — nenhuma importação é desfeita porque a auditoria
+    falhou —, mas quem chama precisa poder avisar o usuário de que o upload
+    entrou sem rastro. Falhar ao abrir o banco conta como não gravou.
+    """
+    try:
+        conn = get_db_connection()
+    except Exception as e:
+        print(f"Erro ao salvar log de arquivo: {e}")
+        return False
     cursor = conn.cursor()
     try:
         cursor.execute('''
@@ -1131,8 +1241,10 @@ def salvar_log_arquivo(nome_arquivo, usuario, data_hora, acao) -> None:
             VALUES (?, ?, ?, ?)
         ''', (nome_arquivo, usuario, data_hora, acao))
         conn.commit()
+        return True
     except Exception as e:
         print(f"Erro ao salvar log de arquivo: {e}")
+        return False
     finally:
         conn.close()
 
@@ -1153,8 +1265,17 @@ def salvar_base_dataframe(nome_tabela: str, df: pd.DataFrame) -> None:
 
     Segue o perfil ativo, como todo o resto: em produção as bases do SAP vivem
     no banco compartilhado, que é onde o robô SAP também as grava.
+
+    Abrir a conexão é tratado à parte de propósito: `if_exists="replace"` dropa
+    a tabela antiga, então uma falha durante o `to_sql` pode já ter mexido no
+    banco, enquanto uma conexão que nem abriu não tocou em nada. Quem precisa
+    dessa diferença captura `GravacaoNaoIniciadaErro`.
     """
-    conn = get_db_connection()
+    try:
+        conn = get_db_connection()
+    except Exception as e:
+        raise GravacaoNaoIniciadaErro(
+            f"Banco indisponível ao salvar tabela {nome_tabela}: {e}") from e
     try:
         df.to_sql(nome_tabela, conn, if_exists="replace", index=False)
     except Exception as e:
@@ -1198,52 +1319,89 @@ def aplicar_edicoes(linhas: list, usuario: str) -> dict:
     geram log, não são salvas — e voltam em ``bloqueadas`` no retorno, para a
     UI manter a edição pendente do usuário em vez de descartá-la.
     """
-    df_banco = carregar_dados()
-    if df_banco.empty:
-        raise ValueError("Banco vazio: nenhuma nota para editar.")
-    df_banco = df_banco.set_index("Numero_Nota", drop=False)
-
-    numeros = [int(linha["Numero_Nota"]) for linha in linhas]
-    bloqueios = obter_bloqueios(numeros)
-
-    agora = datetime.datetime.now()
-    logs, registros_alterados, bloqueadas = [], [], []
+    realizar_backup()
+    linhas_por_numero = {}
     for linha in linhas:
         numero = int(linha["Numero_Nota"])
-        if numero not in df_banco.index:
-            raise ValueError(f"Nota {numero} não existe no banco.")
+        linhas_por_numero.setdefault(numero, {}).update(linha)
+        linhas_por_numero[numero]["Numero_Nota"] = numero
+    linhas = list(linhas_por_numero.values())
+    numeros = list(linhas_por_numero)
+    conn = get_db_connection()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        df_banco = carregar_dados(conn)
+        if df_banco.empty:
+            raise ValueError("Banco vazio: nenhuma nota para editar.")
+        df_banco = df_banco.set_index("Numero_Nota", drop=False)
+        colunas_no_banco = {
+            coluna[1] for coluna in conn.execute("PRAGMA table_info(notas)")
+        }
 
-        bloqueio = bloqueios.get(numero)
-        if bloqueio and bloqueio["usuario"] != usuario:
-            bloqueadas.append(numero)
-            continue
+        marcadores = ",".join("?" * len(numeros))
+        linhas_bloqueio = conn.execute(
+            f"SELECT Numero_Nota, Usuario, Data_Hora FROM bloqueios "
+            f"WHERE Numero_Nota IN ({marcadores})",
+            numeros,
+        ).fetchall() if numeros else []
+        bloqueios = {
+            numero: {"usuario": dono, "desde": str(data_hora)}
+            for numero, dono, data_hora in linhas_bloqueio
+            if not _bloqueio_expirado(data_hora)
+        }
 
-        original = df_banco.loc[numero]
-        mudancas = {}
-        for campo in CAMPOS_EDITAVEIS:
-            if campo not in linha:
+        agora = datetime.datetime.now()
+        logs, atualizacoes, bloqueadas = [], [], []
+        for linha in linhas:
+            numero = int(linha["Numero_Nota"])
+            if numero not in df_banco.index:
+                raise ValueError(f"Nota {numero} não existe no banco.")
+
+            bloqueio = bloqueios.get(numero)
+            if bloqueio and bloqueio["usuario"] != usuario:
+                bloqueadas.append(numero)
                 continue
-            novo = "" if linha[campo] is None else str(linha[campo]).strip()
-            antigo = "" if pd.isna(original.get(campo)) else str(original.get(campo)).strip()
-            if novo != antigo:
-                mudancas[campo] = linha[campo]
-                logs.append((numero, usuario, agora, campo, antigo, novo))
-        if not mudancas:
-            continue
-        registro = original.to_dict()
-        registro.update(mudancas)
-        if "Status_Nota" in mudancas:
-            registro["Status_Anterior"] = original["Status_Nota"]
-        if "Local_Instalacao" in mudancas:
-            registro["Regional"] = DE_PARA_REGIONAL.get(
-                str(mudancas["Local_Instalacao"])[:3], "-")
-        registros_alterados.append(registro)
 
-    if registros_alterados:
-        salvar_log_alteracoes(logs)
-        salvar_em_massa(pd.DataFrame(registros_alterados))
-    return {"alteradas": len(registros_alterados), "campos": len(logs),
-            "bloqueadas": bloqueadas}
+            original = df_banco.loc[numero]
+            mudancas = {}
+            for campo in CAMPOS_EDITAVEIS:
+                if campo not in linha or campo not in colunas_no_banco:
+                    continue
+                novo = "" if linha[campo] is None else str(linha[campo]).strip()
+                antigo = "" if pd.isna(original.get(campo)) else str(original.get(campo)).strip()
+                if novo != antigo:
+                    mudancas[campo] = _valor_para_coluna(campo, linha[campo])
+                    logs.append((numero, usuario, agora, campo, antigo, novo))
+            if not mudancas:
+                continue
+            if "Status_Nota" in mudancas and "Status_Anterior" in colunas_no_banco:
+                mudancas["Status_Anterior"] = status_para_int(original["Status_Nota"])
+            if "Local_Instalacao" in mudancas and "Regional" in colunas_no_banco:
+                mudancas["Regional"] = DE_PARA_REGIONAL.get(
+                    str(mudancas["Local_Instalacao"])[:3], "-")
+            atualizacoes.append((numero, mudancas))
+
+        if logs:
+            conn.executemany(
+                "INSERT INTO log_alteracoes "
+                "(Numero_Nota, Usuario, Data_Hora, Campo_Alterado, Valor_Antigo, Valor_Novo) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                logs,
+            )
+        for numero, mudancas in atualizacoes:
+            atribuicoes = ", ".join(f'"{campo}" = ?' for campo in mudancas)
+            conn.execute(
+                f"UPDATE notas SET {atribuicoes} WHERE Numero_Nota = ?",
+                [*mudancas.values(), numero],
+            )
+        conn.commit()
+        return {"alteradas": len(atualizacoes), "campos": len(logs),
+                "bloqueadas": bloqueadas}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def obter_nota_plano(numero: int) -> dict | None:
@@ -1263,6 +1421,13 @@ def obter_versao_dataset() -> str:
     Muda quando: edição/exclusão/undo (log_alteracoes), criação (COUNT de
     notas — criação não passa pelo log), importação de base (log_arquivos).
     É a moeda de revalidação do cache do engine e do ETag de GET /notas.
+
+    `PRAGMA schema_version` entra como rede de segurança das importações de
+    base: `salvar_base_dataframe` recria a tabela (`to_sql` com
+    `if_exists="replace"`), e cada DROP/CREATE incrementa esse contador no
+    cabeçalho do arquivo. Assim uma base trocada continua mudando a versão
+    mesmo se o log de arquivos — que é best-effort — não tiver gravado; sem
+    isso o navegador receberia 304 e seguiria servindo a base antiga.
     """
     conn = get_db_connection()
     try:
@@ -1270,9 +1435,10 @@ def obter_versao_dataset() -> str:
         qtd_alt = conn.execute("SELECT COUNT(*) FROM log_alteracoes").fetchone()[0]
         max_arq = conn.execute("SELECT MAX(Data_Hora) FROM log_arquivos").fetchone()[0]
         qtd_notas = conn.execute("SELECT COUNT(*) FROM notas").fetchone()[0]
+        schema = conn.execute("PRAGMA schema_version").fetchone()[0]
     finally:
         conn.close()
-    return f"{max_alt}|{qtd_alt}|{max_arq}|{qtd_notas}"
+    return f"{max_alt}|{qtd_alt}|{max_arq}|{qtd_notas}|{schema}"
 
 
 # ==============================================================================

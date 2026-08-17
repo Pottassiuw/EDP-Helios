@@ -1,0 +1,217 @@
+name: Delivery synchronization
+
+on:
+  pull_request:
+    branches:
+      - develop
+    types:
+      - closed
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Optional PR number; empty reconciles merged PRs into develop"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: delivery-sync-${{ github.event.pull_request.number || inputs.pr_number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  synchronize:
+    name: Synchronize merged delivery
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Synchronize Issue and Project
+        uses: actions/github-script@v7
+        env:
+          PROJECT_OWNER: Pottassiuw
+          PROJECT_NUMBER: "2"
+          PROJECT_TOKEN_CONFIGURED: ${{ secrets.PROJECT_TOKEN != '' }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        with:
+          github-token: ${{ secrets.PROJECT_TOKEN || github.token }}
+          script: |
+            const {
+              extractClosingIssueNumbers,
+              findDoneStatusOption,
+              isMergedIntoDevelop,
+            } = require(`${process.env.GITHUB_WORKSPACE}/.github/scripts/delivery-sync.js`);
+
+            if (process.env.PROJECT_TOKEN_CONFIGURED !== "true") {
+              core.setFailed(
+                "Configure the repository secret PROJECT_TOKEN with repository issue access and Project read/write access before enabling delivery synchronization.",
+              );
+              return;
+            }
+
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const projectOwner = process.env.PROJECT_OWNER;
+            const projectNumber = Number(process.env.PROJECT_NUMBER);
+            const requestedPrNumber = process.env.PR_NUMBER?.trim();
+
+            async function getPullRequestsToSynchronize() {
+              if (context.eventName === "pull_request") {
+                return [context.payload.pull_request];
+              }
+
+              if (requestedPrNumber) {
+                const response = await github.rest.pulls.get({
+                  owner,
+                  repo,
+                  pull_number: Number(requestedPrNumber),
+                });
+                return [response.data];
+              }
+
+              const response = await github.rest.pulls.list({
+                owner,
+                repo,
+                state: "closed",
+                base: "develop",
+                per_page: 100,
+              });
+              return response.data;
+            }
+
+            const pullRequests = (await getPullRequestsToSynchronize()).filter(
+              isMergedIntoDevelop,
+            );
+
+            if (pullRequests.length === 0) {
+              core.info("No merged pull requests into develop require synchronization.");
+              return;
+            }
+
+            const projectData = await github.graphql(
+              `query($login:String!, $number:Int!) {
+                user(login:$login) {
+                  projectV2(number:$number) {
+                    id
+                    fields(first:100) {
+                      nodes {
+                        ... on ProjectV2SingleSelectField {
+                          id
+                          name
+                          options { id name }
+                        }
+                      }
+                    }
+                    items(first:100) {
+                      nodes {
+                        id
+                        content {
+                          ... on Issue { id number }
+                        }
+                      }
+                    }
+                  }
+                }
+              }`,
+              { login: projectOwner, number: projectNumber },
+            );
+
+            const project = projectData.user?.projectV2;
+            if (!project) {
+              core.setFailed(`Project ${projectOwner}/${projectNumber} was not found.`);
+              return;
+            }
+
+            const { fieldId, optionId } = findDoneStatusOption(project.fields.nodes);
+            const itemByIssueNumber = new Map(
+              project.items.nodes
+                .filter((item) => item.content?.number)
+                .map((item) => [item.content.number, item.id]),
+            );
+            const results = [];
+
+            for (const pullRequest of pullRequests) {
+              const issueNumbers = extractClosingIssueNumbers(pullRequest.body);
+
+              for (const issueNumber of issueNumbers) {
+                const issueResponse = await github.rest.issues.get({
+                  owner,
+                  repo,
+                  issue_number: issueNumber,
+                });
+                const issue = issueResponse.data;
+                let itemId = itemByIssueNumber.get(issueNumber);
+
+                if (!itemId) {
+                  const added = await github.graphql(
+                    `mutation($projectId:ID!, $contentId:ID!) {
+                      addProjectV2ItemById(input:{projectId:$projectId, contentId:$contentId}) {
+                        item { id }
+                      }
+                    }`,
+                    { projectId: project.id, contentId: issue.node_id },
+                  );
+                  itemId = added.addProjectV2ItemById.item.id;
+                  itemByIssueNumber.set(issueNumber, itemId);
+                }
+
+                if (issue.state === "open") {
+                  await github.rest.issues.update({
+                    owner,
+                    repo,
+                    issue_number: issueNumber,
+                    state: "closed",
+                    state_reason: "completed",
+                  });
+                }
+
+                await github.graphql(
+                  `mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
+                    updateProjectV2ItemFieldValue(input:{
+                      projectId:$projectId,
+                      itemId:$itemId,
+                      fieldId:$fieldId,
+                      value:{singleSelectOptionId:$optionId}
+                    }) {
+                      projectV2Item { id }
+                    }
+                  }`,
+                  {
+                    projectId: project.id,
+                    itemId,
+                    fieldId,
+                    optionId,
+                  },
+                );
+
+                results.push({
+                  pr: pullRequest.number,
+                  issue: issueNumber,
+                  issueState: "closed",
+                  projectStatus: "Done",
+                });
+              }
+            }
+
+            if (results.length === 0) {
+              core.info("Merged pull requests contained no closing Issue references.");
+              return;
+            }
+
+            await core.summary
+              .addHeading("Delivery synchronization")
+              .addTable([
+                [{ data: "PR", header: true }, { data: "Issue", header: true }, { data: "Issue state", header: true }, { data: "Project", header: true }],
+                ...results.map((result) => [
+                  String(result.pr),
+                  `#${result.issue}`,
+                  result.issueState,
+                  result.projectStatus,
+                ]),
+              ])
+              .write();

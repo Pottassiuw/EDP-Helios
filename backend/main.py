@@ -5,8 +5,10 @@ import os
 import pathlib
 import re
 import sqlite3
+import threading
 import time
 import uuid
+from typing import Optional
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -14,9 +16,12 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 load_dotenv(pathlib.Path(__file__).resolve().parent / ".env")
 
+from coffee_module import client as _coffee_client
+from coffee_module import config as _coffee_config
 from coffee_module import db as _coffee_db
 from carteira_module import db as _carteira_db
 from carteira_module import repository as _carteira_repo
@@ -88,6 +93,7 @@ async def start_scheduler():
 
 RECORDS = []
 COMPLETED = set()
+UPLOAD_STATE_LOCK = threading.Lock()
 
 STATE_FILE = pathlib.Path(__file__).parent / "app_state.json"
 DE_PARA_MEMBROS_PADRAO = pathlib.Path(__file__).parent.parent / "De-Para Membros.xlsx"
@@ -278,6 +284,7 @@ def enrich_candidate(cand: dict, source: dict) -> dict:
         "local_instalacao": source.get("local_instalacao") or "",
         "poste":            source.get("poste") or "",
         "referencia":       source.get("referencia") or "",
+        "referencia_eletrica": source.get("referencia_eletrica") or "",
         "problema":         source.get("problema") or "",
         "observacao":       source.get("observacao") or "",
         "campos_com_erro":  source.get("campos_com_erro") or [],
@@ -398,6 +405,7 @@ def montar_registros_triagem(df: pd.DataFrame) -> list[dict]:
             "poste": extract_str(row, "postes", "poste"),
             "problema": " · ".join(parte for parte in problema_parts if parte) or None,
             "observacao": extract_str(row, "observacao", "observacoes") or "",
+            "referencia_eletrica": extract_str(row, "referencia_eletrica") or "",
             "campos_com_erro": campos_com_erro,
             "errors": errors,
             "status": "erro" if errors else "ok",
@@ -437,10 +445,36 @@ def montar_registros_triagem(df: pd.DataFrame) -> list[dict]:
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 
-@app.post("/api/upload")
-async def upload_file(file: UploadFile = File(...)):
+class ErroLeituraUpload(Exception):
+    """Representa falhas de parsing que devem manter o contrato HTTP 400."""
+
+
+def processar_upload(filename: str, content: bytes) -> list[dict]:
+    """Lê a planilha e monta a triagem fora da thread da event loop."""
+    try:
+        if filename.endswith(".csv"):
+            dataframe = pd.read_csv(io.StringIO(content.decode("utf-8-sig")))
+        else:
+            dataframe = pd.read_excel(io.BytesIO(content))
+    except Exception as erro:
+        raise ErroLeituraUpload(str(erro)) from erro
+
+    return montar_registros_triagem(dataframe)
+
+
+def publicar_upload(records: list[dict]) -> int:
+    """Publica e persiste um upload sem intercalar o estado global."""
     global RECORDS, COMPLETED
 
+    with UPLOAD_STATE_LOCK:
+        RECORDS = records
+        COMPLETED = set()
+        save_state()
+        return len(records)
+
+
+@app.post("/api/upload")
+async def upload_file(file: UploadFile = File(...)):
     if not file.filename.endswith((".xlsx", ".xls", ".csv")):
         raise HTTPException(
             status_code=400, detail="Formato inválido. Use .xlsx, .xls ou .csv"
@@ -448,15 +482,9 @@ async def upload_file(file: UploadFile = File(...)):
 
     try:
         content = await file.read()
-        if file.filename.endswith(".csv"):
-            df = pd.read_csv(io.StringIO(content.decode("utf-8-sig")))
-        else:
-            df = pd.read_excel(io.BytesIO(content))
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Erro ao ler arquivo: {e}")
-
-    try:
-        RECORDS = montar_registros_triagem(df)
+        records = await asyncio.to_thread(processar_upload, file.filename, content)
+    except ErroLeituraUpload as erro:
+        raise HTTPException(status_code=400, detail=f"Erro ao ler arquivo: {erro}") from erro
     except CarteiraIndisponivelErro as erro:
         raise HTTPException(status_code=503, detail=str(erro)) from erro
     except (FileNotFoundError, ValueError, OSError) as erro:
@@ -464,10 +492,9 @@ async def upload_file(file: UploadFile = File(...)):
             status_code=500,
             detail=f"Não foi possível identificar quem gerou as notas: {erro}",
         ) from erro
-    COMPLETED = set()
-    save_state()
+    total = await asyncio.to_thread(publicar_upload, records)
 
-    return {"status": "ok", "total": len(RECORDS)}
+    return {"status": "ok", "total": total}
 
 
 @app.get("/api/data")
@@ -539,9 +566,58 @@ def toggle_complete(note_id: str):
     return {"status": "ok", "completed": note_id in COMPLETED}
 
 
+class DuplicataPedido(BaseModel):
+    justificativa: Optional[str] = None
+
+
 @app.post("/api/duplicata/{note_id}")
-def mark_duplicata(note_id: str):
+def mark_duplicata(note_id: str, pedido: DuplicataPedido | None = None):
+    """Marca a nota como duplicata: id_sap vira o sentinel 99999999 no COFFEE
+    ao vivo (mesmo mecanismo real do SAP_PENDENTE=10000000), a nota é
+    arquivada localmente (some da fila do COFFEE) e sai de qualquer item de
+    operação pendente. Justificativa é opcional, só vai pro log de auditoria.
+    """
+    try:
+        _coffee_client.definir_sap(note_id, _coffee_config.SAP_DUPLICATA)
+        nota = _coffee_client.buscar_nota(note_id)
+    except _coffee_client.NotaNaoEncontradaErro as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502, detail="Não foi possível marcar a nota como duplicata no COFFEE."
+        ) from exc
+    _coffee_db.upsert_nota(nota["pk"], nota["id_sap"], nota["fields"])
+    _coffee_db.arquivar_nota(nota["pk"])
+    _coffee_db.remover_item_operacao(nota["pk"])
+    _coffee_db.marcar_gerar(nota["pk"], False)
+    _coffee_db.registrar_log(
+        "acao_usuario", "marcar_duplicata", nota["pk"],
+        {"id": note_id, "justificativa": (pedido.justificativa if pedido else None) or ""}, True,
+    )
     COMPLETED.add(note_id)
+    save_state()
+    return {"status": "ok"}
+
+
+@app.post("/api/duplicata/{note_id}/desfazer")
+def desfazer_duplicata(note_id: str):
+    """Reverte a marcação de duplicata: id_sap volta a 10000000 (SAP_PENDENTE,
+    ao vivo) e a nota é desarquivada localmente.
+    """
+    try:
+        _coffee_client.definir_sap(note_id, _coffee_config.SAP_PENDENTE)
+        _coffee_client.desarquivar(note_id)
+        nota = _coffee_client.buscar_nota(note_id)
+    except _coffee_client.NotaNaoEncontradaErro as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502, detail="Não foi possível desfazer a duplicata no COFFEE."
+        ) from exc
+    _coffee_db.upsert_nota(nota["pk"], nota["id_sap"], nota["fields"])
+    _coffee_db.desarquivar_nota(nota["pk"])
+    _coffee_db.registrar_log("acao_usuario", "desfazer_duplicata", nota["pk"], {"id": note_id}, True)
+    COMPLETED.discard(note_id)
     save_state()
     return {"status": "ok"}
 

@@ -214,13 +214,13 @@ function AppContent(): React.JSX.Element {
     if (valid.length > 0) toast.success(`${valid.length} nota(s) enviada(s) para a fila do COFFEE`);
   }
 
-  function markDuplicate(id: string): void {
+  function markDuplicate(id: string, justificativa?: string): void {
     const undo = dupResolved.has(id);
     setDupResolved((prev) => { const s = new Set(prev); if (undo) s.delete(id); else s.add(id); return s; });
     setCompleted((prev) => { const s = new Set(prev); if (undo) s.delete(id); else s.add(id); return s; });
     if (source === "api") {
-      if (undo) EDPApi.toggleComplete(id).catch((e) => toast.error("Falha ao desfazer duplicata", { description: e instanceof Error ? e.message : String(e) }));
-      else EDPApi.markDuplicate(id).catch((e) => toast.error("Falha ao marcar duplicata", { description: e instanceof Error ? e.message : String(e) }));
+      if (undo) EDPApi.desfazerDuplicata(id).catch((e) => toast.error("Falha ao desfazer duplicata", { description: e instanceof Error ? e.message : String(e) }));
+      else EDPApi.markDuplicate(id, justificativa).catch((e) => toast.error("Falha ao marcar duplicata", { description: e instanceof Error ? e.message : String(e) }));
     }
     toast.success(undo ? "Duplicata desfeita" : "Nota marcada como duplicata");
   }

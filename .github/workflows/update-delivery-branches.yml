@@ -1,0 +1,47 @@
+name: Keep delivery branches current
+
+on:
+  push:
+    branches:
+      - develop
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: update-delivery-branches
+  cancel-in-progress: false
+
+jobs:
+  update-open-pull-requests:
+    name: Update open delivery branches
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update same-repository pull requests
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          failed=0
+          prs=$(gh pr list \
+            --repo "$REPOSITORY" \
+            --base develop \
+            --state open \
+            --json number,headRepository \
+            --jq ".[] | select(.headRepository.nameWithOwner == \"$REPOSITORY\") | .number")
+
+          while IFS= read -r pr_number; do
+            [ -z "$pr_number" ] && continue
+            echo "Updating PR #$pr_number against develop"
+            if ! gh pr update-branch "$pr_number" --repo "$REPOSITORY" --rebase; then
+              echo "::error::Could not rebase PR #$pr_number automatically. Resolve the conflict before merging."
+              failed=1
+            fi
+          done <<< "$prs"
+
+          exit "$failed"

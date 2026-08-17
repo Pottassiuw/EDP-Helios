@@ -6,7 +6,7 @@ import httpx
 
 from coffee_module import config, db
 
-_TIMEOUT = 120
+_TIMEOUT = config.TIMEOUT
 
 
 class NotaNaoEncontradaErro(Exception):
@@ -98,3 +98,8 @@ def desarquivar(id) -> bool:
 def alterar_local(id, local) -> bool:
     return _get_logado("alterar_local", f"{config.base_url()}/local_instalacao/{id}/{local}",
                        id, {"id": id, "local": local})
+
+
+def alterar_alimentador(id, alimentador) -> bool:
+    return _get_logado("alterar_alimentador", f"{config.base_url()}/alimentador/{id}/{alimentador}",
+                       id, {"id": id, "alimentador": alimentador})

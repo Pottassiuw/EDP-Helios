@@ -142,7 +142,7 @@ Movimentação (Fase 2): `POST /mover/preview` (não escreve),
 `GET /api/carteira/notas/por-sap/{numero}` consulta somente
 `nota_carteira.sap_real=1` e desempata duplicatas por
 `sincronizado_em DESC, id_onr ASC`. O payload contém `numero_sap`, `estado`,
-`dados`, `ausente_na_origem_em` e `versao`.
+`dados`, `ausente_na_origem_em`, `avisos` e `versao`.
 
 `estado` pode ser `encontrada`, `ausente_na_origem`,
 `sem_correspondencia` ou `base_nao_sincronizada`. Tombstones preservam os
@@ -156,6 +156,27 @@ e `prioridade_sap`; nenhuma PII atravessa o endpoint. Campos textuais vazios
 seguem a normalização existente e permanecem `null` no contrato. A rota suporta
 ETag/304 pela versão da projeção e é somente leitura; ela declara o caminho
 estático antes de `GET /notas/{id_onr}` e responde `Cache-Control: no-cache`.
+
+Durante o sync, `mapping.normalizar_linhas` compara o esquema recebido com os
+campos públicos dos blocos de identificação, diagnóstico, equipamentos e SAP.
+Chave ausente gera um aviso; chave presente com `null` não gera, preservando a
+diferença entre dado indisponível e ausência válida. Os avisos são gravados em
+`carteira_meta` junto ao refresh e contêm apenas código, bloco, campos públicos,
+mensagem e ação fixos. Na leitura, o serviço reconstitui cada aviso a partir
+desse catálogo, sem ecoar texto persistido. Valores da origem, mensagens de
+exceção, caminhos, credenciais e PII nunca entram no contrato. O sync só usa
+`skip` quando o marker e a assinatura das colunas da origem permanecem iguais;
+uma mudança de esquema força novo enriquecimento mesmo com o mesmo marker. A
+versão resultante inclui mudanças nos avisos sem criar uma segunda moeda de
+estado; o caminho `skip` conserva o metadado vigente.
+
+Em cada ciclo do Databricks, o sync lê apenas o esquema (`LIMIT 0`) e compara
+sua assinatura com `assinatura_esquema` em `carteira_meta`. Marker igual só
+permite `skip` quando a assinatura também é igual; uma mudança no esquema faz
+o refresh completo, atualiza os avisos e incrementa a versão. A assinatura é
+interna e nunca integra a resposta. O ETag do enriquecimento combina a versão
+da representação (`enriquecimento-v2`) com a versão da projeção, para que
+corpos em cache de contratos anteriores sejam revalidados uma vez.
 
 ## Testes
 

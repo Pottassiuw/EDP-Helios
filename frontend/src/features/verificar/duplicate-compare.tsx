@@ -3,6 +3,10 @@ import type { DuplicateCompareProps, DuplicateField, ComparableFields } from '..
 import { EDPApi } from '../../api';
 import { Eyebrow } from '@/components/branded/section';
 import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
 import { Coffee } from 'lucide-react';
 import { ExternalCandidateCard } from './duplicate-compare-externa';
 import {
@@ -34,10 +38,10 @@ const DUPC_STYLE = `
   .dupc-badge{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-mono);
     font-size:11px;font-weight:600;padding:4px 10px;border-radius:999px;white-space:nowrap}
   .dupc-ext{display:flex;align-items:flex-start;gap:10px;padding:14px 16px;
-    background:var(--tint-amber);border:1px solid rgba(240,169,59,.25);
+    background:var(--tint-amber);border:1px solid var(--status-amber-border);
     border-radius:var(--r-sm);font-size:12.5px;color:var(--text-dim);line-height:1.5}
   .dupc-warn{display:flex;align-items:center;gap:8px;padding:8px 14px;
-    background:var(--tint-amber);border-bottom:1px solid rgba(240,169,59,.25);
+    background:var(--tint-amber);border-bottom:1px solid var(--status-amber-border);
     font-size:12px;color:var(--text-dim)}
 `;
 
@@ -52,6 +56,7 @@ const DUPC_KEYS: KeyFieldDef[] = [
 ];
 const DUPC_CTX: CtxFieldDef[] = [
   { label: "Observação", get: (x) => x.observacao ?? "" },
+  { label: "Referência elétrica", get: (x) => x.referencia_eletrica ?? "" },
   { label: "Tipo de nota", get: (x) => x.tipo_nota },
   { label: "Setor · UF",   get: (x) => x.setor + " · " + x.uf },
 ];
@@ -83,10 +88,10 @@ const SCORE_LABEL: Record<DuplicateScoreResult['faixa'], string> = {
 };
 
 const SCORE_COLORS: Record<DuplicateScoreResult['faixa'], { color: string; background: string; border: string }> = {
-  forte: { color: 'var(--green)', background: 'var(--tint-green)', border: 'rgba(0,168,89,.3)' },
-  possivel: { color: 'var(--amber)', background: 'var(--tint-amber)', border: 'rgba(240,169,59,.3)' },
-  distinta: { color: 'var(--red)', background: 'var(--tint-red)', border: 'rgba(240,85,92,.3)' },
-  insuficiente: { color: 'var(--indigo)', background: 'var(--tint-indigo)', border: 'rgba(86,96,255,.3)' },
+  forte: { color: 'var(--green)', background: 'var(--tint-green)', border: 'var(--status-green-border)' },
+  possivel: { color: 'var(--amber)', background: 'var(--tint-amber)', border: 'var(--status-amber-border)' },
+  distinta: { color: 'var(--red)', background: 'var(--tint-red)', border: 'var(--status-red-border)' },
+  insuficiente: { color: 'var(--indigo)', background: 'var(--tint-indigo)', border: 'var(--status-indigo-border)' },
 };
 
 export function DuplicateScoreEvidence({ note, candidate, suffix }: {
@@ -114,8 +119,41 @@ export function DuplicateScoreEvidence({ note, candidate, suffix }: {
   );
 }
 
+function MarcarDuplicataModal({ aberto, onClose, onConfirmar }: {
+  aberto: boolean;
+  onClose: () => void;
+  onConfirmar: (justificativa: string) => void;
+}): React.JSX.Element {
+  const [justificativa, setJustificativa] = React.useState('');
+
+  function confirmar(): void {
+    onConfirmar(justificativa.trim());
+    setJustificativa('');
+  }
+
+  return (
+    <Dialog open={aberto} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="w-[440px]">
+        <DialogHeader>
+          <DialogTitle>Marcar como duplicata</DialogTitle>
+          <DialogDescription>
+            A nota é arquivada no COFFEE e sai da fila de encaminhamento. Justificativa é opcional.
+          </DialogDescription>
+        </DialogHeader>
+        <Textarea value={justificativa} onChange={(e) => setJustificativa(e.target.value)}
+                  placeholder="Por que é duplicata (opcional)" rows={3} />
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose}>Cancelar</Button>
+          <Button size="sm" onClick={confirmar}>Marcar como duplicata</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export const DuplicateCompare: React.FC<DuplicateCompareProps> = ({ note, resolved, onMarkDuplicate, onSendToCoffee }) => {
   const cands = note.duplicates;
+  const [modalAberto, setModalAberto] = React.useState(false);
   if (!cands.length) return null;
   const api = EDPApi;
   const allIds = cands.map((c) => c.id);
@@ -123,6 +161,11 @@ export const DuplicateCompare: React.FC<DuplicateCompareProps> = ({ note, resolv
   return (
     <section>
       <style>{DUPC_STYLE}</style>
+      <MarcarDuplicataModal
+        aberto={modalAberto}
+        onClose={() => setModalAberto(false)}
+        onConfirmar={(justificativa) => { onMarkDuplicate(note.id, justificativa || undefined); setModalAberto(false); }}
+      />
       <div className="flex items-start justify-between gap-[14px] flex-wrap mb-[12px]">
         <div>
           <Eyebrow asChild className="text-indigo"><div>
@@ -134,15 +177,15 @@ export const DuplicateCompare: React.FC<DuplicateCompareProps> = ({ note, resolv
         </div>
         <div className="flex gap-[8px] shrink-0 flex-wrap">
           <Button size="sm" onClick={() => api.openCoffee(allIds)}><Coffee /> Abrir todas no COFFEE</Button>
-          {onSendToCoffee && (
-            <Button variant="outline" size="sm" className="text-amber" style={{ borderColor: "rgba(240,169,59,.4)" }}
+          {onSendToCoffee && !resolved && (
+            <Button variant="outline" size="sm" className="text-amber" style={{ borderColor: "var(--status-amber-border)" }}
                     onClick={() => onSendToCoffee(allIds, note.id)} title="Adiciona as candidatas à fila do COFFEE e navega para lá">
               → Fila COFFEE
             </Button>
           )}
           <Button variant={resolved ? "outline" : "default"} size="sm"
-                  style={resolved ? undefined : { background: "var(--indigo)", borderColor: "var(--indigo)", color: "#fff" }}
-                  onClick={() => onMarkDuplicate(note.id)}>
+                  style={resolved ? undefined : { background: "var(--indigo)", borderColor: "var(--indigo)", color: "var(--on-dark)" }}
+                  onClick={() => { if (resolved) onMarkDuplicate(note.id); else setModalAberto(true); }}>
             {resolved ? "↺ Reabrir" : "⧉ Marcar como duplicata"}
           </Button>
         </div>
@@ -159,7 +202,7 @@ export const DuplicateCompare: React.FC<DuplicateCompareProps> = ({ note, resolv
               </div>
               <div className="flex gap-[8px] shrink-0">
                 {c.latitude && c.longitude && (
-                  <Button asChild variant="outline" size="sm" className="text-blue" style={{ borderColor: "rgba(31,159,214,0.4)" }}>
+                  <Button asChild variant="outline" size="sm" className="text-blue" style={{ borderColor: "var(--status-blue-border)" }}>
                     <a target="_blank" rel="noopener" href={api.mapsUrl(String(c.latitude), String(c.longitude))}>◎ Mapa</a>
                   </Button>
                 )}

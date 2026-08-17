@@ -1,9 +1,10 @@
 import React from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
 import type { DuplicateCandidate, DuplicateField, Note } from '../../types';
 import { EDPApi } from '../../api';
+import { COFFEE_CONSULTA_KEY } from '../coffee/coffee-query-keys';
 import { Button } from '@/components/ui/button';
 import { CompareRow, DuplicateScoreEvidence } from './duplicate-compare';
 
@@ -66,26 +67,38 @@ function ComparisonGrid({ note, candidate, showContext }: { note: Note; candidat
 interface ExternalCandidateCardProps { note: Note; candidate: DuplicateCandidate; }
 
 export function ExternalCandidateCard({ note, candidate }: ExternalCandidateCardProps): React.JSX.Element {
-  const [consulta, setConsulta] = React.useState<ConsultaCampos | null>(null);
-  const buscar = useMutation({
-    mutationFn: () => EDPApi.consultarNota(Number(candidate.id)),
-    onSuccess: (resposta) => setConsulta({
-      local_instalacao: resposta.local_instalacao,
-      problema: resposta.problema,
-      poste: resposta.poste,
-      referencia: resposta.referencia,
-      observacao: resposta.observacao,
-    }),
-    onError: (error: unknown) => {
+  const consultaQuery = useQuery({
+    queryKey: COFFEE_CONSULTA_KEY(Number(candidate.id)),
+    queryFn: async (): Promise<ConsultaCampos> => {
+      const resposta = await EDPApi.consultarNota(Number(candidate.id));
+      return {
+        local_instalacao: resposta.local_instalacao,
+        problema: resposta.problema,
+        poste: resposta.poste,
+        referencia: resposta.referencia,
+        observacao: resposta.observacao,
+      };
+    },
+    enabled: false,
+    staleTime: Infinity,
+    gcTime: 30 * 60 * 1000,
+  });
+  const consulta = consultaQuery.data ?? null;
+
+  async function buscarDadosCoffee(): Promise<void> {
+    const resultado = await consultaQuery.refetch();
+    if (resultado.error) {
+      const error = resultado.error;
       toast.error(`Não foi possível consultar a nota ${candidate.id} no COFFEE`, {
         description: error instanceof Error ? error.message : String(error),
       });
-    },
-  });
+    }
+  }
+
   const display = consulta ? mergeConsultaCampos(candidate, consulta) : candidate;
   const botaoBuscar = (
-    <Button variant="outline" size="sm" disabled={buscar.isPending} onClick={() => buscar.mutate()}>
-      ⌕ {buscar.isPending ? 'Buscando…' : 'Buscar dados no COFFEE'}
+    <Button variant="outline" size="sm" disabled={consultaQuery.isFetching} onClick={() => void buscarDadosCoffee()}>
+      ⌕ {consultaQuery.isFetching ? 'Buscando…' : consulta ? 'Atualizar dados do COFFEE' : 'Buscar dados no COFFEE'}
     </Button>
   );
 

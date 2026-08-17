@@ -9,9 +9,9 @@ export const LOGO_LIGHT =
   "/assets/RGB/Light/Regular/POS/EDP_Group_MasterLogo_RRGB_Light_POS.png";
 
 const PRIO_BORDER: Record<string, string> = {
-  high: "rgba(240,85,92,0.3)",
-  med: "rgba(240,169,59,0.32)",
-  low: "rgba(0,168,89,0.3)",
+  high: "var(--status-red-border)",
+  med: "var(--status-amber-border)",
+  low: "var(--status-green-border)",
 };
 
 function prioMeta(p: number): ["high" | "med" | "low" | "none", string | number] {

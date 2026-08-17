@@ -8,12 +8,16 @@ import type {
   RuleKey,
 } from '../../types';
 import { EDPApi, ruleMeta } from '../../api';
+import { regraLocalInstalacao } from '../../lib/local-instalacao';
 import { PriorityChip, StatusTag, Field } from './shared';
 import { DuplicateCompare } from './duplicate-compare';
 import { calculateDuplicateScore } from './duplicate-score';
 import { KpiDrawer } from './kpi-drawer';
 import { detectarNoveExtra } from './malha-fina';
 import { MalhaFinaPanel } from './malha-fina-panel';
+import { LocalInstalacaoCorrection } from './local-instalacao-correction';
+import { NotaFichaCompleta } from './nota-ficha-completa';
+import { useConsultaCoffee } from './use-consulta-coffee';
 import { usePersistedState } from '../../hooks/use-persisted-state';
 import { toast } from 'sonner';
 import { Eyebrow } from '@/components/branded/section';
@@ -33,7 +37,7 @@ const DUPLICATE_INDICATOR = {
   insuficiente: { symbol: '◌', className: 'text-indigo', label: 'Evidência insuficiente' },
 } as const;
 
-function duplicateIndicator(note: Note): { symbol: string; className: string; label: string } | null {
+function duplicateIndicator(note: Note): { symbol: string; className: string; label: string; coverage: number } | null {
   const ranked = note.duplicates.map((candidate) => calculateDuplicateScore(
     note,
     candidate,
@@ -48,12 +52,31 @@ function duplicateIndicator(note: Note): { symbol: string; className: string; la
   const best = ranked[0];
   if (!best) return null;
   const indicator = DUPLICATE_INDICATOR[best.faixa];
+  const coverage = Math.round(best.cobertura * 100);
   const evidence = best.faixa === 'insuficiente'
-    ? `evidência insuficiente (cobertura ${Math.round(best.cobertura * 100)}%)`
-    : `${Math.round((best.score ?? 0) * 100)}% · cobertura ${Math.round(best.cobertura * 100)}%`;
-  return { ...indicator, label: `${indicator.label}: ${evidence}` };
+    ? `evidência insuficiente (cobertura ${coverage}%)`
+    : `${Math.round((best.score ?? 0) * 100)}% · cobertura ${coverage}%`;
+  return { ...indicator, coverage, label: `${indicator.label}: ${evidence}` };
 }
 
+
+function notaRequerCorrecaoLocal(note: Note): boolean {
+  return note.errors.some((error) => regraLocalInstalacao(error.rule));
+}
+
+export function idsEncaminhaveisEmLote(
+  ids: string[],
+  notes: Note[],
+  completed: Set<string>,
+): string[] {
+  const notesById = new Map(notes.map((note) => [note.id, note]));
+  return ids.filter((id) => {
+    const note = notesById.get(id);
+    return note !== undefined
+      && !completed.has(id)
+      && !notaRequerCorrecaoLocal(note);
+  });
+}
 
 export interface DashboardProps {
   showKpis: boolean;
@@ -64,7 +87,7 @@ export interface DashboardProps {
   dupResolved: Set<string>;
   onToggleComplete: (id: string) => void;
   onMarkMany: (ids: string[], action: "done" | "reopen") => void;
-  onMarkDuplicate: (id: string) => void;
+  onMarkDuplicate: (id: string, justificativa?: string) => void;
   onSendToCoffee: (ids: string[], sourceId?: string) => void;
 }
 
@@ -309,7 +332,7 @@ export function Dashboard(props: DashboardProps): React.JSX.Element {
             {chips.map((c, i) => (
               <button key={i} className="fchip" onClick={c.clear}>{c.k}<span className="text-[14px] leading-none">×</span></button>
             ))}
-            <button className="fchip text-red bg-tint-red" style={{ borderColor: "rgba(240,85,92,.3)" }}
+            <button className="fchip text-red bg-tint-red" style={{ borderColor: "var(--status-red-border)" }}
                     onClick={clearAll}>Limpar tudo</button>
           </div>
         )}
@@ -364,7 +387,10 @@ export function Dashboard(props: DashboardProps): React.JSX.Element {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-[8px]">
                       <span className="font-mono text-[13px] font-semibold">{n.id}</span>
-                      {dupIndicator && <span role="img" title={dupIndicator.label} aria-label={dupIndicator.label} className={`${dupIndicator.className} text-[13px]`}>{dupIndicator.symbol}</span>}
+                      {dupIndicator && <span className="inline-flex items-center gap-[3px]" title={dupIndicator.label}>
+                        <span role="img" aria-label={dupIndicator.label} className={`${dupIndicator.className} text-[13px]`}>{dupIndicator.symbol}</span>
+                        <span className="font-mono text-[10px] text-text-mute">{dupIndicator.coverage}% cob.</span>
+                      </span>}
                       <span className="text-[11px] text-text-mute">· {n.uf}/{n.setor}</span>
                     </div>
                     <div className="text-[12px] text-text-dim whitespace-nowrap overflow-hidden text-ellipsis">{n.tipo_nota}</div>
@@ -397,14 +423,34 @@ export function Dashboard(props: DashboardProps): React.JSX.Element {
             const ids = [...selBatch];
             const allDone = ids.every((id) => completed.has(id));
             const allOpen = ids.every((id) => !completed.has(id));
-            const doAction = (action: "done" | "reopen"): void => { onMarkMany(ids, action); setSelBatch(new Set()); };
+            const encaminhaveis = idsEncaminhaveisEmLote(ids, notes, completed);
+            const pendentes = ids.filter((id) => !completed.has(id));
+            const bloqueadas = pendentes.length - encaminhaveis.length;
+            const doAction = (action: "done" | "reopen"): void => {
+              if (action === "done") {
+                if (encaminhaveis.length === 0) return;
+                onMarkMany(encaminhaveis, action);
+                const encaminhadas = new Set(encaminhaveis);
+                setSelBatch(new Set(ids.filter((id) => !encaminhadas.has(id))));
+                return;
+              }
+              onMarkMany(ids, action);
+              setSelBatch(new Set());
+            };
             return (
               <div className="shrink-0 flex items-center gap-[10px] py-[10px] px-[15px] bg-bg-2 flex-wrap border-t-[1px] border-t-line-2">
                 <span className="text-[13px] text-text-dim mr-[2px]">
                   <strong className="text-[15px] text-[var(--accent)] [font-family:var(--font-display)]">{selBatch.size}</strong> selec.</span>
+                {bloqueadas > 0 && (
+                  <span className="font-mono text-[11px] text-amber">
+                    {bloqueadas} {bloqueadas === 1 ? "exige" : "exigem"} correção de local
+                  </span>
+                )}
                 {!allDone && (
-                  <Button size="sm" onClick={() => doAction("done")}>
-                    <Check /> {allOpen ? "Encaminhar" : "Encaminhar pendentes"}
+                  <Button size="sm" disabled={encaminhaveis.length === 0} onClick={() => doAction("done")}>
+                    <Check /> {bloqueadas > 0
+                      ? `Encaminhar elegíveis (${encaminhaveis.length})`
+                      : allOpen ? "Encaminhar" : "Encaminhar pendentes"}
                   </Button>
                 )}
                 {!allOpen && (
@@ -445,7 +491,7 @@ interface DetailProps {
   dup: boolean;
   encaminhamento?: TriageForwarding;
   onToggleDone: (id: string) => void;
-  onMarkDuplicate: (id: string) => void;
+  onMarkDuplicate: (id: string, justificativa?: string) => void;
   onSendToCoffee: (ids: string[], sourceId?: string) => void;
 }
 
@@ -457,24 +503,38 @@ function Detail({ sel, done, dup, encaminhamento, onToggleDone, onMarkDuplicate,
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [fs]);
+  // Owner único da consulta COFFEE do detalhe: NotaFichaCompleta e
+  // LocalInstalacaoCorrection recebem o mesmo resultado por prop, em vez de
+  // cada uma observar a query por conta própria.
+  const consulta = useConsultaCoffee(sel?.id ?? "");
   if (!sel) return <div className="bg-bg-2" />;
   const v = (x: string | number | null | undefined, fb = "—"): string => {
     const s = x == null ? "" : String(x);
     return s === "" || s === "-" ? fb : s;
   };
-  const fields: Array<[string, string]> = [
-    ["Tipo de nota", v(sel.tipo_nota)], ["Referência", v(sel.referencia)], ["Problema", v(sel.problema || sel.descricao)],
-    ["Gerada por", sel.gerador
+  const coffee = consulta.data;
+  const fields: Array<{ label: string; value: string; wide?: boolean }> = [
+    { label: "Tipo de nota", value: v(sel.tipo_nota) },
+    { label: "Referência", value: v(sel.referencia) },
+    { label: "Problema", value: v(sel.problema || sel.descricao), wide: true },
+    { label: "Observação", value: v(sel.observacao ?? coffee?.observacao), wide: true },
+    { label: "Referência física", value: v(sel.raw.referencia_fisica || coffee?.referencia_fisica) },
+    { label: "Referência elétrica", value: v(coffee?.referencia_eletrica) },
+    { label: "Local instal.", value: v(sel.local_instalacao) },
+    { label: "Poste", value: v(sel.poste) },
+    { label: "Alimentador", value: v(sel.raw.alimentador || coffee?.alimentador) },
+    { label: "ID SAP", value: v(sel.id_sap || (coffee?.id_sap != null ? String(coffee.id_sap) : undefined)) },
+    { label: "Gerada por", wide: true, value: sel.gerador
       ? sel.gerador.matricula
         ? `${sel.gerador.nome} · ${sel.gerador.matricula}${sel.gerador.cadastrado === false ? " (não cadastrado)" : ""}`
         : sel.gerador.nome
-      : v(sel.colaborador)],
-    ["Estado", v(sel.uf)], ["Setor", v(sel.setor)],
-    ["Local instal.", v(sel.local_instalacao)], ["Poste", v(sel.poste)], ["ID SAP", v(sel.id_sap)],
-    ["Imagens", v(sel.imagens_recebidas) + " / " + v(sel.imagens_totais)],
-    ["Latitude", v(sel.latitude)], ["Longitude", v(sel.longitude)],
+      : v(sel.colaborador) },
+    { label: "Estado", value: v(sel.uf) }, { label: "Setor", value: v(sel.setor) },
+    { label: "Imagens", value: v(sel.imagens_recebidas) + " / " + v(sel.imagens_totais) },
+    { label: "Latitude", value: v(sel.latitude) }, { label: "Longitude", value: v(sel.longitude) },
   ];
   const otherErrors = sel.errors.filter((e) => e.rule !== "chk_duplicata");
+  const hasLocalError = notaRequerCorrecaoLocal(sel);
   const hasDup = sel.duplicates.length > 0;
   return (
     <div className={"flex flex-col overflow-hidden bg-bg-2" + (fs ? " fixed inset-0 z-[60]" : "")}>
@@ -497,9 +557,11 @@ function Detail({ sel, done, dup, encaminhamento, onToggleDone, onMarkDuplicate,
                   aria-label={fs ? "Sair da tela cheia" : "Expandir"} onClick={() => setFs((v) => !v)}>
             {fs ? <Minimize2 /> : <Maximize2 />}
           </Button>
-          <Button variant={done ? "outline" : "default"} size="sm" onClick={() => onToggleDone(sel.id)}>
-            {done ? <><RotateCcw /> Retirar do COFFEE</> : <><Check /> Encaminhar</>}
-          </Button>
+          {(!hasLocalError || done) && (
+            <Button variant={done ? "outline" : "default"} size="sm" onClick={() => onToggleDone(sel.id)}>
+              {done ? <><RotateCcw /> Retirar do COFFEE</> : <><Check /> Encaminhar</>}
+            </Button>
+          )}
         </div>
       </div>
       <div className="flex-1 overflow-auto flex flex-col gap-[22px] p-[24px]">
@@ -518,13 +580,40 @@ function Detail({ sel, done, dup, encaminhamento, onToggleDone, onMarkDuplicate,
         )}
 
         <section>
+          <Eyebrow asChild><div className="mb-[11px]">Identificação & localização</div></Eyebrow>
+          <div className="gap-[1px] rounded-app-sm overflow-hidden border border-line grid [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))] bg-line">
+            {fields.map((f) => (
+              <div key={f.label} className="kv" style={f.wide ? { gridColumn: "span 2" } : undefined}>
+                <small>{f.label}</small>
+                <div className="font-mono text-[12.5px] break-words [overflow-wrap:anywhere]">{f.value}</div>
+              </div>
+            ))}
+          </div>
+          {sel.latitude && sel.longitude && (
+            <Button asChild variant="outline" size="sm" className="text-blue mt-[12px]" style={{ borderColor: "var(--status-blue-border)" }}>
+              <a target="_blank" rel="noopener" href={EDPApi.mapsUrl(sel.latitude, sel.longitude)}><MapPin /> Abrir no Google Maps</a>
+            </Button>
+          )}
+        </section>
+
+        {hasLocalError && (
+          <LocalInstalacaoCorrection
+            noteId={sel.id}
+            localTriagem={sel.local_instalacao}
+            encaminhada={done}
+            consulta={consulta}
+            onEncaminhar={() => onToggleDone(sel.id)}
+          />
+        )}
+
+        <section>
           <Eyebrow asChild><div className="mb-[11px]">
             {otherErrors.length ? `⚠ Falhas encontradas (${otherErrors.length})`
               : hasDup ? "Outras falhas" : "Status"}</div></Eyebrow>
           {otherErrors.length ? (
             <div className="flex flex-col gap-[8px]">
               {otherErrors.map((e) => (
-                <div key={e.rule} className="bg-tint-red rounded-app-sm py-[11px] px-[14px]" style={{ border: "1px solid rgba(240,85,92,0.25)", borderLeft: "3px solid var(--red)" }}>
+                <div key={e.rule} className="bg-tint-red rounded-app-sm py-[11px] px-[14px]" style={{ border: "1px solid var(--status-red-border)", borderLeft: "3px solid var(--red)" }}>
                   <div className="font-mono text-[10.5px] text-red tracking-[.08em]">{e.rule}</div>
                   <div className="text-[14px] font-semibold mt-[2px]">{e.rule_name}</div>
                   <div className="text-[12.5px] text-text-dim mt-[2px]">Valor: {e.value}</div>
@@ -534,19 +623,8 @@ function Detail({ sel, done, dup, encaminhamento, onToggleDone, onMarkDuplicate,
           ) : !hasDup ? <Badge variant="tagOk"><span className="w-[6px] h-[6px] rounded-full bg-current" />Conforme — nenhuma falha encontrada</Badge>
             : <div className="text-[12.5px] text-text-dim">Sem outras falhas além da duplicata.</div>}
         </section>
-        <section>
-          <Eyebrow asChild><div className="mb-[11px]">Identificação & localização</div></Eyebrow>
-          <div className="gap-[1px] rounded-app-sm overflow-hidden border border-line grid [grid-template-columns:repeat(3,1fr)] bg-line">
-            {fields.map(([k, val]) => (
-              <div key={k} className="kv"><small>{k}</small><div className="font-mono text-[12.5px]">{val}</div></div>
-            ))}
-          </div>
-          {sel.latitude && sel.longitude && (
-            <Button asChild variant="outline" size="sm" className="text-blue mt-[12px]" style={{ borderColor: "rgba(31,159,214,0.4)" }}>
-              <a target="_blank" rel="noopener" href={EDPApi.mapsUrl(sel.latitude, sel.longitude)}><MapPin /> Abrir no Google Maps</a>
-            </Button>
-          )}
-        </section>
+
+        <NotaFichaCompleta noteId={sel.id} consulta={consulta} />
       </div>
     </div>
   );

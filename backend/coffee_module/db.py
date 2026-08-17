@@ -68,12 +68,18 @@ def obter_caminho_banco() -> str:
 def get_db_connection() -> sqlite3.Connection:
     config.data_dir().mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(obter_caminho_banco(), timeout=30, check_same_thread=False)
-    conn.execute("PRAGMA journal_mode = WAL;")
+    # WAL fica persistido no arquivo e deve ser configurado apenas na
+    # inicialização. Reexecutar esse PRAGMA ao abrir conexões concorrentes
+    # exige lock exclusivo e pode bloquear jobs em andamento.
+    conn.execute("PRAGMA foreign_keys = ON;")
+    conn.execute("PRAGMA synchronous = NORMAL;")
+    conn.execute("PRAGMA busy_timeout = 5000;")
     return conn
 
 
 def inicializar_banco() -> None:
     conn = get_db_connection()
+    conn.execute("PRAGMA journal_mode = WAL;")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS notas_coffee (
@@ -469,6 +475,13 @@ def registrar_erro(pk: int, mensagem: str) -> None:
 def arquivar_nota(pk: int) -> None:
     conn = get_db_connection()
     conn.execute("UPDATE notas_coffee SET arquivado = 1 WHERE pk = ?", (pk,))
+    conn.commit()
+    conn.close()
+
+
+def desarquivar_nota(pk: int) -> None:
+    conn = get_db_connection()
+    conn.execute("UPDATE notas_coffee SET arquivado = 0 WHERE pk = ?", (pk,))
     conn.commit()
     conn.close()
 

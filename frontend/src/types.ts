@@ -76,6 +76,7 @@ export interface ComparableFields {
   uf: string;
   prioridade: number;
   observacao?: string;
+  referencia_eletrica?: string;
   campos_com_erro?: DuplicateField[];
 }
 
@@ -206,7 +207,7 @@ export interface FieldProps {
 export interface DuplicateCompareProps {
   note: Note;
   resolved: boolean;
-  onMarkDuplicate: (id: string) => void;
+  onMarkDuplicate: (id: string, justificativa?: string) => void;
   onSendToCoffee?: (ids: string[], sourceId?: string) => void;
 }
 

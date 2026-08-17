@@ -74,6 +74,18 @@ describe('tokens de cor — tema claro (canvas branco autoritativo)', () => {
     expect(contraste('#ffffff', CLARO['--green'])).toBeLessThan(AA_TEXTO_PEQUENO);
   });
 
+  it('tipo sobre índigo passa AA nos dois temas', () => {
+    expect(contraste(CLARO['--on-dark'], CLARO['--indigo'])).toBeGreaterThanOrEqual(AA_TEXTO_PEQUENO);
+    expect(contraste(ESCURO['--on-dark'], ESCURO['--indigo'])).toBeGreaterThanOrEqual(AA_TEXTO_PEQUENO);
+  });
+
+  it('tipo destrutivo passa AA nos dois temas', () => {
+    expect(contraste(CLARO['--destructive-foreground'], CLARO['--red'])).toBeGreaterThanOrEqual(AA_TEXTO_PEQUENO);
+    const foregroundEscuro = ESCURO['--destructive-foreground'];
+    expect(foregroundEscuro).toBeDefined();
+    expect(contraste(foregroundEscuro!, ESCURO['--red'])).toBeGreaterThanOrEqual(AA_TEXTO_PEQUENO);
+  });
+
   it('--on-green não é redeclarado no escuro: o verde da marca não muda com o tema', () => {
     expect(ESCURO['--on-green']).toBeUndefined();
   });

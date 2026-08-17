@@ -43,6 +43,84 @@ arquivo, a `schema_version` SQLite e a data de modificação; `user_version` nã
 Retirar uma nota da fila do COFFEE a torna visível novamente em Verificar. SAP
 real é terminal para este fluxo; notas corrigidas não retornam à triagem.
 
+### Consulta COFFEE compartilhada
+
+O detalhe de uma nota tem um único dono da consulta ao vivo (`json_all`):
+`Detail` (em `dashboard.tsx`) chama `useConsultaCoffee(noteId)` uma vez e
+repassa o resultado (`UseQueryResult<CoffeeConsulta>`) por prop para
+`NotaFichaCompleta` e `LocalInstalacaoCorrection` — nenhuma das duas monta
+sua própria query. A política (`use-consulta-coffee.ts`,
+`consultaCoffeeQueryOptions`) usa `staleTime` de 30 minutos e **não** usa
+`refetchOnMount: 'always'`: montar um segundo observador da mesma nota reusa
+o dado em cache em vez de refazer a consulta, inclusive sob Strict Mode.
+Atualização só acontece por ação explícita — o botão **Atualizar consulta**
+chama `consulta.refetch()`. Depois de salvar uma correção,
+`queryClient.setQueryData` atualiza o cache com a resposta confirmada pelo
+backend sem disparar uma nova consulta automática; a releitura de
+confirmação da escrita continua existindo como parte do próprio fluxo de
+salvar, não como um refetch adicional do `Detail`.
+
+Nenhum dos dois componentes usa `key={noteId}` para forçar remontagem ao
+trocar de nota selecionada: `LocalInstalacaoCorrection` ajusta seu rascunho
+durante o render quando o `noteId` muda (em vez de depender de remount), e
+só sincroniza o rascunho com o valor consultado quando esse valor
+efetivamente muda — não a cada nova referência de objeto.
+
+### Correção direta de local
+
+Na tela **Verificar**, selecione na fila uma nota cuja falha seja de local de
+instalação — `regraLocalInstalacao` reconhece qualquer variante da fonte
+(`chk_local_instal`, `chk_local_instalacao`, `chk_local_de_instalacao`, com
+ou sem acento) por normalização, não por lista fixa. No painel de detalhe à
+direita, logo depois de **Identificação & localização**, aparece **Corrigir
+local no COFFEE**. O painel consulta o valor atual (via consulta
+compartilhada), valida o contrato de 13 caracteres (3 cidade + 2 tipo + 8
+número), salva pela API existente e confirma por releitura antes de
+habilitar **Encaminhar para operação**. A edição sozinha não cria card na
+Operação e o encaminhamento em lote exclui notas cuja correção de local
+ainda está pendente. O botão **Abrir COFFEE** não existe mais nesse painel —
+é redundante com o fluxo de correção direta. A matriz de campos editáveis e
+não editáveis está em
+[`12-integracao-edicao-coffee.md`](12-integracao-edicao-coffee.md).
+
+### Identificação & localização, e ficha completa no rodapé
+
+O bloco **Identificação & localização** é o principal do detalhe: reúne os
+dados normalizados da nota (`Note`) e, quando existem, os campos
+equivalentes da consulta COFFEE compartilhada — Observação, Referência
+elétrica, Referência física, Alimentador e ID SAP usam o valor da nota
+quando presente e caem para o valor da consulta COFFEE quando o dado bruto
+da triagem vier vazio. Referência elétrica só existe do lado COFFEE (não faz
+parte do contrato de `Note`).
+
+**Ficha completa (COFFEE)** (`nota-ficha-completa.tsx`) é a seção de
+informações adicionais, no rodapé do detalhe — depois de
+Identificação, correção de local e falhas, não antes. Ela não repete os
+campos já exibidos no bloco principal: a lista de exclusão
+(`CHAVES_CRUAS_JA_MOSTRADAS` em `nota-ficha-completa.tsx`) cobre aliases
+conhecidos (`observacao`/`observacoes`, `referencia_eletrica`,
+`referencia_fisica`, `poste`/`postes`, `alimentador`, `id_sap`,
+`local_instalacao`, `problema`, `componente`/`componente_novo`, `sintoma`,
+`causa`) por chave, independente do valor. Os demais campos do `json_all`
+(`campos`, repassado cru pelo backend) são rotulados (`campos-coffee.ts`:
+mapa de rótulos pros campos de domínio conhecidos, com fallback que
+humaniza `snake_case` — `tipo_defeito_raro` → "Tipo Defeito Raro") e
+agrupados por assunto (Identificação, Local e rede, Execução, Estado, Risco
+e segurança, Metadados) usando o nome da própria chave — robusto a campos
+nunca vistos antes. Cada grupo é um `<details>` recolhido independente, sem
+descartar nenhum campo; grupo sem conteúdo não aparece.
+
+Dentro da ficha, **Alimentador (circuito)** (`alimentador-correction.tsx`)
+edita o circuito da nota por `Select` populado por `GET
+/api/coffee/alimentadores` — lookup estático de 1199 alimentadores
+(`coffee_module/data/alimentadores.csv`, carregado uma vez e cacheado). Ao
+salvar, `POST /api/coffee/alimentador` valida o ID contra esse lookup antes
+de chamar a API COFFEE (nunca aceita texto livre), grava via
+`client.alterar_alimentador`, reconsulta e só confirma se o valor bater —
+mesmo padrão de escrita-e-confirma-por-releitura do local de instalação.
+Diferente do local, a edição do alimentador não depende de nenhuma falha
+`chk_*` — fica sempre disponível.
+
 ## Duplicatas externas × Carteira de Notas
 
 Candidatas de `chk_duplicada` fora da planilha Verificar (`in_sheet: false`,
@@ -59,9 +137,11 @@ Observação. O botão por card consulta sob demanda `GET
 /api/coffee/consultar/{id}` e projeta cinco campos do COFFEE em memória:
 Local, Problema (`componente`/`sintoma`/`causa`), Poste, Referência e
 Observação. A resposta não faz `upsert`, não escreve na Carteira e não altera
-o estado persistido; valores COFFEE não vazios prevalecem somente enquanto o
-card está aberto. Isso permite comparar uma candidata ausente da Carteira sem
-esperar uma sincronização em lote.
+o estado persistido. Ela fica no cache em memória do React Query por 30 minutos,
+chaveada pelo ID da candidata: ao navegar para outra nota e voltar, os valores
+COFFEE não vazios reaparecem; atualizar a página ou encerrar a sessão descarta
+esse enriquecimento temporário. Isso permite comparar uma candidata ausente da
+Carteira sem esperar uma sincronização em lote.
 
 A evidência de possível duplicata usa os quatro campos pontuados Problema (2),
 Local de instalação (1,6), Poste (1,3) e Referência física (1,1), normalizada
@@ -70,14 +150,36 @@ humana, mas não entra no score. Uma regra `chk_*` que afete um desses campos
 reduz apenas aquele peso para 1; sentinelas/valores ausentes não são match nem
 diferença. A faixa exige cobertura suficiente e ao menos dois matches: Forte
 (verde), Possível (âmbar), Distinta (vermelho) ou Evidência insuficiente
-(índigo). A fila usa o melhor indicador com evidência entre as candidatas e o
-card explica percentual, cobertura e pesos reduzidos.
+(índigo). A fila usa o melhor indicador com evidência entre as candidatas e
+mostra a cobertura visível como `NN% cob.`; o card explica percentual,
+cobertura e pesos reduzidos.
 
 Candidata sem linha na Carteira mantém estado dedicado ("não encontrada na
 Carteira") e uma única badge; após a consulta ao vivo ela exibe a mesma grade
 completa. O estado legado restaurado de `app_state.json` passa pelo mesmo
 enriquecimento antes de ser exposto; se a Carteira estiver indisponível,
 `GET /api/data` responde `503` em vez de devolver uma falha 500 sem contexto.
+
+### Marcar como duplicata
+
+No cabeçalho do bloco de duplicatas, **⧉ Marcar como duplicata** abre um modal
+com justificativa opcional (`duplicate-compare.tsx: MarcarDuplicataModal`).
+Confirmar chama `POST /api/duplicata/{note_id}`, que reusa o mecanismo real do
+`coffee_module` em vez de um campo local: `id_sap` recebe o sentinel
+`SAP_DUPLICATA = 99999999` **ao vivo** na API COFFEE (`client.definir_sap`,
+mesmo caminho que já grava `SAP_PENDENTE = 10000000` no fluxo de `regerar`) —
+fica visível pra qualquer sistema que consome o COFFEE. A nota também é
+arquivada localmente (`db.arquivar_nota`, some de toda listagem do
+`coffee_module` — fila, concluídas, Operação) e sai de qualquer item pendente
+de geração (`remover_item_operacao` + `marcar_gerar(False)`). `classify.py`
+reconhece o sentinel como classificação própria (`duplicada`), nunca como
+`corrigida`/`gerada`.
+
+Com a nota resolvida, o botão vira **↺ Reabrir** e o botão **→ Fila COFFEE**
+some (não faz sentido encaminhar uma nota arquivada). Reabrir chama `POST
+/api/duplicata/{note_id}/desfazer` sem modal: restaura `id_sap = 10000000` ao
+vivo e desarquiva localmente (`db.desarquivar_nota`). Justificativa só vai
+para o log de auditoria (`registrar_log`), nunca é obrigatória.
 
 ## Interface
 
@@ -95,10 +197,12 @@ da Operação e o total **Encaminhadas hoje** para todos os usuários, discrimin
 backend persiste o último encaminhamento em `coffee.db`, sem escrever na fonte
 compartilhada.
 
-O filtro **Gerada por** alterna entre **Todos** e **Inspetores ES/SP**. Neste
-último escopo, o filtro **Inspetor** permite selecionar uma matrícula. A fila
-sempre mostra nome e UF de quem gerou a nota e sinaliza matrículas não
-cadastradas no De-Para.
+O filtro **Gerada por** alterna entre **Todos** e **Inspetores ES/SP**. O
+segundo escopo mantém somente notas cujo gerador esteja no De-Para, tenha UF
+`ES` ou `SP` e a permissão `inspetor_planejamento`. Só então aparece o filtro
+**Inspetor**: suas opções são os geradores desse escopo, deduplicadas por
+matrícula e exibidas como nome e UF. A fila sempre mostra nome e UF de quem
+gerou a nota e sinaliza matrículas não cadastradas no De-Para.
 
 Em Concluídas, a lista informa quando a nota veio de Verificar e quando foi
 corrigida. A ficha lateral mostra também quem a encaminhou e quem concluiu.

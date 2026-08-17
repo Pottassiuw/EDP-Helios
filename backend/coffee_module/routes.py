@@ -1,15 +1,20 @@
 """Rotas /api/coffee/* -- fundacao do hub COFFEE."""
 import os
+import re
 import time
 from contextlib import contextmanager
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from pydantic import BaseModel
 
-from coffee_module import classify, client, config, db, jobs, operation_service
+from coffee_module import (
+    alimentadores, classify, client, config, db, exportacao, jobs,
+    municipios, operation_service, tipos_equipamento,
+)
 
 _PERF_ATIVO = os.environ.get("EDP_PERF", "").strip() not in ("", "0", "false")
+_LOCAL_INSTALACAO_RE = re.compile(r"^\d{3}[A-Z0-9]{2}\d{8}$")
 
 
 @contextmanager
@@ -68,9 +73,18 @@ class IdPedido(BaseModel):
     id: int
 
 
+class ExportarConcluidasPedido(BaseModel):
+    pks: list[int]
+
+
 class LocalPedido(BaseModel):
     id: int
     local: str
+
+
+class AlimentadorPedido(BaseModel):
+    id: int
+    alimentador: str
 
 
 class OperacaoIdsPedido(BaseModel):
@@ -148,6 +162,38 @@ def notas(status: Optional[str] = None, usuario: Optional[str] = Depends(usuario
     return {"registros": registros}
 
 
+@router.post("/notas/concluidas/exportar")
+def exportar_concluidas(
+    pedido: ExportarConcluidasPedido,
+    usuario: Optional[str] = Depends(usuario_coffee),
+):
+    """Exporta apenas as notas concluídas ainda visíveis ao usuário atual."""
+    _garantir_banco()
+    pks = _validar_ids(pedido.pks)
+    por_pk = {
+        nota["pk"]: nota
+        for nota in db.listar_notas("concluida", usuario=usuario)
+    }
+    selecionadas = [por_pk[pk] for pk in pks if pk in por_pk]
+    if not selecionadas:
+        raise HTTPException(
+            status_code=404,
+            detail="Nenhuma das notas selecionadas continua concluída e disponível para exportação.",
+        )
+    db.registrar_log(
+        "acao_usuario",
+        "exportar_concluidas",
+        None,
+        {"total": len(selecionadas)},
+        True,
+    )
+    return Response(
+        content=exportacao.gerar_planilha_concluidas(selecionadas),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="notas_concluidas.xlsx"'},
+    )
+
+
 @router.get("/consultar/{id}")
 def consultar(id: int):
     _garantir_banco()
@@ -193,8 +239,14 @@ def consultar(id: int):
         "arquivado": nota["arquivado"],
         "poste": fields.get("postes") or fields.get("poste"),
         "referencia": fields.get("referencia_fisica") or fields.get("referencia_eletrica"),
+        "referencia_fisica": fields.get("referencia_fisica"),
+        "referencia_eletrica": fields.get("referencia_eletrica"),
+        "alimentador": fields.get("alimentador"),
         "problema": " · ".join(problema_partes) or None,
         "observacao": observacao,
+        # Indicadores completos: repassa os campos crus do json_all pra tela
+        # de ficha mostrar tudo, sem o backend ter que projetar campo a campo.
+        "campos": fields,
     }
 
 
@@ -213,6 +265,14 @@ def desarquivar(pedido: IdPedido):
 @router.post("/local-instalacao")
 def local_instalacao(pedido: LocalPedido):
     _garantir_banco()
+    if not _LOCAL_INSTALACAO_RE.fullmatch(pedido.local):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Local de instalação deve ter 13 caracteres: "
+                "3 dígitos da cidade, 2 do tipo e 8 do número."
+            ),
+        )
     try:
         client.alterar_local(pedido.id, pedido.local)
     except Exception as exc:  # noqa: BLE001
@@ -245,6 +305,26 @@ def local_instalacao(pedido: LocalPedido):
             ),
         ) from exc
 
+    if nota["local_instalacao"] != pedido.local:
+        db.registrar_log(
+            "acao_usuario",
+            "alterar_local",
+            nota["pk"],
+            {
+                "id": pedido.id,
+                "solicitado": pedido.local,
+                "confirmado": nota["local_instalacao"],
+            },
+            False,
+        )
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "O COFFEE não confirmou o local solicitado. "
+                "Consulte a nota novamente antes de tentar outra alteração."
+            ),
+        )
+
     item = next(
         (
             atual
@@ -254,12 +334,11 @@ def local_instalacao(pedido: LocalPedido):
         ),
         None,
     )
-    origem = (
-        (item or {}).get("origem")
-        or db.origem_atual(nota["pk"])
-        or "avulsa"
-    )
-    operation_service.aplicar_consulta(pedido.id, nota, origem, None)
+    if item is None:
+        db.upsert_nota(nota["pk"], nota["id_sap"], nota["fields"])
+    else:
+        origem = item.get("origem") or db.origem_atual(nota["pk"]) or "avulsa"
+        operation_service.aplicar_consulta(pedido.id, nota, origem, None)
     db.registrar_log(
         "acao_usuario",
         "alterar_local",
@@ -267,7 +346,74 @@ def local_instalacao(pedido: LocalPedido):
         {"id": pedido.id, "local": pedido.local},
         True,
     )
-    return {"ok": True}
+    return {"ok": True, "local_instalacao": nota["local_instalacao"]}
+
+
+@router.get("/alimentadores")
+def listar_alimentadores():
+    return {"registros": alimentadores.listar()}
+
+
+@router.get("/municipios")
+def listar_municipios():
+    return {"registros": municipios.listar()}
+
+
+@router.get("/tipos-equipamento")
+def listar_tipos_equipamento():
+    return {"registros": tipos_equipamento.listar()}
+
+
+@router.post("/alimentador")
+def alimentador(pedido: AlimentadorPedido):
+    _garantir_banco()
+    if not alimentadores.alimentador_valido(pedido.alimentador):
+        raise HTTPException(status_code=400, detail="Alimentador não reconhecido.")
+    try:
+        client.alterar_alimentador(pedido.id, pedido.alimentador)
+    except Exception as exc:  # noqa: BLE001
+        db.registrar_log(
+            "acao_usuario", "alterar_alimentador", pedido.id,
+            {"id": pedido.id, "alimentador": pedido.alimentador}, False,
+        )
+        raise HTTPException(
+            status_code=502, detail="Não foi possível alterar o alimentador na API COFFEE.",
+        ) from exc
+    try:
+        nota = client.buscar_nota(pedido.id)
+    except Exception as exc:  # noqa: BLE001
+        db.registrar_log(
+            "acao_usuario", "alterar_alimentador", pedido.id,
+            {"id": pedido.id, "alimentador": pedido.alimentador}, False,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "O alimentador foi alterado na API COFFEE, mas a nota não pôde "
+                "ser reconsultada. Tente consultar novamente."
+            ),
+        ) from exc
+
+    confirmado = nota["fields"].get("alimentador")
+    if confirmado != pedido.alimentador:
+        db.registrar_log(
+            "acao_usuario", "alterar_alimentador", nota["pk"],
+            {"id": pedido.id, "solicitado": pedido.alimentador, "confirmado": confirmado}, False,
+        )
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "O COFFEE não confirmou o alimentador solicitado. "
+                "Consulte a nota novamente antes de tentar outra alteração."
+            ),
+        )
+
+    db.upsert_nota(nota["pk"], nota["id_sap"], nota["fields"])
+    db.registrar_log(
+        "acao_usuario", "alterar_alimentador", nota["pk"],
+        {"id": pedido.id, "alimentador": pedido.alimentador}, True,
+    )
+    return {"ok": True, "alimentador": confirmado}
 
 
 @router.get("/operacao")
@@ -278,25 +424,33 @@ def obter_operacao():
 
 
 @router.post("/operacao/consultar")
-def consultar_operacao(pedido: OperacaoIdsPedido):
+def consultar_operacao(
+    pedido: OperacaoIdsPedido,
+    usuario: Optional[str] = Depends(usuario_coffee),
+):
     _garantir_banco()
     ids = _validar_ids(pedido.ids)
     job_id = jobs.iniciar_consulta_operacao(
         ids,
         origem="avulsa",
         trace=db.trace_atual(),
+        usuario=usuario,
     )
     return {"job_id": job_id}
 
 
 @router.post("/operacao/gerar")
-def gerar_operacao(pedido: OperacaoIdsPedido):
+def gerar_operacao(
+    pedido: OperacaoIdsPedido,
+    usuario: Optional[str] = Depends(usuario_coffee),
+):
     _garantir_banco()
     ids = _validar_ids(pedido.ids)
     try:
         job_id = jobs.iniciar_geracao_operacao(
             ids,
             trace=db.trace_atual(),
+            usuario=usuario,
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
