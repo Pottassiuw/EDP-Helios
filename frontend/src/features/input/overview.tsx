@@ -76,18 +76,34 @@ export function filtrarRegistros(registros: NotaInput[], estado: FiltersState): 
     const numeros = termos.filter((s) => /^\d+$/.test(s)).map(Number);
     const setNums = new Set(numeros);
 
-    resultado = resultado.filter((r) => {
+    const pontuados: { item: NotaInput; score: number }[] = [];
+
+    for (const r of resultado) {
       const idNota = r.Numero_Nota;
       const idStr = String(idNota);
       const maeStr = String(r.Nota_Mae ?? '').trim();
 
-      if (setNums.has(idNota) || setNums.has(Number(maeStr))) return true;
-      if (idStr.includes(query) || maeStr.includes(query)) return true;
+      let score = 0;
+      if (setNums.has(idNota)) score = 100;
+      else if (idStr.startsWith(query)) score = 80;
+      else if (idStr.includes(query)) score = 60;
+      else if (setNums.has(Number(maeStr)) || maeStr.startsWith(query)) score = 50;
+      else if (maeStr.includes(query)) score = 40;
+      else if (
+        Object.values(r).some(
+          (v) => v !== null && v !== undefined && String(v).toLowerCase().includes(query)
+        )
+      ) {
+        score = 10;
+      }
 
-      return Object.values(r).some((v) =>
-        v !== null && v !== undefined && String(v).toLowerCase().includes(query)
-      );
-    });
+      if (score > 0) {
+        pontuados.push({ item: r, score });
+      }
+    }
+
+    pontuados.sort((a, b) => b.score - a.score);
+    resultado = pontuados.map((p) => p.item);
   }
 
   if (estado.somente2026) {
