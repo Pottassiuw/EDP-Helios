@@ -338,8 +338,10 @@ def test_enriquecer_candidatos_externos_com_match(tmp_path, monkeypatch):
     conn.execute(
         "INSERT INTO nota_carteira (id_onr, local_instalacao, sintoma, componente_novo, "
         "status_sap, prioridade_sap, descricao_conjunto, conjunto, latitude, longitude, "
-        "ausente_na_origem_em) VALUES (171153, '718ET00026773', 'queda', 'chave', "
-        "'Pendente', 3, 'POSTE DEMANDA', 'POSTE', '-23.1', '-45.2', NULL)"
+        "observacao, referencia_eletrica, ausente_na_origem_em) "
+        "VALUES (171153, '718ET00026773', 'queda', 'chave', "
+        "'Pendente', 3, 'POSTE DEMANDA', 'POSTE', '-23.1', '-45.2', "
+        "'Poste inclinado', 'FF-655816', NULL)"
     )
     conn.commit()
     conn.close()
@@ -359,6 +361,8 @@ def test_enriquecer_candidatos_externos_com_match(tmp_path, monkeypatch):
     assert cand["prioridade_sap"] == 3
     assert cand["conjunto"] == "POSTE DEMANDA"
     assert cand["carteira_ausente_em"] is None
+    assert cand["observacao"] == "Poste inclinado"
+    assert cand["referencia_eletrica"] == "FF-655816"
 
 
 def test_enriquecer_candidatos_externos_sem_match(tmp_path, monkeypatch):

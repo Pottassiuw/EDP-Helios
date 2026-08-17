@@ -53,6 +53,8 @@ def inicializar_banco() -> None:
             dispositivo_protecao TEXT,
             latitude TEXT,
             longitude TEXT,
+            observacao TEXT,
+            referencia_eletrica TEXT,
             hash_conteudo TEXT,
             sincronizado_em TEXT,
             criado_em TEXT,
@@ -114,6 +116,14 @@ def inicializar_banco() -> None:
         CREATE INDEX IF NOT EXISTS ix_mov_lote ON plano_movimentacoes(lote_id);
         """
     )
+    # CREATE TABLE IF NOT EXISTS acima e no-op pra banco ja existente em disco
+    # (arquivo .db anterior a essas colunas) — sem isso, um banco antigo nunca
+    # ganha as colunas novas.
+    cols_nota = [r[1] for r in conn.execute("PRAGMA table_info(nota_carteira)").fetchall()]
+    if "observacao" not in cols_nota:
+        conn.execute("ALTER TABLE nota_carteira ADD COLUMN observacao TEXT")
+    if "referencia_eletrica" not in cols_nota:
+        conn.execute("ALTER TABLE nota_carteira ADD COLUMN referencia_eletrica TEXT")
     conn.commit()
     conn.close()
 

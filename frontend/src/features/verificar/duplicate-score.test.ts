@@ -10,27 +10,30 @@ describe("calculateDuplicateScore", () => {
         local_instalacao: "ABCDE123",
         poste: " P-01 ",
         referencia: "Em frente ao mercado",
+        referencia_eletrica: " FF-655816 ",
       },
       {
         problema: "lâmpada apagada",
         local_instalacao: "abcde123",
         poste: "p-01",
         referencia: "EM FRENTE AO MERCADO",
+        referencia_eletrica: "ff-655816",
       },
     );
 
     expect(result).toMatchObject({
       score: 1,
       cobertura: 1,
-      matches: 4,
-      pesoElegivel: 6,
-      pesoMatches: 6,
+      matches: 5,
+      pesoElegivel: 8,
+      pesoMatches: 8,
       faixa: "forte",
       campos: {
         problema: { indicador: "match", peso: 2, pesoEfetivo: 2, erroOrigem: false, erroCandidata: false },
         local_instalacao: { indicador: "match", peso: 1.6, pesoEfetivo: 1.6 },
         poste: { indicador: "match", peso: 1.3, pesoEfetivo: 1.3 },
         referencia: { indicador: "match", peso: 1.1, pesoEfetivo: 1.1 },
+        referencia_eletrica: { indicador: "match", peso: 2, pesoEfetivo: 2 },
       },
     });
   });
@@ -43,7 +46,7 @@ describe("calculateDuplicateScore", () => {
 
     expect(result).toMatchObject({
       score: 4 / 6,
-      cobertura: 1,
+      cobertura: 6 / 8,
       matches: 3,
       pesoElegivel: 6,
       pesoMatches: 4,
@@ -61,7 +64,7 @@ describe("calculateDuplicateScore", () => {
 
     expect(result).toMatchObject({
       score: 1,
-      cobertura: 5 / 6,
+      cobertura: 5 / 8,
       pesoElegivel: 5,
       pesoMatches: 5,
       faixa: "forte",
@@ -77,11 +80,11 @@ describe("calculateDuplicateScore", () => {
 
     expect(result).toMatchObject({
       score: 1,
-      cobertura: 4 / 6,
+      cobertura: 4 / 8,
       matches: 3,
       pesoElegivel: 4,
       pesoMatches: 4,
-      faixa: "forte",
+      faixa: "insuficiente",
       campos: { problema: { indicador: "indisponivel", pesoEfetivo: 0 } },
     });
   });
@@ -94,7 +97,7 @@ describe("calculateDuplicateScore", () => {
 
     expect(result).toMatchObject({
       score: 1,
-      cobertura: 1.3 / 6,
+      cobertura: 1.3 / 8,
       matches: 1,
       pesoElegivel: 1.3,
       pesoMatches: 1.3,
@@ -127,7 +130,7 @@ describe("calculateDuplicateScore", () => {
 
     expect(result).toMatchObject({
       score: 1,
-      cobertura: 4.7 / 6,
+      cobertura: 4.7 / 8,
       matches: 3,
       campos: { poste: { indicador: "indisponivel", pesoEfetivo: 0 } },
     });
