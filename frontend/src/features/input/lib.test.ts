@@ -158,5 +158,35 @@ describe('Ocultação de Notas (ehNotaOculta, buscarNotasOcultas, filtrarRegistr
     });
     expect(filtradosComOcultas).toHaveLength(2);
   });
+
+  it('filtrarRegistros encontra notas por busca parcial de prefixo numérico (ex: 9999 encontra 9999001, 9999010...) ', async () => {
+    const { filtrarRegistros } = await import('./overview');
+    const registros: NotaInput[] = [
+      { Numero_Nota: 9999001, Nota_Mae: '-', Check: '-', Mes_Execucao_Planejado: 'mar-2026' },
+      { Numero_Nota: 9999002, Nota_Mae: '9999001', Check: '-', Mes_Execucao_Planejado: 'mar-2026' },
+      { Numero_Nota: 9999010, Nota_Mae: '-', Check: '-', Mes_Execucao_Planejado: 'abr-2026' },
+      { Numero_Nota: 9999020, Nota_Mae: '-', Check: 'Oculta', Mes_Execucao_Planejado: 'mai-2026' },
+      { Numero_Nota: 14118256, Nota_Mae: '-', Check: '-', Mes_Execucao_Planejado: 'jul-2026' },
+    ];
+
+    const busca9999 = filtrarRegistros(registros, {
+      busca: '9999',
+      filtros: [],
+      somente2026: true,
+      somenteNotasMaes: false,
+      mostrarOcultas: false,
+    });
+    expect(busca9999).toHaveLength(3);
+    expect(busca9999.map((r) => r.Numero_Nota)).toEqual([9999001, 9999002, 9999010]);
+
+    const busca9999ComOcultas = filtrarRegistros(registros, {
+      busca: '9999',
+      filtros: [],
+      somente2026: true,
+      somenteNotasMaes: false,
+      mostrarOcultas: true,
+    });
+    expect(busca9999ComOcultas).toHaveLength(4);
+  });
 });
 
