@@ -412,7 +412,7 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
       tooltipSoma = `Soma consolidada do grupo: ${formatarNumero(somaTotal, 2)} (Mãe: ${formatarNumero(valorProprio, 2)} + ${item.qtdFilhas} ${item.qtdFilhas === 1 ? 'filha' : 'filhas'}: ${formatarNumero(somaFilhas, 2)})`;
     }
 
-    const tentarEditar = async (): Promise<void> => {
+    const tentarEditar = (): void => {
       const b = bloqueioDeOutro(r.Numero_Nota);
       if (b) {
         toast.warning(`Nota ${r.Numero_Nota} em edição por ${b.Usuario}`, {
@@ -420,11 +420,10 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
         });
         return;
       }
-      if (onIniciarEdicao) {
-        const liberado = await onIniciarEdicao(r.Numero_Nota);
-        if (!liberado) return;
-      }
       setEditando({ numero: r.Numero_Nota, campo: c.key });
+      if (onIniciarEdicao) {
+        void onIniciarEdicao(r.Numero_Nota);
+      }
     };
 
     return (
@@ -434,9 +433,9 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
           tooltipSoma ??
           (editavel ? "Duplo clique para editar" : undefined)
         }
-        onDoubleClick={editavel ? () => { void tentarEditar(); } : undefined}
+        onDoubleClick={editavel ? tentarEditar : undefined}
         className={`whitespace-nowrap overflow-hidden text-ellipsis max-w-[320px] h-[32px] text-[12.5px] border-b-[1px] border-b-line ${
-          editavel ? "hover:bg-accent/10 transition-colors select-none" : ""
+          editavel ? "hover:bg-accent/10 transition-colors select-none cursor-pointer" : ""
         }`}
         style={{
           cursor: editavel ? "pointer" : "default",

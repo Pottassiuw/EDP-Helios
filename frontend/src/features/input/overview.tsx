@@ -634,7 +634,14 @@ export function Overview({
                 registros={filtrados}
                 todosOsRegistros={dados.registros}
                 colunas={COLUNAS}
+                edicoes={edicoes}
+                onEditar={onEditar}
+                statusOpcoes={dados.meta.status_opcoes}
+                prioridadeOpcoes={dados.meta.prioridade_opcoes}
                 agruparGavetinhas={true}
+                bloqueios={bloqueios}
+                usuarioAtual={usuarioAtual}
+                onIniciarEdicao={onIniciarEdicao}
                 onOpenDetails={abrirDetalhes}
               />
             )}
@@ -857,6 +864,28 @@ export function Overview({
         </div>
         <CheckCircle2 className="h-3.5 w-3.5 text-green shrink-0" />
       </div>
+
+      {/* Barra Flutuante de Edições Pendentes */}
+      {edicoes.size > 0 && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 p-3.5 bg-surface border border-accent/60 rounded-xl shadow-2xl animate-in slide-in-from-bottom-5">
+          <div className="flex items-center gap-2 pr-2 border-r border-line">
+            <span className="flex h-2.5 w-2.5 rounded-full bg-accent animate-pulse" />
+            <span className="text-xs font-semibold text-foreground">
+              {edicoes.size} nota(s) alterada(s)
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button size="sm" disabled={salvando} onClick={salvarEdicoes} className="gap-1.5 h-8 text-xs font-semibold">
+              {salvando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+              Salvar Alterações
+            </Button>
+            <Button variant="outline" size="sm" onClick={descartarEdicoes} className="h-8 text-xs text-text-mute">
+              <X className="h-3.5 w-3.5 mr-1" />
+              Descartar
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
