@@ -36,6 +36,8 @@ export interface NotesTableProps {
   /** Chamado antes de entrar em modo de edição; deve tentar travar a nota e
    *  devolver se pode prosseguir. Sem isso, a edição entra direto (ex.: Ramal). */
   onIniciarEdicao?: (numero: number) => Promise<boolean>;
+  /** Chamado ao clicar no número da nota para abrir painel lateral com detalhes. */
+  onOpenDetails?: (nota: NotaInput, trigger: HTMLButtonElement) => void;
 }
 
 interface CelulaEditando {
@@ -70,6 +72,7 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
     bloqueios,
     usuarioAtual,
     onIniciarEdicao,
+    onOpenDetails,
   } = props;
   const [scrollTop, setScrollTop] = React.useState(0);
   const [ordem, setOrdem] = React.useState<{
@@ -330,9 +333,20 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
                 <CornerDownRight className="h-3.5 w-3.5 inline text-[var(--accent)] stroke-[2.5]" />
               </span>
             )}
-            <span className="font-semibold text-foreground tracking-tight">
-              {formatarNumero(v, 0, false)}
-            </span>
+            {onOpenDetails ? (
+              <button
+                type="button"
+                onClick={(e) => onOpenDetails(r, e.currentTarget)}
+                className="font-semibold text-foreground tracking-tight hover:text-accent hover:underline cursor-pointer text-left"
+                title="Abrir detalhes e enriquecimento desta nota"
+              >
+                {formatarNumero(v, 0, false)}
+              </button>
+            ) : (
+              <span className="font-semibold text-foreground tracking-tight">
+                {formatarNumero(v, 0, false)}
+              </span>
+            )}
             {ehNotaOculta(r) && (
               <span
                 className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-sans font-semibold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 shrink-0"

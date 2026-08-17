@@ -746,7 +746,7 @@ def salvar_log_alteracoes(logs: list) -> None:
         conn.close()
 
 
-def deletar_notas(lista_numeros_nota: list, usuario: str = "sistema") -> int:
+def deletar_notas(lista_numeros_nota: list, usuario: str = "sistema", motivo: str | None = None) -> int:
     """Exclui notas do banco e registra a exclusão no log de auditoria.
 
     Pula notas travadas por OUTRO usuário — quem está no meio de uma edição
@@ -811,9 +811,10 @@ def deletar_notas(lista_numeros_nota: list, usuario: str = "sistema") -> int:
             return 0
 
         data_hora_log = datetime.datetime.now()
+        desc_motivo = f"Registro Apagado (Motivo: {motivo.strip()})" if motivo and motivo.strip() else "Registro Apagado"
         logs_exclusao = [
             (nota, usuario, data_hora_log,
-             "EXCLUSÃO DE NOTA", "Registro Existente", "Registro Apagado")
+             "EXCLUSÃO DE NOTA", "Registro Existente", desc_motivo)
             for nota in permitidos
         ]
         cursor.executemany('''

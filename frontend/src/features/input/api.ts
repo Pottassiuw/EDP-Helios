@@ -46,8 +46,8 @@ export const InputApi = {
     req<{ inseridas: number }>('/notas', escrita('POST', nota)),
   criarLote: (notas: Partial<NotaInput>[]) =>
     req<{ inseridas: number }>('/notas/bulk', escrita('POST', { notas })),
-  excluir: (numeros: number[]) =>
-    req<{ excluidas: number }>('/notas', escrita('DELETE', { numeros })),
+  excluir: (numeros: number[], motivo?: string) =>
+    req<{ excluidas: number }>('/notas', escrita('DELETE', { numeros, motivo })),
   desfazer: () =>
     req<{ ok: boolean; mensagem: string }>('/desfazer', escrita('POST', {})),
 

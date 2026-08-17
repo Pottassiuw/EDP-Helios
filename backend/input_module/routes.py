@@ -209,6 +209,7 @@ class LotePedido(BaseModel):
 
 class ExclusaoPedido(BaseModel):
     numeros: list[int]
+    motivo: Optional[str] = None
 
 
 class ExportPedido(BaseModel):
@@ -259,7 +260,7 @@ def criar_lote(pedido: LotePedido, tasks: BackgroundTasks,
 def excluir_notas(pedido: ExclusaoPedido, tasks: BackgroundTasks,
                   usuario: str = Depends(usuario_atual)):
     garantir_banco()
-    excluidas = db.deletar_notas(pedido.numeros, usuario=usuario)
+    excluidas = db.deletar_notas(pedido.numeros, usuario=usuario, motivo=pedido.motivo)
     if excluidas:
         pos_escrita(tasks)
     return {"excluidas": excluidas}

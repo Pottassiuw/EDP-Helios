@@ -6,7 +6,6 @@ import { useInputData, useRecarregarInput } from './use-input-data';
 import { useInputSync } from './use-input-sync';
 import { Loader2, RefreshCw, AlertTriangle } from 'lucide-react';
 import { Overview } from './overview';
-import { Manage } from './manage';
 import { Ramal } from './ramal';
 import { Reports } from './reports';
 import { Logs } from './logs';
@@ -153,7 +152,7 @@ export function InputSection({
       )}
 
       <div className="flex-1 min-h-0 overflow-auto">
-        {dados && sub === 'visao' && (
+        {dados && (sub === 'visao' || sub === 'gerenciar') && (
           <Overview
             dados={dados}
             estado={estadoFiltros}
@@ -161,7 +160,6 @@ export function InputSection({
             onIrParaSincronizacao={onIrParaSincronizacao}
           />
         )}
-        {dados && sub === 'gerenciar' && <Manage dados={dados} estadoFiltros={estadoFiltros} />}
         {dados && sub === 'ramal' && <Ramal dadosPrincipais={dados} estadoFiltros={estadoFiltros} />}
         {dados && sub === 'relatorios' && <Reports dados={dados} estadoFiltros={estadoFiltros} />}
         {dados && sub === 'logs' && <Logs />}

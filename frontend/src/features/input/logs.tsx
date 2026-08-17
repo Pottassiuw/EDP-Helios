@@ -7,6 +7,7 @@ import {
   Trash2,
   User,
   Mail,
+  EyeOff,
 } from 'lucide-react';
 import { InputApi } from './api';
 import type { LogArquivo, LogRegistro } from './types';
@@ -25,7 +26,7 @@ import { Button } from '@/components/ui/button';
 import { NotificacaoModal } from './notificacao-modal';
 
 type SubAba = 'notas' | 'arquivos' | 'timeline';
-type TipoAcao = 'todos' | 'criacao' | 'edicao' | 'exclusao';
+type TipoAcao = 'todos' | 'criacao' | 'edicao' | 'exclusao' | 'ocultacao';
 
 const LOG_TABS: SegTab<SubAba>[] = [
   { id: 'notas', rotulo: 'Alterações nas Notas' },
@@ -35,13 +36,21 @@ const LOG_TABS: SegTab<SubAba>[] = [
 
 
 function ehCriacao(campo: string): boolean {
-  const c = campo.toUpperCase();
+  const c = String(campo || '').toUpperCase();
   return c.includes('CRIAÇÃO') || c.includes('INSERÇÃO');
 }
 
 function ehExclusao(campo: string): boolean {
-  const c = campo.toUpperCase();
+  const c = String(campo || '').toUpperCase();
   return c.includes('EXCLUSÃO') || c.includes('APAGADO');
+}
+
+function ehOcultacao(campo: string, valorNovo: string, valorAntigo?: string): boolean {
+  const c = String(campo || '').toUpperCase();
+  const vn = String(valorNovo || '').toUpperCase();
+  const va = String(valorAntigo || '').toUpperCase();
+  return (c.includes('CHECK') && (vn.includes('OCULTA') || vn.includes('OCULTO')))
+    || vn.includes('[OCULTA') || va.includes('[OCULTA');
 }
 
 function parseNotasBusca(texto: string): string[] {
@@ -80,7 +89,10 @@ export function Logs(): React.JSX.Element {
       let matchTipo = true;
       if (filtroTipo === 'criacao') matchTipo = ehCriacao(r.Campo_Alterado);
       else if (filtroTipo === 'exclusao') matchTipo = ehExclusao(r.Campo_Alterado);
-      else if (filtroTipo === 'edicao') matchTipo = !ehCriacao(r.Campo_Alterado) && !ehExclusao(r.Campo_Alterado);
+      else if (filtroTipo === 'ocultacao') matchTipo = ehOcultacao(r.Campo_Alterado, r.Valor_Novo, r.Valor_Antigo);
+      else if (filtroTipo === 'edicao') {
+        matchTipo = !ehCriacao(r.Campo_Alterado) && !ehExclusao(r.Campo_Alterado) && !ehOcultacao(r.Campo_Alterado, r.Valor_Novo, r.Valor_Antigo);
+      }
 
       return matchNota && matchUsuario && matchTipo;
     });
@@ -102,21 +114,37 @@ export function Logs(): React.JSX.Element {
   const stats = React.useMemo(() => {
     let criacoes = 0;
     let exclusoes = 0;
+    let ocultacoes = 0;
     let edicoes = 0;
     for (const r of todosLogs) {
       if (ehCriacao(r.Campo_Alterado)) criacoes++;
       else if (ehExclusao(r.Campo_Alterado)) exclusoes++;
+      else if (ehOcultacao(r.Campo_Alterado, r.Valor_Novo, r.Valor_Antigo)) ocultacoes++;
       else edicoes++;
     }
-    return { total: todosLogs.length, criacoes, exclusoes, edicoes };
+    return { total: todosLogs.length, criacoes, exclusoes, ocultacoes, edicoes };
   }, [todosLogs]);
 
   return (
     <div className="p-6 flex flex-col gap-6 max-w-full">
       <NotificacaoModal aberto={modalNotificacao} onFechar={() => setModalNotificacao(false)} />
       <div className="flex items-center justify-between gap-4 flex-wrap bg-surface p-4 rounded-lg border border-line shadow-xs">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <SegTabs tabs={LOG_TABS} value={sub} onChange={setSub} ariaLabel="Tipo de log" />
+          <Button
+            variant={filtroTipo === 'ocultacao' ? 'default' : 'outline'}
+            size="sm"
+            className={`h-9 text-xs font-semibold gap-1.5 ${
+              filtroTipo === 'ocultacao'
+                ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                : 'border-amber-500/40 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10'
+            }`}
+            onClick={() => setFiltroTipo((atual) => (atual === 'ocultacao' ? 'todos' : 'ocultacao'))}
+            title="Filtrar somente o histórico de notas ocultadas"
+          >
+            <EyeOff className="h-3.5 w-3.5" />
+            Notas Ocultadas ({stats.ocultacoes})
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -137,11 +165,14 @@ export function Logs(): React.JSX.Element {
             <span className="px-2.5 py-1 rounded-full bg-green/15 text-green dark:text-green-2 font-mono font-semibold border border-green/30">
               + {stats.criacoes} criações
             </span>
+            <span className="px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 font-mono font-semibold border border-amber-500/30">
+              {stats.ocultacoes} ocultações
+            </span>
             <span className="px-2.5 py-1 rounded-full bg-accent/15 text-accent font-mono font-semibold border border-accent/30">
-              ✎ {stats.edicoes} edições
+              {stats.edicoes} edições
             </span>
             <span className="px-2.5 py-1 rounded-full bg-red/15 text-red dark:text-red-2 font-mono font-semibold border border-red/30">
-              ✕ {stats.exclusoes} exclusões
+              {stats.exclusoes} exclusões
             </span>
           </div>
         )}
@@ -187,12 +218,13 @@ export function Logs(): React.JSX.Element {
               value={filtroTipo}
               onValueChange={(v) => setFiltroTipo(v as TipoAcao)}
             >
-              <SelectTrigger className="w-44 h-9 text-xs bg-bg-2 border-line">
+              <SelectTrigger className="w-48 h-9 text-xs bg-bg-2 border-line">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="todos">Todos os eventos</SelectItem>
                 <SelectItem value="criacao">Apenas Criações (+)</SelectItem>
+                <SelectItem value="ocultacao">Apenas Ocultações (👁️)</SelectItem>
                 <SelectItem value="edicao">Apenas Edições (✎)</SelectItem>
                 <SelectItem value="exclusao">Apenas Exclusões (✕)</SelectItem>
               </SelectContent>
@@ -234,12 +266,13 @@ export function Logs(): React.JSX.Element {
                 {registros.slice(0, 500).map((r) => {
                   const criacao = ehCriacao(r.Campo_Alterado);
                   const exclusao = ehExclusao(r.Campo_Alterado);
+                  const ocultacao = ehOcultacao(r.Campo_Alterado, r.Valor_Novo, r.Valor_Antigo);
 
                   return (
                     <tr
                       key={r.ID_Log}
                       className={`even:bg-[var(--zebra)] hover:bg-accent-tint/40 transition-colors ${
-                        criacao ? 'bg-green/5' : exclusao ? 'bg-red/5' : ''
+                        criacao ? 'bg-green/5' : exclusao ? 'bg-red/5' : ocultacao ? 'bg-amber-500/5' : ''
                       }`}
                     >
                       <td className="px-3 py-2.5 font-mono font-bold text-accent" style={{ color: "var(--accent, #3ecf8e)" }}>
@@ -263,6 +296,11 @@ export function Logs(): React.JSX.Element {
                             <Trash2 className="h-3 w-3 shrink-0" />
                             Exclusão de Nota
                           </span>
+                        ) : ocultacao ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                            <EyeOff className="h-3 w-3 shrink-0" />
+                            Ocultação de Nota
+                          </span>
                         ) : (
                           <span className="font-semibold text-foreground">
                             {r.Campo_Alterado}
@@ -279,6 +317,10 @@ export function Logs(): React.JSX.Element {
                           </span>
                         ) : exclusao ? (
                           <span className="text-red dark:text-red-2 font-medium">
+                            {r.Valor_Novo || '—'}
+                          </span>
+                        ) : ocultacao ? (
+                          <span className="text-amber-600 dark:text-amber-400 font-semibold">
                             {r.Valor_Novo || '—'}
                           </span>
                         ) : (
