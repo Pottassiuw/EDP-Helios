@@ -18,7 +18,7 @@ import {
 import type { Celula, EdicaoResultado, InputDataset, NotaInput } from './types';
 import { InputApi, getUsuario, baixarBlob } from './api';
 import { toast } from 'sonner';
-import { aplicarFiltros, parseBuscaGlobal, ehNotaOculta, buscarNotasOcultas, parseColagemTsv } from './lib';
+import { aplicarFiltros, ehNotaOculta, buscarNotasOcultas, parseColagemTsv } from './lib';
 import { COLUNAS, COLUNAS_COLAGEM, ROTULOS } from './columns';
 import { type FiltersState } from './filters';
 import { DataGrid } from './data-grid';
@@ -71,21 +71,23 @@ export function filtrarRegistros(registros: NotaInput[], estado: FiltersState): 
 
   const buscaStr = estado.busca.trim();
   if (buscaStr !== '') {
-    const numeros = parseBuscaGlobal(buscaStr);
-    if (numeros.length > 0) {
-      const setNums = new Set(numeros);
-      const setNumsStr = new Set(numeros.map(String));
-      resultado = resultado.filter((r) => {
-        const idNota = r.Numero_Nota;
-        const maeStr = String(r.Nota_Mae ?? '').trim();
-        return setNums.has(idNota) || setNumsStr.has(maeStr);
-      });
-    } else {
-      const query = buscaStr.toLowerCase();
-      resultado = resultado.filter((r) =>
-        Object.values(r).some((v) => String(v ?? '').toLowerCase().includes(query))
+    const query = buscaStr.toLowerCase();
+    const termos = buscaStr.split(/[ ,;]+/).map((s) => s.trim()).filter(Boolean);
+    const numeros = termos.filter((s) => /^\d+$/.test(s)).map(Number);
+    const setNums = new Set(numeros);
+
+    resultado = resultado.filter((r) => {
+      const idNota = r.Numero_Nota;
+      const idStr = String(idNota);
+      const maeStr = String(r.Nota_Mae ?? '').trim();
+
+      if (setNums.has(idNota) || setNums.has(Number(maeStr))) return true;
+      if (idStr.includes(query) || maeStr.includes(query)) return true;
+
+      return Object.values(r).some((v) =>
+        v !== null && v !== undefined && String(v).toLowerCase().includes(query)
       );
-    }
+    });
   }
 
   if (estado.somente2026) {

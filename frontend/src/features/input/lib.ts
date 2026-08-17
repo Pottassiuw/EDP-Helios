@@ -271,16 +271,22 @@ export function ehNotaOculta(nota: Partial<NotaInput>): boolean {
 export function buscarNotasOcultas(registros: NotaInput[], buscaStr: string): NotaInput[] {
   const query = buscaStr.trim();
   if (!query) return [];
-  const numeros = parseBuscaGlobal(query);
-  if (numeros.length > 0) {
-    const setNums = new Set(numeros);
-    const setNumsStr = new Set(numeros.map(String));
-    return registros.filter((r) =>
-      ehNotaOculta(r) && (setNums.has(r.Numero_Nota) || setNumsStr.has(String(r.Nota_Mae ?? '').trim()))
-    );
-  }
   const qLower = query.toLowerCase();
-  return registros.filter((r) =>
-    ehNotaOculta(r) && Object.values(r).some((v) => String(v ?? '').toLowerCase().includes(qLower))
-  );
+  const termos = query.split(/[ ,;]+/).map((s) => s.trim()).filter(Boolean);
+  const numeros = termos.filter((s) => /^\d+$/.test(s)).map(Number);
+  const setNums = new Set(numeros);
+
+  return registros.filter((r) => {
+    if (!ehNotaOculta(r)) return false;
+    const idNota = r.Numero_Nota;
+    const idStr = String(idNota);
+    const maeStr = String(r.Nota_Mae ?? '').trim();
+
+    if (setNums.has(idNota) || setNums.has(Number(maeStr))) return true;
+    if (idStr.includes(query) || maeStr.includes(query)) return true;
+
+    return Object.values(r).some((v) =>
+      v !== null && v !== undefined && String(v).toLowerCase().includes(qLower)
+    );
+  });
 }
