@@ -1,6 +1,7 @@
 """Caminho canônico de escrita do módulo Input (reusado por rotas e integração)."""
 import datetime
 import os
+import tempfile
 import threading
 
 import pandas as pd
@@ -131,8 +132,9 @@ def atualizar_medidas_excel_local(lista_correcao: list[dict], relatorio_sap: lis
     if not os.path.exists(caminho):
         print(f"Aviso: Planilha IW66 local não encontrada em '{caminho}'. Ignorando atualização de arquivo físico.")
         return
+    temporario = None
     try:
-        df_m = pd.read_excel(caminho)
+        df_m = pd.read_excel(caminho, engine="openpyxl")
         df_m['Nota'] = df_m['Nota'].fillna(0).astype(int).astype(str)
         
         for res in relatorio_sap:
@@ -154,12 +156,21 @@ def atualizar_medidas_excel_local(lista_correcao: list[dict], relatorio_sap: lis
                     nova_linha['Nº de ordenação'] = valor_m_ou_un
                     df_m = pd.concat([df_m, pd.DataFrame([nova_linha])], ignore_index=True)
                     
-        # Salva na rede
-        df_m.to_excel(caminho, index=False)
-        # Salva no SQLite local
+        diretorio = os.path.dirname(os.path.abspath(caminho))
+        with tempfile.NamedTemporaryFile(
+                dir=diretorio, prefix=".iw66_", suffix=".xlsx", delete=False) as arquivo:
+            temporario = arquivo.name
+        df_m.to_excel(temporario, index=False, engine="openpyxl")
+        pd.read_excel(temporario, engine="openpyxl")
+        os.replace(temporario, caminho)
+        temporario = None
         db.salvar_base_dataframe("base_iw66", df_m)
-    except Exception as e:
-        print(f"Erro ao atualizar planilha IW66 local: {e}")
+    finally:
+        if temporario and os.path.exists(temporario):
+            try:
+                os.remove(temporario)
+            except OSError as erro:
+                print(f"Erro ao remover temporário IW66 '{temporario}': {erro}")
 
 
 def executar_correcao_medidas(
