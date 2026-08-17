@@ -124,6 +124,32 @@ def _nota(numero=1000, **extras):
     return base
 
 
+def test_status10_resumo_serializa_ausentes_com_json_estrito(monkeypatch):
+    import json
+    from input_module import status10_service
+
+    monkeypatch.setattr(
+        status10_service.db,
+        "carregar_dados",
+        lambda: pd.DataFrame([
+            _nota(1000, Planejado_DDPM=float("nan"), Modular=float("nan"),
+                  Regional=None, Conjunto=None, Observacao=None,
+                  Data_Envio_Projeto=float("nan")),
+        ]),
+    )
+
+    resumo = status10_service.obter_resumo_status10()
+    payload = json.dumps(resumo, allow_nan=False)
+
+    assert json.loads(payload)["registros"][0]["Observacao"] is None
+
+
+def test_status10_rotulo_planejado_usa_unidade_de_quantidade():
+    from input_module.status10_service import rotulos_resumo_status10
+
+    assert rotulos_resumo_status10()["Total_Planejado"] == "Total Planejado (un)"
+
+
 def test_upsert_e_carregar(banco_temporario):
     from input_module import db
     db.salvar_em_massa(pd.DataFrame([_nota(1000), _nota(1001, Conjunto="SUZANO")]))

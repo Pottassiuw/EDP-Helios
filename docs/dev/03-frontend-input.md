@@ -24,11 +24,12 @@ enquanto o usuário está com a tela aberta.
 | `frontend/src/features/input/logs.tsx` | Sub-aba "Logs": três sub-abas (Alterações nas Notas, Bases de Apoio, Linha do Tempo), cada uma consumindo um endpoint próprio via `useQuery`. |
 | `frontend/src/features/input/settings.tsx` | Sub-aba "Configurações": nome do usuário (log de auditoria), responsáveis por conjunto, status/substituição das bases de apoio, lista de backups locais para download. |
 | `frontend/src/features/input/notes-table.tsx` | Tabela windowed (virtualização manual por `scrollTop`) usada nos modos editáveis/selecionáveis de `manage.tsx`/`ramal.tsx`: seleção por checkbox, edição inline por duplo clique, ordenação por coluna. Se recebe `bloqueios`/`onIniciarEdicao`, mostra um badge de cadeado na linha travada por outro usuário e intercepta o clique de edição para travar a nota antes de abrir a célula. |
-| `frontend/src/features/input/use-bloqueios.ts` | `useBloqueios`: polling de `GET /bloqueios` a cada 15s (React Query, sem cache em disco — é estado efêmero de TTL curto), devolve um `Map<Numero_Nota, Bloqueio>` e uma função `recarregar` para invalidar sob demanda (chamada logo após travar/destravar, sem esperar o próximo tick). |
+| `frontend/src/features/input/use-bloqueios.ts` | `useBloqueios`: polling React Query de `GET /bloqueios` a cada 60s em repouso e 15s enquanto há edição com lock ativo. Sem cache em disco; devolve um `Map<Numero_Nota, Bloqueio>` e `recarregar` para invalidar imediatamente após travar/destravar. |
 | `frontend/src/features/input/hierarquia-card.tsx` | Card de vínculo manual de hierarquia (nota-mãe/notas-filhas): busca a hierarquia de uma nota, lista candidatas órfãs do mesmo conjunto e aplica o vínculo (`InputApi.vincularHierarquia`). |
 | `frontend/src/features/input/data-grid.tsx` | Grid somente-leitura estilo Excel sobre `react-datasheet-grid`: ordenação, redimensionamento/autofit de colunas por arraste, barra de status com soma/média/contagem da seleção e a ação de detalhes fixa criada por `stickyRightColumn`, fora de `COLUNAS` e da exportação. |
 | `frontend/src/features/input/input-nota-inspector.tsx` | `InputNotaInspector`: `Sheet` read-only aberto pela ação fixa da grade; mostra primeiro dez campos presentes em `NotaInput` e depois reutiliza `CarteiraEnriquecimentoCard` por `Numero_Nota`, sem persistir ou criar colunas enriquecidas no Input. |
-| `frontend/src/features/input/use-input-data.ts` | Hooks de dados da base principal: `useInputData` (React Query, exporta a chave `INPUT_DADOS_KEY` para outros hooks/features invalidarem o mesmo cache), `useRecarregarInput` (invalidação), `useSincronizacaoAutomatica` (polling que detecta alteração feita em outra sessão e revalida em background) e `useNetworkSync` (estado da rede no cabeçalho). |
+| `frontend/src/features/input/use-input-data.ts` | Hooks de dados da base principal: `useInputData` (React Query + snapshot IndexedDB, exporta `INPUT_DADOS_KEY`) e `useRecarregarInput` (invalidação). |
+| `frontend/src/features/input/use-input-sync.ts` | Fonte única de polling de `GET /sync` por aba Input montada: 60s em repouso e 3s somente quando `sincronizando=true`; detecta mudança de versão, invalida o dataset, expõe erro/retry ao cabeçalho e mantém o aviso de fechamento durante operação ativa. |
 | `frontend/src/features/input/network-sync-status.tsx` | Card apresentacional do cabeçalho para os quatro estados da rede: verificando, sincronizando, sincronizada e indisponível. |
 | `frontend/src/features/input/cache.ts` | Snapshots do dataset em IndexedDB via Dexie (tabela `snapshots`, uma linha por dataset: `input-dados`, `ramal-dados`). Best-effort: falha de IndexedDB equivale a cache vazio. |
 | `frontend/src/features/input/ui.ts` | Constantes de estilo compartilhadas: `CLASSE_SELECT_MONO` para `SelectContent` mono-styling, usada por `filters.tsx`, `manage.tsx` e `ramal.tsx`. Nota: `MesExecucaoPicker` (agora em `components/branded/`) declara sua própria instância internamente. |
@@ -136,8 +137,10 @@ mostra esse banner para a base principal, e `ramal.tsx:201-205` replica
 o mesmo padrão na aba Ramal (erro bloqueante só quando
 `error != null && !dadosRamal`, `ramal.tsx:196-200`), que antes não
 tinha essa paridade. O cache não participa de escrita de notas (edições
-continuam exigindo backend); o poll de `/sync` segue sendo o
-invalidador entre sessões.
+continuam exigindo backend); o poll unificado de `/sync` segue sendo o
+invalidador entre sessões. A estratégia de polling não altera nem apaga o dado
+semeado: uma falha de `/sync` aparece no cabeçalho enquanto o dataset salvo
+permanece disponível no cache do React Query.
 
 ## Fluxo: Edição em lote (manage.tsx)
 
@@ -171,7 +174,9 @@ No modo "Edição Rápida", `manage.tsx` passa `bloqueios` (de `useBloqueios`),
 edição; se outra pessoa já está editando a nota, a `NotesTable` mostra um
 `toast.warning` e nunca chama `onIniciarEdicao` (checagem local pelo mapa já
 carregado) — `onIniciarEdicao` só é chamado, e só falha, na corrida rara em
-que o mapa local está desatualizado (poll de 15s) e o backend recusa o lock.
+que o mapa local está desatualizado e o backend recusa o lock. O poll usa 60s
+em repouso e volta ao intervalo de 15s enquanto `edicoes.size > 0`; travar e
+destravar continuam invalidando a query imediatamente.
 As notas travadas por outro usuário ganham um badge de cadeado na coluna
 "Nº Nota" e uma borda âmbar na linha inteira.
 
@@ -257,10 +262,10 @@ endpoint). O botão não guarda estado de "rodando" — não fica desabilitado
 enquanto a sincronização está em andamento (ver "Pontos de atenção").
 
 Como a sincronização roda em background e pode ser disparada por
-qualquer sessão, `use-input-data.ts:25-43` mantém um polling próprio
-para detectar quando os dados mudaram em outro lugar: a cada `60_000ms`
-(`window.setInterval(..., 60_000)`), `useSincronizacaoAutomatica` chama
-`InputApi.sync()` e compara `s.versao` (`db.obter_versao_dataset()`,
+qualquer sessão, `use-input-sync.ts` mantém uma única query React Query por
+aba Input montada. Ela chama `InputApi.sync()` a cada 60s em repouso e a cada
+3s somente enquanto a resposta informa `sincronizando=true`, e compara
+`s.versao` (`db.obter_versao_dataset()`,
 Tarefa 13) com o valor conhecido (`dados?.meta.versao`, passado por
 `input-section.tsx`); se mudou, dispara um `toast.info` avisando o
 usuário e invalida `INPUT_DADOS_KEY` (`qc.invalidateQueries`) — a
@@ -291,7 +296,8 @@ array literal `['input-dados']`.
 
 ### Status da rede no cabeçalho
 
-`useNetworkSync` consulta `GET /sync` ao montar e a cada 3 segundos. O
+`useInputSync` alimenta o status a partir da mesma query que detecta mudanças;
+não há um segundo timer para o cabeçalho. O
 retorno é um estado discriminado: `verificando`, `sincronizando`,
 `sincronizada` ou `indisponivel`. Apenas uma resposta bem-sucedida com
 `sincronizando=false` produz o card verde "Sincronizada". Enquanto a
@@ -321,10 +327,11 @@ o Input em si não guarda essa informação.
 
 | Valor | Onde | O que faz |
 |---|---|---|
-| `60_000ms` | `use-input-data.ts:29` | Polling de `InputApi.sync()` (`useSincronizacaoAutomatica`); compara `versao` com o valor conhecido e, se mudou, avisa via `toast.info` e invalida `INPUT_DADOS_KEY` em background. |
+| `60_000ms` | `use-input-sync.ts` | Intervalo de repouso da única query de `InputApi.sync()`; compara `versao`, atualiza o status e invalida `INPUT_DADOS_KEY` quando necessário. |
+| `3_000ms` | `use-input-sync.ts` | Intervalo curto de `/sync`, usado somente enquanto o backend informa `sincronizando=true`. |
 | `300_000ms` | `use-input-data.ts:12` | `staleTime` da query `useInputData` (React Query): por 5 minutos os dados carregados são considerados "frescos" e não disparam refetch automático em background (o default global de 60s do `QueryClient`, ver `04-frontend-shared.md`, não se aplica aqui). |
 | `300_000ms` | `use-ramal-data.ts:8` | `staleTime` da query `useRamalData`, mesmo racional do `useInputData` acima — dataset separado (base "Ramal"), mesma cadência de frescor. |
-| `15_000ms` | `use-bloqueios.ts` | Polling de `GET /bloqueios` (`useBloqueios`); mais curto que o dataset principal porque um lock é estado efêmero (TTL de minutos) — precisa refletir mudanças rápido para o badge/toast de conflito fazerem sentido. |
+| `60_000ms` / `15_000ms` | `use-bloqueios.ts` | Polling de `GET /bloqueios`: repouso / edição inline com lock ativo. Invalidações de travar/destravar continuam imediatas. |
 
 ## Pontos de atenção
 
@@ -352,13 +359,6 @@ o Input em si não guarda essa informação.
   sincronizações em paralelo no backend, diferente do botão "Exportar
   Excel" logo ao lado, que usa `exportando` para se desabilitar
   (`overview.tsx:25,67-70`).
-- `use-input-data.ts:39` — falhas do polling de sincronização são
-  silenciadas (`.catch(() => {})`) com o comentário "o erro aparece no
-  fluxo principal"; mas se apenas o polling falhar (ex.: `/sync`
-  intermitente) enquanto o carregamento principal continua ok, o
-  usuário não tem nenhuma indicação de que a checagem de sincronização
-  parou de funcionar (não há mais banner ligado a esse estado — a
-  falha simplesmente não gera o `toast.info` de aviso).
 - `app.css` (bloco `.input-scope`) — os cards do módulo Input usam a
   borda `--line` (hairline discreto) em vez de `--line-2` (usada em
   todo o resto do app), e os `Select` internos renderizam em

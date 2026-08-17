@@ -2,7 +2,8 @@ import React from 'react';
 import type { AbaInput } from './types';
 import { toast } from 'sonner';
 import { getUsuario, setUsuario, InputApi } from './api';
-import { useSincronizacaoAutomatica, useInputData, useRecarregarInput, useNetworkSync } from './use-input-data';
+import { useInputData, useRecarregarInput } from './use-input-data';
+import { useInputSync } from './use-input-sync';
 import { Loader2, RefreshCw, AlertTriangle } from 'lucide-react';
 import { Overview } from './overview';
 import { Manage } from './manage';
@@ -49,7 +50,7 @@ export function InputSection({
     }
     return FILTROS_INICIAIS;
   });
-  const { estado: estadoRede, tentarNovamente } = useNetworkSync();
+  const { estado: estadoRede, tentarNovamente } = useInputSync(dados?.meta.versao);
 
   React.useEffect(() => {
     try {
@@ -71,7 +72,6 @@ export function InputSection({
     if (filtrosHandoff) setEstadoFiltros(filtrosHandoff.estado);
   }, [filtrosHandoff?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useSincronizacaoAutomatica(dados?.meta.versao);
   const basesAusentes = dados?.meta.bases.filter((b) => !b.encontrada) ?? [];
   const clearFilters = React.useCallback(() => setEstadoFiltros(FILTROS_INICIAIS), []);
 

@@ -62,7 +62,6 @@ interface ManageProps {
 export function Manage({ dados, estadoFiltros, onClearFilters }: ManageProps): React.JSX.Element {
   const recarregar = useRecarregarInput();
   const usuarioAtual = getUsuario();
-  const { mapa: bloqueios, recarregar: recarregarBloqueios } = useBloqueios();
   const [base, setBase] = React.useState<'geral' | 'ramal'>('geral');
   const [modo, setModo] = React.useState<Modo>('rapida');
   const [agruparGavetinhas, setAgruparGavetinhas] = React.useState(true);
@@ -75,6 +74,7 @@ export function Manage({ dados, estadoFiltros, onClearFilters }: ManageProps): R
   const [loteMes, setLoteMes] = React.useState('');
   const [novaNota, setNovaNota] = React.useState<Record<string, string>>({ ...NOTA_VAZIA });
   const [textoColagem, setTextoColagem] = React.useState('');
+  const { mapa: bloqueios, recarregar: recarregarBloqueios } = useBloqueios(edicoes.size > 0);
 
   const filtrados = React.useMemo(
     () => filtrarRegistros(dados.registros, estadoFiltros), [dados.registros, estadoFiltros]);
