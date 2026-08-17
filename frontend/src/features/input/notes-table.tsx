@@ -386,6 +386,8 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
       );
     }
 
+    // Demais colunas
+    const estaExpandido = expandidos.has(r.Numero_Nota);
     const COLUNAS_SOMA_HIERARQUICA = new Set([
       "Planejado_DDPM",
       "Total_planejado_ordem",
@@ -393,8 +395,6 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
       "Modular",
       "Total_planejado_modular",
     ]);
-
-    const estaExpandido = expandidos.has(r.Numero_Nota);
     const deveSomarHierarquia =
       item.temFilhas && !estaExpandido && COLUNAS_SOMA_HIERARQUICA.has(c.key);
 
@@ -413,10 +413,10 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
     }
 
     const tentarEditar = async (): Promise<void> => {
-      const bloqueio = bloqueioDeOutro(r.Numero_Nota);
-      if (bloqueio) {
-        toast.warning(`Nota ${r.Numero_Nota} em edição por ${bloqueio.Usuario}`, {
-          description: `Desde ${formatarDataHora(bloqueio.Data_Hora)} — aguarde a liberação para editar.`,
+      const b = bloqueioDeOutro(r.Numero_Nota);
+      if (b) {
+        toast.warning(`Nota ${r.Numero_Nota} em edição por ${b.Usuario}`, {
+          description: `Desde ${formatarDataHora(b.Data_Hora)} — aguarde a liberação para editar.`,
         });
         return;
       }
@@ -432,12 +432,11 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
         key={c.key}
         title={
           tooltipSoma ??
-          (editavel ? "Clique ou duplo clique para editar" : undefined)
+          (editavel ? "Duplo clique para editar" : undefined)
         }
-        onClick={editavel ? () => { void tentarEditar(); } : undefined}
         onDoubleClick={editavel ? () => { void tentarEditar(); } : undefined}
         className={`whitespace-nowrap overflow-hidden text-ellipsis max-w-[320px] h-[32px] text-[12.5px] border-b-[1px] border-b-line ${
-          editavel ? "hover:bg-accent/10 transition-colors" : ""
+          editavel ? "hover:bg-accent/10 transition-colors select-none" : ""
         }`}
         style={{
           cursor: editavel ? "pointer" : "default",
