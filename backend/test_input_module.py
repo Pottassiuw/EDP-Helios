@@ -2278,6 +2278,38 @@ def _xlsx_controle(caminho, meta_jan=17.0, com_postergadas=True):
         gc.collect()
 
 
+def test_caminho_controle_recomposicao_dinamico(monkeypatch, tmp_path):
+    from pathlib import Path
+    from input_module import config
+
+    # 1. Variável de ambiente explícita vence
+    override = tmp_path / "custom" / "Controle.xlsx"
+    monkeypatch.setenv("CONTROLE_RECOMPOSICAO_PATH", str(override))
+    assert config.caminho_controle_recomposicao() == override
+
+    # 2. Sem variável de ambiente, descobre arquivo existente sob a pasta do usuário
+    monkeypatch.delenv("CONTROLE_RECOMPOSICAO_PATH", raising=False)
+    fake_home = tmp_path / "user_home"
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+    monkeypatch.setenv("USERPROFILE", str(fake_home))
+
+    subcaminho = (
+        fake_home
+        / "EDP"
+        / "O365_Planejamento_Manutencao_EDP_Brasil - Documentos"
+        / "PLANO RECOMPOSIÇÃO"
+        / "SP"
+        / "2026"
+        / "Controle Plano de Recomposição 2026.xlsx"
+    )
+    subcaminho.parent.mkdir(parents=True, exist_ok=True)
+    subcaminho.write_text("teste", encoding="utf-8")
+
+    resolvido = config.caminho_controle_recomposicao()
+    assert resolvido == subcaminho
+    assert "e713611" not in str(resolvido)
+
+
 def test_metas_sincronizar(banco_temporario, monkeypatch, tmp_path):
     from input_module import config, db, metas
     arquivo = tmp_path / "Controle.xlsx"
