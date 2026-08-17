@@ -45,6 +45,6 @@ export function useInputData() {
 export function useRecarregarInput(): () => Promise<void> {
   const qc = useQueryClient();
   return React.useCallback(async () => {
-    await qc.invalidateQueries({ queryKey: INPUT_DADOS_KEY });
+    await qc.refetchQueries({ queryKey: INPUT_DADOS_KEY, type: 'active' });
   }, [qc]);
 }
