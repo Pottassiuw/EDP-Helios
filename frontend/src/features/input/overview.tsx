@@ -634,14 +634,7 @@ export function Overview({
                 registros={filtrados}
                 todosOsRegistros={dados.registros}
                 colunas={COLUNAS}
-                edicoes={edicoes}
-                onEditar={onEditar}
-                statusOpcoes={dados.meta.status_opcoes}
-                prioridadeOpcoes={dados.meta.prioridade_opcoes}
                 agruparGavetinhas={true}
-                bloqueios={bloqueios}
-                usuarioAtual={usuarioAtual}
-                onIniciarEdicao={onIniciarEdicao}
                 onOpenDetails={abrirDetalhes}
               />
             )}

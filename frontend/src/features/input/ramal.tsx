@@ -381,10 +381,6 @@ export function Ramal({
                 registros={registrosComoNotaInput}
                 todosOsRegistros={registrosComoNotaInput}
                 colunas={COLUNAS_RAMAL}
-                edicoes={edicoes as unknown as Map<number, Partial<NotaInput>>}
-                onEditar={onEditar}
-                statusOpcoes={dadosPrincipais.meta.status_opcoes}
-                prioridadeOpcoes={dadosPrincipais.meta.prioridade_opcoes}
                 agruparGavetinhas={true}
               />
             )}
