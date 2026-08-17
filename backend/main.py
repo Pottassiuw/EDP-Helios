@@ -342,6 +342,8 @@ def enriquecer_candidatos_externos(records: list[dict]) -> None:
             cand["latitude"] = nota.get("latitude")
             cand["longitude"] = nota.get("longitude")
             cand["carteira_ausente_em"] = nota.get("ausente_na_origem_em")
+            cand["observacao"] = nota.get("observacao")
+            cand["referencia_eletrica"] = nota.get("referencia_eletrica")
 
 
 def montar_registros_triagem(df: pd.DataFrame) -> list[dict]:

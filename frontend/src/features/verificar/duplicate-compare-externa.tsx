@@ -16,6 +16,7 @@ const SCORE_FIELDS: ScoreFieldDef[] = [
   { key: 'local_instalacao', label: 'Local instal.' },
   { key: 'poste', label: 'Poste(s)' },
   { key: 'referencia', label: 'Referência' },
+  { key: 'referencia_eletrica', label: 'Referência elétrica' },
 ];
 const CONTEXT_FIELDS: ContextFieldDef[] = [
   { label: 'Status SAP', get: (candidate) => candidate.status_sap ?? '' },
@@ -28,6 +29,7 @@ export interface ConsultaCampos {
   problema: string | null;
   poste: string | null;
   referencia: string | null;
+  referencia_eletrica: string | null;
   observacao: string | null;
 }
 
@@ -43,6 +45,7 @@ export function mergeConsultaCampos(candidate: DuplicateCandidate, consulta: Con
     problema: valorConsultado(consulta.problema, candidate.problema) ?? '',
     poste: valorConsultado(consulta.poste, candidate.poste) ?? '',
     referencia: valorConsultado(consulta.referencia, candidate.referencia) ?? '',
+    referencia_eletrica: valorConsultado(consulta.referencia_eletrica, candidate.referencia_eletrica),
     observacao: valorConsultado(consulta.observacao, candidate.observacao),
   };
 }
@@ -54,7 +57,7 @@ function ComparisonGrid({ note, candidate, showContext }: { note: Note; candidat
       <div className="dupc-colh">Esta nota · {note.id}</div>
       <div className="dupc-colh">Candidata · {candidate.id}</div>
       {SCORE_FIELDS.map((field) => (
-        <CompareRow key={field.key} label={field.label} open={note[field.key]} cand={candidate[field.key]} keyField={true} />
+        <CompareRow key={field.key} label={field.label} open={note[field.key] ?? ""} cand={candidate[field.key] ?? ""} keyField={true} />
       ))}
       <CompareRow label="Observação" open={note.observacao ?? ''} cand={candidate.observacao ?? ''} keyField={false} />
       {showContext && CONTEXT_FIELDS.map((field) => (
@@ -76,6 +79,7 @@ export function ExternalCandidateCard({ note, candidate }: ExternalCandidateCard
         problema: resposta.problema,
         poste: resposta.poste,
         referencia: resposta.referencia,
+        referencia_eletrica: resposta.referencia_eletrica,
         observacao: resposta.observacao,
       };
     },

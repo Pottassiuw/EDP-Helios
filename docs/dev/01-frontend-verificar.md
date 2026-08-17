@@ -93,6 +93,15 @@ quando presente e caem para o valor da consulta COFFEE quando o dado bruto
 da triagem vier vazio. Referência elétrica só existe do lado COFFEE (não faz
 parte do contrato de `Note`).
 
+Quando o texto de Referência elétrica cita um ou mais equipamentos no
+formato `TIPO-número` (ex.: `FF-655816`), a linha ganha um chip por
+equipamento reconhecido — com botão de copiar o código (`referencia-
+eletrica.ts: extrairEquipamentos`) — pra facilitar a busca do equipamento no
+COFFEE. `TIPO` é validado contra o depara de tipos de equipamento
+(`GET /coffee/tipos-equipamento`, o mesmo usado na correção de local de
+instalação); o número é completado com zeros à esquerda até 8 dígitos, igual
+`local_instalacao`. Texto sem menção reconhecível não mostra chip nenhum.
+
 **Ficha completa (COFFEE)** (`nota-ficha-completa.tsx`) é a seção de
 informações adicionais, no rodapé do detalhe — depois de
 Identificação, correção de local e falhas, não antes. Ela não repete os
@@ -143,12 +152,13 @@ COFFEE não vazios reaparecem; atualizar a página ou encerrar a sessão descart
 esse enriquecimento temporário. Isso permite comparar uma candidata ausente da
 Carteira sem esperar uma sincronização em lote.
 
-A evidência de possível duplicata usa os quatro campos pontuados Problema (2),
-Local de instalação (1,6), Poste (1,3) e Referência física (1,1), normalizada
-pelo peso dos campos disponíveis. Observação fica lado a lado para decisão
-humana, mas não entra no score. Uma regra `chk_*` que afete um desses campos
-reduz apenas aquele peso para 1; sentinelas/valores ausentes não são match nem
-diferença. A faixa exige cobertura suficiente e ao menos dois matches: Forte
+A evidência de possível duplicata usa os cinco campos pontuados Problema (2),
+Referência elétrica (2), Local de instalação (1,6), Poste (1,3) e Referência
+física (1,1) — peso total 8 —, normalizada pelo peso dos campos disponíveis.
+Observação fica lado a lado para decisão humana, mas não entra no score. Uma
+regra `chk_*` que afete um desses campos reduz apenas aquele peso para 1;
+sentinelas/valores ausentes não são match nem diferença. A faixa exige
+cobertura suficiente e ao menos dois matches: Forte
 (verde), Possível (âmbar), Distinta (vermelho) ou Evidência insuficiente
 (índigo). A fila usa o melhor indicador com evidência entre as candidatas e
 mostra a cobertura visível como `NN% cob.`; o card explica percentual,
@@ -201,7 +211,9 @@ O filtro **Gerada por** alterna entre **Todos** e **Inspetores ES/SP**. O
 segundo escopo mantém somente notas cujo gerador esteja no De-Para, tenha UF
 `ES` ou `SP` e a permissão `inspetor_planejamento`. Só então aparece o filtro
 **Inspetor**: suas opções são os geradores desse escopo, deduplicadas por
-matrícula e exibidas como nome e UF. A fila sempre mostra nome e UF de quem
+matrícula e exibidas como nome e UF — restritas ao **Estado (UF)** já
+selecionado no outro filtro (`inspetorOptions`, `dashboard.tsx`); com UF em
+"Todos", cobre todos os estados. A fila sempre mostra nome e UF de quem
 gerou a nota e sinaliza matrículas não cadastradas no De-Para.
 
 Em Concluídas, a lista informa quando a nota veio de Verificar e quando foi
