@@ -18,7 +18,8 @@ import { InputApi, baixarBlob } from './api';
 import { toast } from 'sonner';
 import { parseColagemTsv } from './lib';
 import { COLUNAS_RAMAL, COLUNAS_COLAGEM_RAMAL, ROTULOS_RAMAL } from './columns-ramal';
-import { useRamalData, useRecarregarRamal } from './use-ramal-data';
+import { useRamalData, useRecarregarRamal, RAMAL_KEY } from './use-ramal-data';
+import { useQueryClient } from '@tanstack/react-query';
 import { DataGrid } from './data-grid';
 import { NotesTable } from './notes-table';
 import { MesExecucaoPicker } from '@/components/branded/mes-execucao-picker';
@@ -61,6 +62,7 @@ export function Ramal({
   estadoFiltros?: FiltersState;
 }): React.JSX.Element {
   const { data: dadosRamal, isLoading, error } = useRamalData();
+  const qc = useQueryClient();
   const recarregar = useRecarregarRamal();
 
   const [modo, setModo] = React.useState<ModoRamal>('visao');
@@ -125,17 +127,33 @@ export function Ramal({
 
   async function salvarEdicoes(): Promise<void> {
     if (edicoes.size === 0) return;
+    const edicoesAtuais = new Map(edicoes);
+    setEdicoes(new Map());
+
+    const payload = Array.from(edicoesAtuais.values());
+
+    // Otimista: atualiza cache do ramal imediatamente (0ms)
+    qc.setQueryData<{ registros: NotaRamal[] }>(RAMAL_KEY, (antigo) => {
+      if (!antigo) return antigo;
+      return {
+        ...antigo,
+        registros: antigo.registros.map((r) => {
+          const ed = edicoesAtuais.get(r.Numero_Nota);
+          return ed ? { ...r, ...ed } : r;
+        }),
+      };
+    });
+
     setSalvando(true);
     try {
-      const payload = Array.from(edicoes.values());
       await InputApi.importarRamal(payload);
-      toast.success(`${edicoes.size} nota(s) ramal atualizada(s) com sucesso.`);
-      setEdicoes(new Map());
-      await recarregar();
+      toast.success(`${payload.length} nota(s) ramal atualizada(s) com sucesso.`);
+      void recarregar();
     } catch (e) {
       toast.error('Erro ao salvar alterações do ramal', {
         description: e instanceof Error ? e.message : String(e),
       });
+      void recarregar();
     } finally {
       setSalvando(false);
     }
@@ -159,33 +177,56 @@ export function Ramal({
       return;
     }
 
+    const setNumLote = new Set(numeros);
+    setSelecionados(new Set());
+
+    // Otimista: atualiza cache do ramal imediatamente (0ms)
+    qc.setQueryData<{ registros: NotaRamal[] }>(RAMAL_KEY, (antigo) => {
+      if (!antigo) return antigo;
+      return {
+        ...antigo,
+        registros: antigo.registros.map((r) => {
+          if (!setNumLote.has(r.Numero_Nota)) return r;
+          const patch: Partial<NotaRamal> = {};
+          if (loteStatus) patch.Status_Nota = loteStatus;
+          if (lotePrioridade) patch.Prioridade_Nota = lotePrioridade;
+          if (loteMes.trim()) patch.Mes_Execucao_Planejado = loteMes.trim();
+          if (loteObservacao.trim()) {
+            const obsOrig = String(r.Observacao ?? '').trim();
+            patch.Observacao = obsOrig ? `${obsOrig} | ${loteObservacao.trim()}` : loteObservacao.trim();
+          }
+          return { ...r, ...patch };
+        }),
+      };
+    });
+
+    const payload: Partial<NotaRamal>[] = numeros.map((n) => {
+      const item: Partial<NotaRamal> = { Numero_Nota: n };
+      if (loteStatus) item.Status_Nota = loteStatus;
+      if (lotePrioridade) item.Prioridade_Nota = lotePrioridade;
+      if (loteMes.trim()) item.Mes_Execucao_Planejado = loteMes.trim();
+      if (loteObservacao.trim()) {
+        const original = registros.find((r) => r.Numero_Nota === n);
+        const obsOrig = String(original?.Observacao ?? '').trim();
+        item.Observacao = obsOrig ? `${obsOrig} | ${loteObservacao.trim()}` : loteObservacao.trim();
+      }
+      return item;
+    });
+
     setSalvando(true);
     try {
-      const payload: Partial<NotaRamal>[] = numeros.map((n) => {
-        const item: Partial<NotaRamal> = { Numero_Nota: n };
-        if (loteStatus) item.Status_Nota = loteStatus;
-        if (lotePrioridade) item.Prioridade_Nota = lotePrioridade;
-        if (loteMes.trim()) item.Mes_Execucao_Planejado = loteMes.trim();
-        if (loteObservacao.trim()) {
-          const original = registros.find((r) => r.Numero_Nota === n);
-          const obsOrig = String(original?.Observacao ?? '').trim();
-          item.Observacao = obsOrig ? `${obsOrig} | ${loteObservacao.trim()}` : loteObservacao.trim();
-        }
-        return item;
-      });
-
       await InputApi.importarRamal(payload);
       toast.success(`Lote aplicado com sucesso em ${payload.length} nota(s) ramal.`);
-      setSelecionados(new Set());
       setLoteStatus('');
       setLotePrioridade('');
       setLoteMes('');
       setLoteObservacao('');
-      await recarregar();
+      void recarregar();
     } catch (e) {
       toast.error('Falha ao aplicar lote no ramal', {
         description: e instanceof Error ? e.message : String(e),
       });
+      void recarregar();
     } finally {
       setSalvando(false);
     }
@@ -193,18 +234,30 @@ export function Ramal({
 
   async function confirmarExclusao(_justificativa: string): Promise<void> {
     if (selecionados.size === 0) return;
+    const numeros = Array.from(selecionados);
+    const setExcluir = new Set(numeros);
+    setSelecionados(new Set());
+    setModalExclusao(false);
+
+    // Otimista: remove do cache do ramal imediatamente (0ms)
+    qc.setQueryData<{ registros: NotaRamal[] }>(RAMAL_KEY, (antigo) => {
+      if (!antigo) return antigo;
+      return {
+        ...antigo,
+        registros: antigo.registros.filter((r) => !setExcluir.has(r.Numero_Nota)),
+      };
+    });
+
     setSalvando(true);
     try {
-      const numeros = Array.from(selecionados);
       await InputApi.excluirRamal(numeros);
       toast.success(`${numeros.length} nota(s) ramal excluída(s) com sucesso.`);
-      setSelecionados(new Set());
-      setModalExclusao(false);
-      await recarregar();
+      void recarregar();
     } catch (e) {
       toast.error('Erro ao excluir notas ramal', {
         description: e instanceof Error ? e.message : String(e),
       });
+      void recarregar();
     } finally {
       setSalvando(false);
     }

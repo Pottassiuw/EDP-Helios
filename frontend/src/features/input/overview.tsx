@@ -24,7 +24,8 @@ import { type FiltersState } from './filters';
 import { DataGrid } from './data-grid';
 import { NotesTable } from './notes-table';
 import { InputNotaInspector } from './input-nota-inspector';
-import { useRecarregarInput } from './use-input-data';
+import { useRecarregarInput, INPUT_DADOS_KEY } from './use-input-data';
+import { useQueryClient } from '@tanstack/react-query';
 import { useBloqueios } from './use-bloqueios';
 import { CadastroModal } from './cadastro-modal';
 import { ColagemPlanilha, type AjusteMaeColagem } from './colagem-planilha';
@@ -144,6 +145,7 @@ export function Overview({
   onSetEstadoFiltros,
   onIrParaSincronizacao = () => {},
 }: OverviewProps): React.JSX.Element {
+  const qc = useQueryClient();
   const recarregar = useRecarregarInput();
   const usuarioAtual = getUsuario();
 
@@ -274,29 +276,48 @@ export function Overview({
 
   async function salvarEdicoes(): Promise<void> {
     if (edicoes.size === 0) return;
+    const edicoesAtuais = new Map(edicoes);
+    setEdicoes(new Map());
+
+    const payload = Array.from(edicoesAtuais.entries()).map(([numero, campos]) => ({
+      Numero_Nota: numero,
+      ...campos,
+    }));
+
+    // Atualização otimista imediata no cache (0ms)
+    qc.setQueryData<InputDataset>(INPUT_DADOS_KEY, (antigo) => {
+      if (!antigo) return antigo;
+      return {
+        ...antigo,
+        registros: antigo.registros.map((r) => {
+          const ed = edicoesAtuais.get(r.Numero_Nota);
+          return ed ? { ...r, ...ed } : r;
+        }),
+      };
+    });
+
     setSalvando(true);
     try {
-      const payload = Array.from(edicoes.values());
       const res: EdicaoResultado = await InputApi.editar(payload);
       if (res.bloqueadas && res.bloqueadas.length > 0) {
         toast.warning(`${res.bloqueadas.length} nota(s) estavam travadas e continuam pendentes.`);
         setEdicoes((prev) => {
-          const next = new Map();
+          const next = new Map(prev);
           for (const num of res.bloqueadas) {
-            const ed = prev.get(num);
+            const ed = edicoesAtuais.get(num);
             if (ed) next.set(num, ed);
           }
           return next;
         });
       } else {
-        setEdicoes(new Map());
+        toast.success(`${res.alteradas} nota(s) atualizada(s) com sucesso.`);
       }
-      toast.success(`${res.alteradas} nota(s) atualizada(s) com sucesso.`);
-      await recarregar();
+      void recarregar();
     } catch (e) {
       toast.error('Erro ao salvar alterações', {
         description: e instanceof Error ? e.message : String(e),
       });
+      void recarregar();
     } finally {
       setSalvando(false);
     }
@@ -320,33 +341,56 @@ export function Overview({
       return;
     }
 
+    const setNumLote = new Set(numeros);
+    setSelecionados(new Set());
+
+    // Atualização otimista imediata no cache (0ms)
+    qc.setQueryData<InputDataset>(INPUT_DADOS_KEY, (antigo) => {
+      if (!antigo) return antigo;
+      return {
+        ...antigo,
+        registros: antigo.registros.map((r) => {
+          if (!setNumLote.has(r.Numero_Nota)) return r;
+          const patch: Partial<NotaInput> = {};
+          if (loteStatus) patch.Status_Nota = loteStatus;
+          if (lotePrioridade) patch.Prioridade_Nota = lotePrioridade;
+          if (loteMes.trim()) patch.Mes_Execucao_Planejado = loteMes.trim();
+          if (loteObservacao.trim()) {
+            const obsOrig = String(r.Observacao ?? '').trim();
+            patch.Observacao = obsOrig ? `${obsOrig} | ${loteObservacao.trim()}` : loteObservacao.trim();
+          }
+          return { ...r, ...patch };
+        }),
+      };
+    });
+
+    const payload: Partial<NotaInput>[] = numeros.map((n) => {
+      const item: Partial<NotaInput> = { Numero_Nota: n };
+      if (loteStatus) item.Status_Nota = loteStatus;
+      if (lotePrioridade) item.Prioridade_Nota = lotePrioridade;
+      if (loteMes.trim()) item.Mes_Execucao_Planejado = loteMes.trim();
+      if (loteObservacao.trim()) {
+        const original = dados.registros.find((r) => r.Numero_Nota === n);
+        const obsOrig = String(original?.Observacao ?? '').trim();
+        item.Observacao = obsOrig ? `${obsOrig} | ${loteObservacao.trim()}` : loteObservacao.trim();
+      }
+      return item;
+    });
+
     setSalvando(true);
     try {
-      const payload: Partial<NotaInput>[] = numeros.map((n) => {
-        const item: Partial<NotaInput> = { Numero_Nota: n };
-        if (loteStatus) item.Status_Nota = loteStatus;
-        if (lotePrioridade) item.Prioridade_Nota = lotePrioridade;
-        if (loteMes.trim()) item.Mes_Execucao_Planejado = loteMes.trim();
-        if (loteObservacao.trim()) {
-          const original = dados.registros.find((r) => r.Numero_Nota === n);
-          const obsOrig = String(original?.Observacao ?? '').trim();
-          item.Observacao = obsOrig ? `${obsOrig} | ${loteObservacao.trim()}` : loteObservacao.trim();
-        }
-        return item;
-      });
-
       const res = await InputApi.editar(payload);
       toast.success(`Lote aplicado com sucesso em ${res.alteradas} nota(s).`);
-      setSelecionados(new Set());
       setLoteStatus('');
       setLotePrioridade('');
       setLoteMes('');
       setLoteObservacao('');
-      await recarregar();
+      void recarregar();
     } catch (e) {
       toast.error('Falha ao aplicar lote', {
         description: e instanceof Error ? e.message : String(e),
       });
+      void recarregar();
     } finally {
       setSalvando(false);
     }
@@ -432,18 +476,30 @@ export function Overview({
 
   async function confirmarExclusao(justificativa: string): Promise<void> {
     if (selecionados.size === 0) return;
+    const numeros = Array.from(selecionados);
+    const setExcluir = new Set(numeros);
+    setSelecionados(new Set());
+    setModalExclusao(false);
+
+    // Otimista: remove do cache do React Query instantaneamente (0ms!)
+    qc.setQueryData<InputDataset>(INPUT_DADOS_KEY, (antigo) => {
+      if (!antigo) return antigo;
+      return {
+        ...antigo,
+        registros: antigo.registros.filter((r) => !setExcluir.has(r.Numero_Nota)),
+      };
+    });
+
     setSalvando(true);
     try {
-      const numeros = Array.from(selecionados);
       const res = await InputApi.excluir(numeros, justificativa);
       toast.success(`${res.excluidas} nota(s) excluída(s) com sucesso.`);
-      setSelecionados(new Set());
-      setModalExclusao(false);
-      await recarregar();
+      void recarregar();
     } catch (e) {
       toast.error('Erro ao excluir notas', {
         description: e instanceof Error ? e.message : String(e),
       });
+      void recarregar();
     } finally {
       setSalvando(false);
     }
@@ -451,24 +507,43 @@ export function Overview({
 
   async function confirmarOcultacaoLote(justificativa: string): Promise<void> {
     if (selecionados.size === 0) return;
+    const numeros = Array.from(selecionados);
+    const setOcultar = new Set(numeros);
+    setSelecionados(new Set());
+    setModalOcultacao(false);
+
+    const tagMotivo = `[OCULTA: ${justificativa}]`;
+
+    // Otimista: marca como oculta no cache do React Query instantaneamente (0ms!)
+    qc.setQueryData<InputDataset>(INPUT_DADOS_KEY, (antigo) => {
+      if (!antigo) return antigo;
+      return {
+        ...antigo,
+        registros: antigo.registros.map((r) => {
+          if (!setOcultar.has(r.Numero_Nota)) return r;
+          const obs = String(r.Observacao ?? '').trim();
+          const novaObs = obs ? `${obs} ${tagMotivo}` : tagMotivo;
+          return { ...r, Check: 'Oculta', Observacao: novaObs };
+        }),
+      };
+    });
+
     setSalvando(true);
     try {
-      const tagMotivo = `[OCULTA: ${justificativa}]`;
-      const updates = Array.from(selecionados).map((num) => {
+      const updates = Array.from(setOcultar).map((num) => {
         const original = dados.registros.find((r) => r.Numero_Nota === num);
         const obs = String(original?.Observacao ?? '').trim();
         const novaObs = obs ? `${obs} ${tagMotivo}` : tagMotivo;
         return { Numero_Nota: num, Check: 'Oculta', Observacao: novaObs };
       });
       await InputApi.editar(updates);
-      toast.success(`${selecionados.size} nota(s) marcada(s) como oculta(s).`);
-      setSelecionados(new Set());
-      setModalOcultacao(false);
-      await recarregar();
+      toast.success(`${numeros.length} nota(s) marcada(s) como oculta(s).`);
+      void recarregar();
     } catch (e) {
       toast.error('Erro ao ocultar notas', {
         description: e instanceof Error ? e.message : String(e),
       });
+      void recarregar();
     } finally {
       setSalvando(false);
     }
