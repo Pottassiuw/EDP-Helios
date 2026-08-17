@@ -10,8 +10,19 @@ Reutiliza `databricks_module` para leitura; não fala com o Databricks fora do
   `REGIONAIS_SP` (filtro), `DE_PARA_REGIONAL`, `TAMANHO_CHUNK`.
 - `db.py` — schema `carteira.db` (`nota_carteira` PK `id_onr`,
   `carteira_sync_execucoes`, `carteira_logs`, `carteira_meta`), `versao`, meta.
+  Colunas novas em `nota_carteira` (ex.: `observacao`, `referencia_eletrica`)
+  precisam de `ALTER TABLE ADD COLUMN` idempotente dentro de
+  `inicializar_banco()` (`PRAGMA table_info` + checagem), igual
+  `coffee_module`/`input_module` — `CREATE TABLE IF NOT EXISTS` sozinho não
+  altera um `.db` já existente em disco.
 - `mapping.py` — normalização origem→domínio: de-para regional, derivações
-  (`sap_real`, `quantidade_valida`), `hash_conteudo`, drop de PII.
+  (`sap_real`, `quantidade_valida`), `hash_conteudo`, drop de PII. Pendente:
+  mapear `observacao`/`referencia_eletrica` da origem Databricks — colunas
+  candidatas marcadas "avaliar" em `docs/dev/databricks-schema-discovery.md`,
+  nome não confirmado (`observacoes` plural? par `referencia_fisica`/
+  `referencia_eletrica` ambíguo). `_COLUNAS_NEGOCIO` (`repository.py`) e o
+  schema já aceitam os campos — falta só o `.get(...)` aqui, uma vez
+  confirmado o nome real via acesso ao Databricks.
 - `situacao.py` — função pura: `cancelada`/`executada`/`no_plano`/`fora_do_plano`.
 - `repository.py` — SQL: staging, reconciliação idempotente (insert/update/
   tombstone), listagem (filtros+paginação+situação via TEMP TABLE), resumo e
@@ -57,7 +68,10 @@ explícita: a versão e a nota são lidas da mesma snapshot antes do fechamento.
 `backend/main.py: enriquecer_candidatos_externos()` usa `repository.obter_muitas`
 (não `obter_por_id_sap`) pra cruzar candidatas duplicatas externas do Verificar
 com `nota_carteira` por `id_onr` — o ID das duplicatas do Verificar é o mesmo
-`id_onr` da Carteira, não o `id_sap`. Diferente do enriquecimento por SAP
+`id_onr` da Carteira, não o `id_sap`. `observacao`/`referencia_eletrica` da
+linha da Carteira são copiados pro candidato quando presentes (ficam `NULL`
+até a origem Databricks ser mapeada em `mapping.py` — ver nota abaixo).
+Diferente do enriquecimento por SAP
 (Fase 4B), aqui não há filtro `PII`: o consumidor é interno (mesma equipe que
 já vê `local_instalacao`/coordenadas na planilha Verificar), então a projeção
 inclui `local_instalacao`/`latitude`/`longitude`, além de

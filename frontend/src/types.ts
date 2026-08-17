@@ -64,7 +64,7 @@ export interface NoteError {
 }
 
 // Fields used for side-by-side duplicate comparison
-export type DuplicateField = "local_instalacao" | "poste" | "referencia" | "problema";
+export type DuplicateField = "local_instalacao" | "poste" | "referencia" | "problema" | "referencia_eletrica";
 
 export interface ComparableFields {
   local_instalacao: string;

@@ -1,6 +1,7 @@
 """Serviço para análise e geração de relatórios de Notas em Status 10 (Em Planejamento)."""
 
 import datetime
+import json
 import logging
 import os
 import pandas as pd
@@ -8,6 +9,14 @@ import pandas as pd
 from input_module import config, db
 
 logger = logging.getLogger("Status10Service")
+
+
+def rotulos_resumo_status10() -> dict[str, str]:
+    """Rótulos do relatório, preservando a unidade de quantidade do DDPM."""
+    return {
+        "Total_Planejado": "Total Planejado (un)",
+        "Total_Modular": "Total Modular (R$)",
+    }
 
 
 def eh_status_10(val) -> bool:
@@ -58,8 +67,12 @@ def obter_resumo_status10() -> dict:
     # Agrupa por Regional e Conjunto
     if "Regional" not in df_st10.columns:
         df_st10["Regional"] = "-"
+    else:
+        df_st10["Regional"] = df_st10["Regional"].fillna("-")
     if "Conjunto" not in df_st10.columns:
         df_st10["Conjunto"] = "-"
+    else:
+        df_st10["Conjunto"] = df_st10["Conjunto"].fillna("-")
 
     agrupado = (
         df_st10.groupby(["Regional", "Conjunto"])
@@ -71,8 +84,12 @@ def obter_resumo_status10() -> dict:
         .reset_index()
     )
 
-    resumo_regional = agrupado.to_dict(orient="records")
-    registros = df_st10.to_dict(orient="records")
+    resumo_regional = json.loads(
+        agrupado.to_json(orient="records", force_ascii=False)
+    )
+    registros = json.loads(
+        df_st10.to_json(orient="records", force_ascii=False)
+    )
 
     return {
         "total_notas": total_notas,
@@ -93,13 +110,14 @@ def gerar_email_outlook_status10(usuario: str = "sistema") -> dict:
         }
 
     df_resumo = pd.DataFrame(resumo_dados["resumo_regional"])
+    rotulos = rotulos_resumo_status10()
     df_resumo = df_resumo.rename(
         columns={
             "Regional": "Regional",
             "Conjunto": "Conjunto",
             "Qtd_Notas": "Qtd Notas",
-            "Total_Planejado": "Total Planejado (R$)",
-            "Total_Modular": "Total Modular (R$)",
+            "Total_Planejado": rotulos["Total_Planejado"],
+            "Total_Modular": rotulos["Total_Modular"],
         }
     )
 

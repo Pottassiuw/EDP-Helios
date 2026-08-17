@@ -18,6 +18,8 @@ import { MalhaFinaPanel } from './malha-fina-panel';
 import { LocalInstalacaoCorrection } from './local-instalacao-correction';
 import { NotaFichaCompleta } from './nota-ficha-completa';
 import { useConsultaCoffee } from './use-consulta-coffee';
+import { useTiposEquipamento } from './use-local-instalacao-correction';
+import { extrairEquipamentos } from './referencia-eletrica';
 import { usePersistedState } from '../../hooks/use-persisted-state';
 import { toast } from 'sonner';
 import { Eyebrow } from '@/components/branded/section';
@@ -25,7 +27,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Maximize2, Minimize2, RotateCcw, Check, Coffee, MapPin } from 'lucide-react';
+import { Maximize2, Minimize2, RotateCcw, Check, Coffee, MapPin, Copy } from 'lucide-react';
 
 const URG: Record<UrgBand, string> = { high: "Alta (1–2)", med: "Média (3–4)", low: "Baixa (5+)" };
 function urgBand(p: number): UrgBand { return p <= 2 ? "high" : p <= 4 ? "med" : "low"; }
@@ -62,6 +64,16 @@ function duplicateIndicator(note: Note): { symbol: string; className: string; la
 
 function notaRequerCorrecaoLocal(note: Note): boolean {
   return note.errors.some((error) => regraLocalInstalacao(error.rule));
+}
+
+/** Inspetores únicos disponíveis pra filtro, restritos ao estado (UF) já
+ * selecionado — senão o dropdown lista gente de outro estado que o filtro
+ * de UF já devia ter excluído da fila. */
+export function inspetorOptions(notes: Note[], uf: string): NoteGenerator[] {
+  const relevantes = uf === "all" ? notes : notes.filter((n) => n.uf === uf);
+  const porMatricula = new Map<string, NoteGenerator>();
+  relevantes.forEach((n) => { if (n.gerador?.inspetor) porMatricula.set(n.gerador.matricula, n.gerador); });
+  return [...porMatricula.values()].sort((a, b) => a.nome.localeCompare(b.nome));
 }
 
 export function idsEncaminhaveisEmLote(
@@ -125,11 +137,7 @@ export function Dashboard(props: DashboardProps): React.JSX.Element {
 
   const ufOpts = [...new Set(notes.map((n) => n.uf).filter(Boolean))].sort();
   const setorOpts = [...new Set(notes.map((n) => n.setor).filter(Boolean))].sort();
-  const inspetorOpts = React.useMemo(() => {
-    const porMatricula = new Map<string, NoteGenerator>();
-    notes.forEach((n) => { if (n.gerador?.inspetor) porMatricula.set(n.gerador.matricula, n.gerador); });
-    return [...porMatricula.values()].sort((a, b) => a.nome.localeCompare(b.nome));
-  }, [notes]);
+  const inspetorOpts = React.useMemo(() => inspetorOptions(notes, uf), [notes, uf]);
   const ruleStats: Record<RuleKey, number> = {};
   notes.forEach((n) => n.errors.forEach((e) => { ruleStats[e.rule] = (ruleStats[e.rule] ?? 0) + 1; }));
   const gruposNoveExtra = React.useMemo(() => detectarNoveExtra(notes), [notes]);
@@ -507,12 +515,22 @@ function Detail({ sel, done, dup, encaminhamento, onToggleDone, onMarkDuplicate,
   // LocalInstalacaoCorrection recebem o mesmo resultado por prop, em vez de
   // cada uma observar a query por conta própria.
   const consulta = useConsultaCoffee(sel?.id ?? "");
+  const tiposEquipamento = useTiposEquipamento();
   if (!sel) return <div className="bg-bg-2" />;
   const v = (x: string | number | null | undefined, fb = "—"): string => {
     const s = x == null ? "" : String(x);
     return s === "" || s === "-" ? fb : s;
   };
   const coffee = consulta.data;
+  const equipamentos = extrairEquipamentos(coffee?.referencia_eletrica, tiposEquipamento.data ?? []);
+  async function copiarCodigoEquipamento(codigo: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(codigo);
+      toast.success(`Código ${codigo} copiado para a área de transferência`);
+    } catch {
+      toast.error("Não foi possível copiar automaticamente.");
+    }
+  }
   const fields: Array<{ label: string; value: string; wide?: boolean }> = [
     { label: "Tipo de nota", value: v(sel.tipo_nota) },
     { label: "Referência", value: v(sel.referencia) },
@@ -586,6 +604,17 @@ function Detail({ sel, done, dup, encaminhamento, onToggleDone, onMarkDuplicate,
               <div key={f.label} className="kv" style={f.wide ? { gridColumn: "span 2" } : undefined}>
                 <small>{f.label}</small>
                 <div className="font-mono text-[12.5px] break-words [overflow-wrap:anywhere]">{f.value}</div>
+                {f.label === "Referência elétrica" && equipamentos.length > 0 && (
+                  <div className="flex gap-[6px] flex-wrap mt-[4px]">
+                    {equipamentos.map((eq, i) => (
+                      <Button key={`${eq.codigo}-${i}`} type="button" variant="outline" size="sm"
+                              onClick={() => void copiarCodigoEquipamento(eq.codigo)}
+                              title={eq.descricao ? `${eq.tipo} · ${eq.descricao}` : eq.tipo}>
+                        <Copy /> {eq.tipo} {eq.codigo}
+                      </Button>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>
