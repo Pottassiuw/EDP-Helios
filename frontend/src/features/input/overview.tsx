@@ -6,6 +6,7 @@ import {
   Eye,
   EyeOff,
   PlusCircle,
+  FileSpreadsheet,
   PieChart,
   Mail,
   Undo2,
@@ -52,7 +53,7 @@ const MODOS_NOTAS: SegTab<ModoNotas>[] = [
   { id: 'visao',   rotulo: 'Visão Geral' },
   { id: 'rapida',  rotulo: 'Edição Rápida' },
   { id: 'lote',    rotulo: 'Edição em Lote' },
-  { id: 'colagem', rotulo: 'Colar Planilha' },
+  { id: 'colagem', rotulo: 'Inserir em Massa' },
 ];
 
 type Visualizacao = 'hierarquica' | 'plana';
@@ -501,6 +502,17 @@ export function Overview({
           >
             <PlusCircle className="h-3.5 w-3.5" />
             Nova Nota
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 px-3 text-xs font-semibold gap-1.5 border-line hover:border-accent hover:text-accent"
+            onClick={() => setModo('colagem')}
+            title="Inserir lote de notas em massa colando planilha Excel / TSV"
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5 text-accent" />
+            Inserir em Massa
           </Button>
 
           <Button

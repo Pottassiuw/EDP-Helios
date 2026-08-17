@@ -2,6 +2,7 @@ import React from 'react';
 import {
   Download,
   PlusCircle,
+  FileSpreadsheet,
   Undo2,
   Save,
   Trash2,
@@ -43,7 +44,7 @@ const MODOS_RAMAL: SegTab<ModoRamal>[] = [
   { id: 'visao',   rotulo: 'Visão Geral' },
   { id: 'rapida',  rotulo: 'Edição Rápida' },
   { id: 'lote',    rotulo: 'Edição em Lote' },
-  { id: 'colagem', rotulo: 'Colar Planilha' },
+  { id: 'colagem', rotulo: 'Inserir em Massa' },
 ];
 
 type Visualizacao = 'hierarquica' | 'plana';
@@ -306,6 +307,17 @@ export function Ramal({
           >
             <PlusCircle className="h-3.5 w-3.5" />
             Nova Nota Ramal
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 px-3 text-xs font-semibold gap-1.5 border-line hover:border-accent hover:text-accent"
+            onClick={() => setModo('colagem')}
+            title="Inserir lote de notas ramal em massa colando planilha Excel / TSV"
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5 text-accent" />
+            Inserir em Massa
           </Button>
 
           <Button
