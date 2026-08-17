@@ -236,3 +236,30 @@ export function calcularSelecao(
   const soma = nums.reduce((a, b) => a + b, 0);
   return { soma, media: soma / nums.length, contagem: nums.length };
 }
+
+/** Verifica se a nota está marcada como oculta (Check = 'Oculta', 'oculto', '[oculta]' ou Observação com '[OCULTA]'). */
+export function ehNotaOculta(nota: Partial<NotaInput>): boolean {
+  const check = String(nota.Check ?? '').trim().toLowerCase();
+  if (check === 'oculta' || check === 'ocultar' || check === 'oculto' || check === '[oculta]') return true;
+  const obs = String(nota.Observacao ?? '').toUpperCase();
+  if (obs.includes('[OCULTA]') || obs.includes('[OCULTO]')) return true;
+  return false;
+}
+
+/** Encontra notas ocultas que atendem aos critérios de busca por texto ou número de nota. */
+export function buscarNotasOcultas(registros: NotaInput[], buscaStr: string): NotaInput[] {
+  const query = buscaStr.trim();
+  if (!query) return [];
+  const numeros = parseBuscaGlobal(query);
+  if (numeros.length > 0) {
+    const setNums = new Set(numeros);
+    const setNumsStr = new Set(numeros.map(String));
+    return registros.filter((r) =>
+      ehNotaOculta(r) && (setNums.has(r.Numero_Nota) || setNumsStr.has(String(r.Nota_Mae ?? '').trim()))
+    );
+  }
+  const qLower = query.toLowerCase();
+  return registros.filter((r) =>
+    ehNotaOculta(r) && Object.values(r).some((v) => String(v ?? '').toLowerCase().includes(qLower))
+  );
+}

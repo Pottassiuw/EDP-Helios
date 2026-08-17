@@ -94,3 +94,64 @@ describe('varrerVinculos (Detetive de Notas)', () => {
     expect(resultado[0].Planejado_DDPM).toBe('1.5');
   });
 });
+
+describe('Ocultação de Notas (ehNotaOculta, buscarNotasOcultas, filtrarRegistros)', () => {
+  it('ehNotaOculta identifica notas marcadas como ocultas no Check ou Observacao', async () => {
+    const { ehNotaOculta } = await import('./lib');
+    expect(ehNotaOculta({ Check: 'Oculta' })).toBe(true);
+    expect(ehNotaOculta({ Check: 'OCULTA' })).toBe(true);
+    expect(ehNotaOculta({ Check: 'oculto' })).toBe(true);
+    expect(ehNotaOculta({ Check: '[oculta]' })).toBe(true);
+    expect(ehNotaOculta({ Observacao: 'Nota desativada [OCULTA]' })).toBe(true);
+
+    expect(ehNotaOculta({ Check: '-' })).toBe(false);
+    expect(ehNotaOculta({ Check: 'OK' })).toBe(false);
+    expect(ehNotaOculta({ Check: '' })).toBe(false);
+    expect(ehNotaOculta({})).toBe(false);
+  });
+
+  it('buscarNotasOcultas encontra notas ocultas por número ou busca de texto', async () => {
+    const { buscarNotasOcultas } = await import('./lib');
+    const registros: NotaInput[] = [
+      { Numero_Nota: 1001, Check: 'Oculta', Conjunto: 'POA', Observacao: 'Nota teste 1' },
+      { Numero_Nota: 1002, Check: '-', Conjunto: 'POA', Observacao: 'Nota ativa 2' },
+      { Numero_Nota: 1003, Check: 'Oculta', Conjunto: 'MOGI', Observacao: 'Obra especial' },
+    ];
+
+    expect(buscarNotasOcultas(registros, '1001')).toHaveLength(1);
+    expect(buscarNotasOcultas(registros, '1001')[0].Numero_Nota).toBe(1001);
+
+    expect(buscarNotasOcultas(registros, '1002')).toHaveLength(0); // Nota 1002 não é oculta
+
+    expect(buscarNotasOcultas(registros, 'especial')).toHaveLength(1);
+    expect(buscarNotasOcultas(registros, 'especial')[0].Numero_Nota).toBe(1003);
+  });
+
+  it('filtrarRegistros oculta notas por padrão e as exibe quando mostrarOcultas é true', async () => {
+    const { filtrarRegistros } = await import('./overview');
+    const registros: NotaInput[] = [
+      { Numero_Nota: 1001, Check: 'Oculta', Conjunto: 'POA', Mes_Execucao_Planejado: 'jul-2026' },
+      { Numero_Nota: 1002, Check: '-', Conjunto: 'POA', Mes_Execucao_Planejado: 'jul-2026' },
+    ];
+
+    const filtradosSemOcultas = filtrarRegistros(registros, {
+      busca: '',
+      filtros: [],
+      somente2026: true,
+      somenteNotasMaes: false,
+      mostrarOcultas: false,
+    });
+    expect(filtradosSemOcultas).toHaveLength(1);
+    expect(filtradosSemOcultas[0].Numero_Nota).toBe(1002);
+
+    const filtradosComOcultas = filtrarRegistros(registros, {
+      busca: '',
+      filtros: [],
+      somente2026: true,
+      somenteNotasMaes: false,
+      mostrarOcultas: true,
+    });
+    expect(filtradosComOcultas).toHaveLength(2);
+  });
+});
+

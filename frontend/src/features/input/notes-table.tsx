@@ -2,12 +2,12 @@ import React from "react";
 import { toast } from "sonner";
 import type { Bloqueio, Celula, NotaInput } from "./types";
 import type { ColunaDef } from "./columns";
-import { compararDatas, formatarDataHora, formatarNumero } from "./lib";
+import { compararDatas, formatarDataHora, formatarNumero, ehNotaOculta } from "./lib";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, ChevronUp, CornerDownRight, Folder, FolderOpen, Lock } from "lucide-react";
+import { ChevronDown, ChevronUp, CornerDownRight, Folder, FolderOpen, Lock, EyeOff } from "lucide-react";
 import { Input } from "@/components/ui/input";
 
 const ALTURA_LINHA = 32;
@@ -333,6 +333,15 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
             <span className="font-semibold text-foreground tracking-tight">
               {formatarNumero(v, 0, false)}
             </span>
+            {ehNotaOculta(r) && (
+              <span
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-sans font-semibold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 shrink-0"
+                title="Esta nota está marcada como Oculta"
+              >
+                <EyeOff size={10} />
+                Oculta
+              </span>
+            )}
             {bloqueio && (
               <span
                 className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-sans font-semibold bg-amber/15 text-amber border border-amber/30 shrink-0"

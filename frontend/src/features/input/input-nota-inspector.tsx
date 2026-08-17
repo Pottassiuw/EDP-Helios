@@ -1,10 +1,16 @@
 import React from 'react';
+import { Eye, EyeOff, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Button } from '@/components/ui/button';
 import { Eyebrow } from '@/components/branded/section';
 
 import { CarteiraEnriquecimentoCard } from '../carteira/carteira-enriquecimento-card';
 import { ROTULOS } from './columns';
+import { ehNotaOculta } from './lib';
+import { InputApi } from './api';
+import { useRecarregarInput } from './use-input-data';
 import type { NotaInput } from './types';
 
 const CAMPOS_RESUMO = [
@@ -61,6 +67,26 @@ export function InputNotaInspector({
   returnFocusRef,
   onIrParaSincronizacao,
 }: InputNotaInspectorProps): React.JSX.Element {
+  const recarregar = useRecarregarInput();
+  const [salvando, setSalvando] = React.useState(false);
+  const oculta = nota ? ehNotaOculta(nota) : false;
+
+  async function alternarOcultacao() {
+    if (!nota) return;
+    setSalvando(true);
+    try {
+      const novoCheck = oculta ? '-' : 'Oculta';
+      await InputApi.editar([{ Numero_Nota: nota.Numero_Nota, Check: novoCheck }]);
+      toast.success(oculta ? `Nota #${nota.Numero_Nota} reexibida com sucesso!` : `Nota #${nota.Numero_Nota} marcada como oculta.`);
+      recarregar();
+      onClose();
+    } catch (e) {
+      toast.error('Erro ao atualizar nota', { description: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setSalvando(false);
+    }
+  }
+
   return (
     <Sheet open={nota !== null} onOpenChange={(open) => { if (!open) onClose(); }}>
       <SheetContent
@@ -72,10 +98,35 @@ export function InputNotaInspector({
           returnFocusRef.current?.focus();
         }}
       >
-        <SheetHeader className="border-b border-line p-4">
-          <SheetTitle>
-            Nota SAP <span className="font-mono">#{nota?.Numero_Nota ?? '—'}</span>
+        <SheetHeader className="border-b border-line p-4 flex flex-row items-center justify-between gap-3">
+          <SheetTitle className="flex items-center gap-2">
+            <span>Nota SAP</span> <span className="font-mono">#{nota?.Numero_Nota ?? '—'}</span>
+            {oculta && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-sans font-semibold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                <EyeOff size={11} />
+                Oculta
+              </span>
+            )}
           </SheetTitle>
+          {nota && (
+            <Button
+              variant={oculta ? "default" : "outline"}
+              size="xs"
+              disabled={salvando}
+              onClick={alternarOcultacao}
+              className="gap-1.5 text-xs mr-6"
+              title={oculta ? "Reexibir esta nota no painel" : "Ocultar esta nota do painel geral"}
+            >
+              {salvando ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : oculta ? (
+                <Eye className="h-3.5 w-3.5" />
+              ) : (
+                <EyeOff className="h-3.5 w-3.5" />
+              )}
+              {oculta ? 'Reexibir Nota' : 'Ocultar Nota'}
+            </Button>
+          )}
         </SheetHeader>
         {nota !== null && (
           <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-4">
@@ -91,3 +142,4 @@ export function InputNotaInspector({
     </Sheet>
   );
 }
+

@@ -157,6 +157,7 @@ export function InputSection({
           <Overview
             dados={dados}
             estado={estadoFiltros}
+            onSetEstadoFiltros={setEstadoFiltros}
             onIrParaSincronizacao={onIrParaSincronizacao}
           />
         )}

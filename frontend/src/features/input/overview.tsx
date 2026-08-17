@@ -1,9 +1,9 @@
 import React from 'react';
-import { Loader2, Download, RefreshCw, CheckCircle2, GitMerge } from 'lucide-react';
+import { Loader2, Download, RefreshCw, CheckCircle2, GitMerge, Eye, EyeOff } from 'lucide-react';
 import type { InputDataset, NotaInput } from './types';
 import { InputApi, baixarBlob } from './api';
 import { toast } from 'sonner';
-import { aplicarFiltros, parseBuscaGlobal } from './lib';
+import { aplicarFiltros, parseBuscaGlobal, ehNotaOculta, buscarNotasOcultas } from './lib';
 import { COLUNAS } from './columns';
 import { type FiltersState } from './filters';
 import { DataGrid } from './data-grid';
@@ -21,6 +21,10 @@ const VISUALIZACOES: { id: Visualizacao; rotulo: string }[] = [
 
 export function filtrarRegistros(registros: NotaInput[], estado: FiltersState): NotaInput[] {
   let resultado = registros;
+
+  if (!estado.mostrarOcultas) {
+    resultado = resultado.filter((r) => !ehNotaOculta(r));
+  }
 
   const buscaStr = estado.busca.trim();
   if (buscaStr !== '') {
@@ -66,12 +70,14 @@ export function filtrarRegistros(registros: NotaInput[], estado: FiltersState): 
 interface OverviewProps {
   dados: InputDataset;
   estado: FiltersState;
+  onSetEstadoFiltros?: (e: FiltersState) => void;
   onIrParaSincronizacao?: () => void;
 }
 
 export function Overview({
   dados,
   estado,
+  onSetEstadoFiltros,
   onIrParaSincronizacao = () => {},
 }: OverviewProps): React.JSX.Element {
   const [exportando, setExportando] = React.useState(false);
@@ -82,6 +88,11 @@ export function Overview({
   const recarregar = useRecarregarInput();
   const filtrados = React.useMemo(
     () => filtrarRegistros(dados.registros, estado), [dados.registros, estado]);
+
+  const ocultasNaBusca = React.useMemo(() => {
+    if (!estado.busca.trim() || estado.mostrarOcultas) return [];
+    return buscarNotasOcultas(dados.registros, estado.busca);
+  }, [dados.registros, estado.busca, estado.mostrarOcultas]);
 
   const abrirDetalhes = React.useCallback(
     (nota: NotaInput, trigger: HTMLButtonElement): void => {
@@ -177,6 +188,52 @@ export function Overview({
           </Button>
         </div>
       </div>
+
+      {/* Alerta inteligente quando a busca coincide com notas ocultas */}
+      {ocultasNaBusca.length > 0 && (
+        <div className="flex items-center justify-between gap-3 p-3.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-200 text-xs shadow-sm">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <EyeOff className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+            <span className="truncate">
+              <strong>Aviso de Ocultação:</strong>{' '}
+              {ocultasNaBusca.length === 1
+                ? `A nota #${ocultasNaBusca[0].Numero_Nota} foi encontrada, mas está marcada como OCULTA.`
+                : `${ocultasNaBusca.length} notas encontradas para esta busca estão marcadas como OCULTAS.`}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {onSetEstadoFiltros && (
+              <Button
+                size="xs"
+                variant="outline"
+                className="h-7 text-xs border-amber-500/40 text-amber-800 dark:text-amber-300 hover:bg-amber-500/20"
+                onClick={() => onSetEstadoFiltros({ ...estado, mostrarOcultas: true })}
+              >
+                <Eye className="h-3.5 w-3.5 mr-1" />
+                Exibir notas ocultas
+              </Button>
+            )}
+            {ocultasNaBusca.length === 1 && (
+              <Button
+                size="xs"
+                variant="default"
+                className="h-7 text-xs bg-amber-600 hover:bg-amber-700 text-white"
+                onClick={async () => {
+                  try {
+                    await InputApi.editar([{ Numero_Nota: ocultasNaBusca[0].Numero_Nota, Check: '-' }]);
+                    toast.success(`Nota #${ocultasNaBusca[0].Numero_Nota} desocultada com sucesso`);
+                    recarregar();
+                  } catch (e) {
+                    toast.error('Erro ao desocultar nota', { description: e instanceof Error ? e.message : String(e) });
+                  }
+                }}
+              >
+                Desocultar agora
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="rounded-lg border border-line bg-surface overflow-hidden shadow-sm">
         {modoVisualizacao === 'planilha' ? (

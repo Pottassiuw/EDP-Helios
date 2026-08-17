@@ -13,7 +13,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Search, X, ChevronDown, ChevronRight, Filter, Check } from "lucide-react";
+import { Eye, EyeOff, Search, X, ChevronDown, ChevronRight, Filter, Check } from "lucide-react";
+import { ehNotaOculta } from "./lib";
 import {
   Select,
   SelectContent,
@@ -27,6 +28,7 @@ export interface FiltersState {
   filtros: Filtro[];
   somente2026: boolean;
   somenteNotasMaes: boolean;
+  mostrarOcultas?: boolean;
 }
 
 export const FILTROS_INICIAIS: FiltersState = {
@@ -34,6 +36,7 @@ export const FILTROS_INICIAIS: FiltersState = {
   filtros: [],
   somente2026: true,
   somenteNotasMaes: false,
+  mostrarOcultas: false,
 };
 
 interface FiltersProps {
@@ -428,6 +431,22 @@ export function Filters({
             <span>📁 Apenas Notas Mães</span>
           </Label>
         </div>
+
+        {/* Seletor On/Off para Exibir Notas Ocultas */}
+        {registros.some(ehNotaOculta) && (
+          <div className="flex items-center gap-[8px] bg-bg-2 border border-line-2 px-[12px] h-[34px] rounded-sm select-none">
+            <Switch
+              id="switch-ocultas"
+              checked={Boolean(estado.mostrarOcultas)}
+              onCheckedChange={(checked) => setEstado({ ...estado, mostrarOcultas: checked })}
+              size="sm"
+            />
+            <Label htmlFor="switch-ocultas" className="text-[12.5px] font-medium text-text-dim cursor-pointer flex items-center gap-1.5">
+              {estado.mostrarOcultas ? <Eye size={13} className="text-amber-500" /> : <EyeOff size={13} className="text-text-mute" />}
+              <span>Mostrar Ocultas ({registros.filter(ehNotaOculta).length})</span>
+            </Label>
+          </div>
+        )}
 
         {/* Botão de Filtros Avançados */}
         <Button
