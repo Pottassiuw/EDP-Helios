@@ -90,7 +90,10 @@ export function filtrarRegistros(registros: NotaInput[], estado: FiltersState): 
 
   if (estado.somente2026) {
     const anoAtual = String(new Date().getFullYear());
-    resultado = resultado.filter((r) => String(r.Mes_Execucao_Planejado ?? '').includes(anoAtual));
+    resultado = resultado.filter((r) => {
+      const mes = String(r.Mes_Execucao_Planejado ?? '').toLowerCase();
+      return mes.includes('2026') || mes.includes('26') || mes.includes(anoAtual);
+    });
   }
 
   if (estado.somenteNotasMaes) {
