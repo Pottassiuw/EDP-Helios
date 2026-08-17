@@ -102,16 +102,37 @@ export function valoresUnicos(registros: NotaInput[], campo: string): string[] {
     campo === 'Mes_Execucao_Planejado' ? compararDatas(a, b) : a.localeCompare(b, 'pt-BR'));
 }
 
-/** Cola TSV do Excel em registros na ordem fixa de colunas. */
+/** Cola TSV do Excel em registros na ordem fixa de colunas, ignorando cabeçalhos e convertendo tipos. */
 export function parseColagemTsv(texto: string, colunas: string[]): Partial<NotaInput>[] {
-  return texto.split(/\r?\n/)
-    .filter((l) => l.trim() !== '')
+  const linhas = texto.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  if (linhas.length === 0) return [];
+
+  const primeiraLinha = linhas[0];
+  const primeiraCelula = (primeiraLinha.split('\t')[0] ?? '').trim();
+  const ehCabecalho = !/^\d+$/.test(primeiraCelula);
+  const linhasDados = ehCabecalho ? linhas.slice(1) : linhas;
+
+  return linhasDados
     .map((linha) => {
       const celulas = linha.split('\t');
       const registro: Partial<NotaInput> = {};
-      colunas.forEach((c, i) => { registro[c] = (celulas[i] ?? '').trim(); });
+      colunas.forEach((c, i) => {
+        const val = (celulas[i] ?? '').trim();
+        if (c === 'Numero_Nota') {
+          const num = Number(val);
+          if (Number.isFinite(num) && num > 0) {
+            registro[c] = num;
+          }
+        } else if (c === 'Planejado_DDPM') {
+          const num = Number(val.replace(',', '.'));
+          registro[c] = Number.isFinite(num) ? num : 0;
+        } else {
+          registro[c] = val || (c === 'Nota_Mae' || c === 'Check' ? '-' : '');
+        }
+      });
       return registro;
-    });
+    })
+    .filter((r) => r.Numero_Nota !== undefined && Number.isFinite(Number(r.Numero_Nota)));
 }
 
 export function formatarDataHora(v: string | number | null): string {

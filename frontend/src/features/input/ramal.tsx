@@ -211,20 +211,35 @@ export function Ramal({
   }
 
   async function salvarColagem(): Promise<void> {
-    if (previewColagem.length === 0) {
-      toast.warning('Nenhum dado válido para integrar. Cole dados de uma planilha.');
+    const payload = previewColagem
+      .filter((r) => r.Numero_Nota && Number.isFinite(Number(r.Numero_Nota)))
+      .map((r) => ({
+        Numero_Nota: Number(r.Numero_Nota),
+        Status_Nota: r.Status_Nota ? String(r.Status_Nota).trim() : '00 Pendente',
+        Prioridade_Nota: r.Prioridade_Nota ? String(r.Prioridade_Nota).trim() : 'Programável',
+        Planejado_DDPM: Number(r.Planejado_DDPM) || 0,
+        Conjunto: r.Conjunto ? String(r.Conjunto).trim() : '-',
+        Circuito: r.Circuito ? String(r.Circuito).trim() : '-',
+        Local_Instalacao: r.Local_Instalacao ? String(r.Local_Instalacao).trim() : '-',
+        Mes_Execucao_Planejado: r.Mes_Execucao_Planejado ? String(r.Mes_Execucao_Planejado).trim() : '-',
+        CenTrab_Respon: (r as Record<string, unknown>).CenTrab_Respon ? String((r as Record<string, unknown>).CenTrab_Respon).trim() : '-',
+        Observacao: r.Observacao ? String(r.Observacao).trim() : '',
+        Extracao_Antiga: (r as Record<string, unknown>).Extracao_Antiga ? String((r as Record<string, unknown>).Extracao_Antiga).trim() : '-',
+        Status_Anterior: (r as Record<string, unknown>).Status_Anterior ? String((r as Record<string, unknown>).Status_Anterior).trim() : '-',
+        Check_Btzero: (r as Record<string, unknown>).Check_Btzero ? String((r as Record<string, unknown>).Check_Btzero).trim() : '-',
+        Plano: (r as Record<string, unknown>).Plano ? String((r as Record<string, unknown>).Plano).trim() : '-',
+      }));
+
+    if (payload.length === 0) {
+      toast.warning('Nenhum dado válido para integrar. Cole dados com Número de Nota preenchido.');
       return;
     }
 
     setSalvando(true);
     try {
-      await InputApi.importarRamal(previewColagem.map((r) => ({
-        ...(r as unknown as Partial<NotaRamal>),
-        Numero_Nota: Number(r.Numero_Nota),
-        Planejado_DDPM: Number(r.Planejado_DDPM) || 0,
-      })));
+      await InputApi.importarRamal(payload);
 
-      toast.success(`${previewColagem.length} nota(s) ramal integradas com sucesso.`);
+      toast.success(`${payload.length} nota(s) ramal integradas com sucesso.`);
       setTextoColagem('');
       await recarregar();
       setModo('visao');

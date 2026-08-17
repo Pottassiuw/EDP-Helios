@@ -168,8 +168,14 @@ export function ColagemPlanilha({
 
     if (linhas.length === 0) return;
 
+    // Se a primeira linha contiver cabeçalhos (não começa com número), pula
+    const primeiraLinha = linhas[0];
+    const primeiraCelula = (primeiraLinha.split('\t')[0] ?? '').trim();
+    const linhasDados = !/^\d+$/.test(primeiraCelula) ? linhas.slice(1) : linhas;
+    if (linhasDados.length === 0) return;
+
     const novasLinhasParsed: Array<Record<string, string>> = [];
-    for (const linha of linhas) {
+    for (const linha of linhasDados) {
       const celulas = linha.split('\t');
       const reg: Record<string, string> = {};
       colunasColagem.forEach((c, idx) => {

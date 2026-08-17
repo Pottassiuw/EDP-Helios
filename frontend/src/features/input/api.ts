@@ -17,7 +17,21 @@ async function req<T>(caminho: string, init?: RequestInit): Promise<T> {
   if (!r.ok) {
     const corpo = await r.text();
     let detalhe = corpo;
-    try { detalhe = (JSON.parse(corpo) as { detail?: string }).detail ?? corpo; } catch { /* texto puro */ }
+    try {
+      const parsed = JSON.parse(corpo);
+      if (typeof parsed.detail === 'string') {
+        detalhe = parsed.detail;
+      } else if (Array.isArray(parsed.detail)) {
+        detalhe = parsed.detail
+          .map((d: { loc?: unknown[]; msg?: string }) => {
+            const campo = Array.isArray(d.loc) ? d.loc.slice(-1)[0] : '';
+            return campo ? `${campo}: ${d.msg}` : (d.msg ?? JSON.stringify(d));
+          })
+          .join(' | ');
+      } else if (parsed.message) {
+        detalhe = String(parsed.message);
+      }
+    } catch { /* texto puro */ }
     throw new Error(detalhe || `HTTP ${r.status}`);
   }
   return r.json() as Promise<T>;
