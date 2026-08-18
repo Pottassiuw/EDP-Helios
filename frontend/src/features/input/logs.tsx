@@ -30,7 +30,7 @@ type TipoAcao = 'todos' | 'criacao' | 'edicao' | 'exclusao' | 'ocultacao';
 
 const LOG_TABS: SegTab<SubAba>[] = [
   { id: 'notas', rotulo: 'Alterações nas Notas' },
-  { id: 'arquivos', rotulo: 'Bases de Apoio' },
+  { id: 'arquivos', rotulo: 'Arquivos' },
   { id: 'timeline', rotulo: 'Linha do Tempo' },
 ];
 

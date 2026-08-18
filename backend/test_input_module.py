@@ -1026,6 +1026,22 @@ def test_criar_notas_concorrente_tem_apenas_um_vencedor(banco_temporario,
     assert len(criacoes) == 1
 
 
+def test_criar_notas_falha_de_auditoria_nao_deixa_nota_orfa(banco_temporario,
+                                                            monkeypatch):
+    """Auditoria e nota vivem na mesma transação: se o log não grava, a nota não existe."""
+    from input_module import db, service
+
+    monkeypatch.setattr(db, "SQL_LOG_ALTERACOES",
+                        "INSERT INTO tabela_que_nao_existe VALUES (?, ?, ?, ?, ?, ?)")
+    nota = service.NovaNota(Numero_Nota=556100, Status_Nota="00 Pendente",
+                            Prioridade_Nota="Programável")
+    with pytest.raises(sqlite3.OperationalError):
+        service.criar_notas([nota], usuario="ana")
+
+    df = db.carregar_dados()
+    assert df[df["Numero_Nota"] == 556100].empty
+
+
 def test_inserir_notas_novas_nao_sobrescreve_existente(banco_temporario):
     """A perdedora não vira UPDATE silencioso: nenhum campo da nota muda."""
     from input_module import db
@@ -1615,13 +1631,71 @@ def test_export_gera_xlsx(cliente):
     from input_module import db, engine
     db.salvar_em_massa(pd.DataFrame([_nota(9000)]))
     engine.invalidar_cache()
-    r = cliente.post("/api/input/export",
+    r = cliente.post("/api/input/export", headers=CABECALHO_USER,
                      json={"numeros": [9000], "colunas": ["Numero_Nota", "Status_Nota"]})
     assert r.status_code == 200
     assert r.headers["content-type"].startswith(
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     df = pd.read_excel(io.BytesIO(r.content))
     assert list(df.columns) == ["Nº Nota (ID)", "Status Nota"]
+
+
+def test_export_exige_identidade_e_nao_gera_arquivo(cliente):
+    """Sem X-User a exportação não acontece — e não deixa rastro pela metade."""
+    from input_module import db, engine
+    db.salvar_em_massa(pd.DataFrame([_nota(9001)]))
+    engine.invalidar_cache()
+
+    r = cliente.post("/api/input/export",
+                     json={"numeros": [9001], "colunas": ["Numero_Nota"]})
+    assert r.status_code == 400
+    assert "X-User" in r.json()["detail"]
+    assert db.carregar_log_arquivos().empty
+
+
+def test_export_registra_auditoria_com_usuario_e_volume(cliente):
+    from input_module import db, engine
+    db.salvar_em_massa(pd.DataFrame([_nota(9002), _nota(9003)]))
+    engine.invalidar_cache()
+
+    r = cliente.post("/api/input/export", headers=CABECALHO_USER,
+                     json={"numeros": [9002, 9003],
+                           "colunas": ["Numero_Nota", "Status_Nota"]})
+    assert r.status_code == 200
+
+    logs = db.carregar_log_arquivos()
+    registro = logs.iloc[0]
+    assert registro["Usuario"] == "ana"
+    assert registro["Nome_Arquivo"] == "export_notas.xlsx"
+    assert registro["Acao"] == "Exportação (2 notas, 2 colunas)"
+    assert registro["Data_Hora"]
+
+
+def test_export_sem_auditoria_nao_entrega_o_arquivo(cliente, monkeypatch):
+    """Falha ao registrar a trilha cancela a exportação — nada sai sem rastro."""
+    from input_module import db, engine, routes
+    db.salvar_em_massa(pd.DataFrame([_nota(9005)]))
+    engine.invalidar_cache()
+    monkeypatch.setattr(routes.db, "salvar_log_arquivo",
+                        lambda *args, **kwargs: False)
+
+    r = cliente.post("/api/input/export", headers=CABECALHO_USER,
+                     json={"numeros": [9005], "colunas": ["Numero_Nota"]})
+    assert r.status_code == 500
+    assert "auditoria" in r.json()["detail"]
+
+
+def test_export_nao_invalida_o_cache_de_quem_esta_com_a_tela_aberta(cliente):
+    """Exportar não muda dado nenhum: a versão do dataset não pode mudar."""
+    from input_module import db, engine
+    db.salvar_em_massa(pd.DataFrame([_nota(9004)]))
+    engine.invalidar_cache()
+    versao_antes = db.obter_versao_dataset()
+
+    r = cliente.post("/api/input/export", headers=CABECALHO_USER,
+                     json={"numeros": [9004], "colunas": ["Numero_Nota"]})
+    assert r.status_code == 200
+    assert db.obter_versao_dataset() == versao_antes
 
 
 # ── Tarefa 7: endpoints de configuração (responsáveis, bases, backups, migração) ──
@@ -2371,6 +2445,38 @@ def test_api_ramal_crud(cliente):
     assert r.status_code == 200
     assert r.json()["excluidas"] == 1
     assert cliente.get("/api/input/ramal").json()["registros"] == []
+
+
+def test_ramal_bulk_propaga_usuario_ate_a_persistencia(cliente):
+    from input_module import db
+
+    r = cliente.post("/api/input/ramal/bulk", headers=CABECALHO_USER,
+                     json={"notas": [{"Numero_Nota": 5150, "Conjunto": "POA"}]})
+    assert r.status_code == 200
+
+    logs = db.carregar_logs()
+    criacao = logs[logs["Numero_Nota"] == 5150].iloc[0]
+    assert criacao["Usuario"] == "ana"
+    assert criacao["Campo_Alterado"] == "IMPORTAÇÃO DE NOTA RAMAL"
+    assert criacao["Valor_Novo"] == "Registro Criado"
+
+    r = cliente.post("/api/input/ramal/bulk", headers={"X-User": "bob"},
+                     json={"notas": [{"Numero_Nota": 5150, "Observacao": "revisada"}]})
+    assert r.status_code == 200
+
+    logs = db.carregar_logs()
+    atualizacao = logs[(logs["Numero_Nota"] == 5150)
+                       & (logs["Valor_Novo"] == "Registro Atualizado")].iloc[0]
+    assert atualizacao["Usuario"] == "bob"
+
+
+def test_ramal_bulk_exige_identidade(cliente):
+    from input_module import db
+
+    r = cliente.post("/api/input/ramal/bulk",
+                     json={"notas": [{"Numero_Nota": 5151}]})
+    assert r.status_code == 400
+    assert db.carregar_dados_ramal().empty
 
 
 def test_api_hierarquia(cliente, monkeypatch):

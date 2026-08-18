@@ -100,19 +100,17 @@ def _preparar_novas(notas: list[NovaNota], origem: str) -> pd.DataFrame:
     return pd.DataFrame(linhas)
 
 
-def criar_notas(notas: list[NovaNota], usuario: str, origem: str = "manual") -> int:
-    """Insere notas novas no plano e registra no log de auditoria; levanta NotasDuplicadasErro em conflito."""
-    df_novas = _preparar_novas(notas, origem)
-    inseridas = db.inserir_notas_novas(df_novas)
-
+def _logs_de_criacao(notas: list[NovaNota], usuario: str,
+                     origem: str) -> list[tuple]:
+    """Trilha de auditoria da criação, no formato de `db.salvar_log_alteracoes`."""
     agora = datetime.datetime.now()
     usuario_log = (usuario or "sistema").strip()
-    logs_criacao = []
+    logs = []
     for n in notas:
         detalhes = f"Origem: {origem} | Status: {n.Status_Nota or '-'} | Conjunto: {n.Conjunto or '-'}"
         if n.Nota_Mae and n.Nota_Mae not in ("-", "None", "null"):
             detalhes += f" | Mãe: {n.Nota_Mae}"
-        logs_criacao.append((
+        logs.append((
             int(n.Numero_Nota),
             usuario_log,
             agora,
@@ -120,8 +118,14 @@ def criar_notas(notas: list[NovaNota], usuario: str, origem: str = "manual") -> 
             "-",
             detalhes,
         ))
-    db.salvar_log_alteracoes(logs_criacao)
-    return inseridas
+    return logs
+
+
+def criar_notas(notas: list[NovaNota], usuario: str, origem: str = "manual") -> int:
+    """Insere notas novas no plano com a auditoria na mesma transação; levanta
+    NotasDuplicadasErro em conflito."""
+    df_novas = _preparar_novas(notas, origem)
+    return db.inserir_notas_novas(df_novas, _logs_de_criacao(notas, usuario, origem))
 
 
 def atualizar_medidas_excel_local(lista_correcao: list[dict], relatorio_sap: list[dict]) -> None:

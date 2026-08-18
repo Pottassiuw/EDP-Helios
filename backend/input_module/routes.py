@@ -42,11 +42,18 @@ def quem_sou_eu():
     return {"usuario": config.usuario_windows()}
 
 
-def usuario_atual(x_user: Optional[str] = Header(None)) -> str:
-    """Extrai o usuário do header X-User ou fallback para config.usuario_windows()."""
-    if x_user and x_user.strip():
-        return x_user.strip()
-    return config.usuario_windows()
+def usuario_atual(x_user: Optional[str] = Header(default=None, alias="X-User")) -> str:
+    """Identidade explícita de quem chamou — sem cair no usuário do servidor.
+
+    Toda operação que deixa rastro (escrita ou exportação) depende disto. O
+    fallback para `config.usuario_windows()` não serve aqui: em produção o
+    processo roda com o mesmo login para todo mundo, e a trilha deixaria de
+    responder "quem fez".
+    """
+    if not x_user or not x_user.strip():
+        raise HTTPException(status_code=400,
+                            detail="Header X-User obrigatório para escrita.")
+    return x_user.strip()
 
 
 # ── Responsáveis e E-mails ───────────────────────────────────────────────────
@@ -199,12 +206,6 @@ def timeline_nota(numero: int):
 
 
 # ── Escrita ──────────────────────────────────────────────────────────────
-def usuario_atual(x_user: Optional[str] = Header(default=None, alias="X-User")) -> str:
-    if not x_user or not x_user.strip():
-        raise HTTPException(status_code=400, detail="Header X-User obrigatório para escrita.")
-    return x_user.strip()
-
-
 class EdicaoPedido(BaseModel):
     linhas: list[dict]
 
@@ -308,8 +309,11 @@ def desfazer(tasks: BackgroundTasks, usuario: str = Depends(usuario_atual)):
     return {"ok": ok, "mensagem": mensagem}
 
 
+NOME_ARQUIVO_EXPORT = "export_notas.xlsx"
+
+
 @router.post("/export")
-def exportar(pedido: ExportPedido):
+def exportar(pedido: ExportPedido, usuario: str = Depends(usuario_atual)):
     garantir_banco()
     df = engine.get_dataset()
     df = df[df["Numero_Nota"].isin(pedido.numeros)]
@@ -318,10 +322,21 @@ def exportar(pedido: ExportPedido):
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         df.to_excel(writer, index=False, sheet_name="Selecao_Filtrada")
+    # Só metadado operacional: quem, quando e o volume levado — nunca o
+    # conteúdo exportado. Sem o registro o arquivo não sai: uma exportação
+    # sem rastro é exatamente o que esta trilha existe para impedir.
+    auditoria_gravada = db.salvar_log_arquivo(
+        NOME_ARQUIVO_EXPORT, usuario, datetime.datetime.now(),
+        f"{db.ACAO_EXPORTACAO} ({len(df)} notas, {len(colunas)} colunas)")
+    if not auditoria_gravada:
+        raise HTTPException(
+            500, "Exportação cancelada: não foi possível registrar a auditoria. "
+                 "Tente de novo; se persistir, avise o suporte do sistema.")
     return Response(
         content=buffer.getvalue(),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": 'attachment; filename="export_notas.xlsx"'},
+        headers={"Content-Disposition":
+                 f'attachment; filename="{NOME_ARQUIVO_EXPORT}"'},
     )
 
 
@@ -681,7 +696,7 @@ def importar_ramal(pedido: RamalLotePedido, tasks: BackgroundTasks,
         raise HTTPException(400, "Lote vazio.")
     # ID_Cronologia é resolvido no db (preserva o de quem já existe).
     df = pd.DataFrame([n.model_dump() for n in pedido.notas])
-    db.salvar_ramal_em_massa(df)
+    db.salvar_ramal_em_massa(df, usuario=usuario)
     pos_escrita(tasks)
     return {"inseridas": len(df)}
 

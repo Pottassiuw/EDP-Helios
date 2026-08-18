@@ -12,27 +12,30 @@ export function setUsuario(nome: string): void {
   localStorage.setItem('edp_input_user', nome.trim());
 }
 
+function mensagemDeErro(corpo: string, status: number): string {
+  let detalhe = corpo;
+  try {
+    const parsed = JSON.parse(corpo);
+    if (typeof parsed.detail === 'string') {
+      detalhe = parsed.detail;
+    } else if (Array.isArray(parsed.detail)) {
+      detalhe = parsed.detail
+        .map((d: { loc?: unknown[]; msg?: string }) => {
+          const campo = Array.isArray(d.loc) ? d.loc.slice(-1)[0] : '';
+          return campo ? `${campo}: ${d.msg}` : (d.msg ?? JSON.stringify(d));
+        })
+        .join(' | ');
+    } else if (parsed.message) {
+      detalhe = String(parsed.message);
+    }
+  } catch { /* texto puro */ }
+  return detalhe || `HTTP ${status}`;
+}
+
 async function req<T>(caminho: string, init?: RequestInit): Promise<T> {
   const r = await fetch(`${base()}/input${caminho}`, init);
   if (!r.ok) {
-    const corpo = await r.text();
-    let detalhe = corpo;
-    try {
-      const parsed = JSON.parse(corpo);
-      if (typeof parsed.detail === 'string') {
-        detalhe = parsed.detail;
-      } else if (Array.isArray(parsed.detail)) {
-        detalhe = parsed.detail
-          .map((d: { loc?: unknown[]; msg?: string }) => {
-            const campo = Array.isArray(d.loc) ? d.loc.slice(-1)[0] : '';
-            return campo ? `${campo}: ${d.msg}` : (d.msg ?? JSON.stringify(d));
-          })
-          .join(' | ');
-      } else if (parsed.message) {
-        detalhe = String(parsed.message);
-      }
-    } catch { /* texto puro */ }
-    throw new Error(detalhe || `HTTP ${r.status}`);
+    throw new Error(mensagemDeErro(await r.text(), r.status));
   }
   return r.json() as Promise<T>;
 }
@@ -125,12 +128,11 @@ export const InputApi = {
       relatorio: Array<{ Nota: number; Status: 'OK' | 'ERRO' | 'TESTE'; Mensagem: string }>;
     }>('/rateio/executar', escrita('POST', { correcoes, login_sap, senha_sap, modo_teste })),
 
+  // A exportação é auditada no backend: o X-User de `escrita` identifica quem
+  // levou os dados e sem ele a rota responde 400.
   exportar: async (numeros: number[], colunas: string[]): Promise<Blob> => {
-    const r = await fetch(`${base()}/input/export`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ numeros, colunas }),
-    });
-    if (!r.ok) throw new Error(await r.text());
+    const r = await fetch(`${base()}/input/export`, escrita('POST', { numeros, colunas }));
+    if (!r.ok) throw new Error(mensagemDeErro(await r.text(), r.status));
     return r.blob();
   },
   obterStatus10Resumo: async (): Promise<import('./types').Status10Resumo> => {

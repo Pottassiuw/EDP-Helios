@@ -759,7 +759,7 @@ def salvar_em_massa(df: pd.DataFrame) -> None:
         conn.close()
 
 
-def inserir_notas_novas(df: pd.DataFrame) -> int:
+def inserir_notas_novas(df: pd.DataFrame, logs: list | None = None) -> int:
     """Insere notas inéditas: decide a duplicidade e grava no mesmo
     `BEGIN IMMEDIATE`.
 
@@ -767,6 +767,10 @@ def inserir_notas_novas(df: pd.DataFrame) -> int:
     `Numero_Nota` liam o banco antes de gravar, passavam as duas na validação e
     a segunda virava um UPDATE silencioso por cima da primeira. Aqui a perdedora
     recebe `NotasDuplicadasErro` (HTTP 409 nas rotas) e não grava nada.
+
+    ``logs`` entra na mesma transação (mesmo formato de `salvar_log_alteracoes`):
+    nota criada sem trilha de auditoria — ou trilha sem nota — deixa de ser um
+    estado possível.
     """
     if df.empty:
         return 0
@@ -801,6 +805,8 @@ def inserir_notas_novas(df: pd.DataFrame) -> int:
         valores = ", ".join(["?"] * len(colunas))
         cursor.executemany(
             f"INSERT INTO notas ({nomes}) VALUES ({valores})", registros)
+        if logs:
+            cursor.executemany(SQL_LOG_ALTERACOES, logs)
         conn.commit()
         return len(registros)
     except sqlite3.IntegrityError as erro:
@@ -810,6 +816,12 @@ def inserir_notas_novas(df: pd.DataFrame) -> int:
             + ", ".join(str(numero) for numero in numeros)) from erro
     finally:
         conn.close()
+
+
+SQL_LOG_ALTERACOES = '''
+    INSERT INTO log_alteracoes (Numero_Nota, Usuario, Data_Hora, Campo_Alterado, Valor_Antigo, Valor_Novo)
+    VALUES (?, ?, ?, ?, ?, ?)
+'''
 
 
 def salvar_log_alteracoes(logs: list) -> None:
@@ -825,10 +837,7 @@ def salvar_log_alteracoes(logs: list) -> None:
     cursor = conn.cursor()
 
     try:
-        cursor.executemany('''
-            INSERT INTO log_alteracoes (Numero_Nota, Usuario, Data_Hora, Campo_Alterado, Valor_Antigo, Valor_Novo)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', logs)
+        cursor.executemany(SQL_LOG_ALTERACOES, logs)
         conn.commit()
     except Exception as e:
         print(f"Erro ao salvar log de alterações: {e}")
@@ -1077,24 +1086,26 @@ def carregar_dados_ramal() -> pd.DataFrame:
     return df
 
 
-def _resolver_id_cronologia_ramal(df: pd.DataFrame) -> list:
+def _resolver_id_cronologia_ramal(df: pd.DataFrame,
+                                  cursor: sqlite3.Cursor) -> tuple[list, set]:
     """Mantém o ID_Cronologia de quem já existe e numera só as notas novas.
 
     Sem isso, um lote parcial (edição rápida manda só as notas alteradas)
     reescrevia ID_Cronologia = 1..n, colidindo com as demais linhas e
     embaralhando o ``ORDER BY ID_Cronologia`` da aba Ramal.
+
+    Lê pelo cursor da transação de escrita e devolve, junto dos IDs, quais
+    números já existiam — é o que distingue criação de atualização na trilha
+    de auditoria.
     """
-    conn = get_db_connection()
-    try:
-        existentes = dict(conn.execute(
-            "SELECT Numero_Nota, ID_Cronologia FROM notas_ramal").fetchall())
-        maximo = conn.execute(
-            "SELECT MAX(ID_Cronologia) FROM notas_ramal").fetchone()[0] or 0
-    finally:
-        conn.close()
+    existentes = dict(cursor.execute(
+        "SELECT Numero_Nota, ID_Cronologia FROM notas_ramal").fetchall())
+    maximo = cursor.execute(
+        "SELECT MAX(ID_Cronologia) FROM notas_ramal").fetchone()[0] or 0
 
     proximo = int(maximo) + 1
     ids = []
+    ja_existiam = set()
     for numero in df["Numero_Nota"]:
         atual = existentes.get(int(numero))
         if atual is None:
@@ -1102,16 +1113,22 @@ def _resolver_id_cronologia_ramal(df: pd.DataFrame) -> list:
             proximo += 1
         else:
             ids.append(int(atual))
-    return ids
+            ja_existiam.add(int(numero))
+    return ids, ja_existiam
 
 
-def salvar_ramal_em_massa(df: pd.DataFrame) -> None:
+def salvar_ramal_em_massa(df: pd.DataFrame, usuario: str = "sistema") -> None:
+    """Importa notas de ramal em massa e registra a trilha de auditoria.
+
+    O upsert e os logs ficam no mesmo `BEGIN IMMEDIATE`: a importação não passa
+    a existir sem dizer quem a fez, e o `ID_Cronologia` é resolvido com o lock
+    de escrita já tomado.
+    """
     realizar_backup()
     df_s = df.copy()
     for col in _COLUNAS_RAMAL:
         if col not in df_s.columns:
             df_s[col] = "-"
-    df_s['ID_Cronologia'] = _resolver_id_cronologia_ramal(df_s)
     df_s['Planejado_DDPM'] = pd.to_numeric(df_s['Planejado_DDPM'], errors='coerce').fillna(0.0)
     if 'Mes_Execucao_Planejado' in df_s.columns:
         df_s['Mes_Execucao_Planejado'] = df_s['Mes_Execucao_Planejado'].apply(converter_para_iso_data)
@@ -1122,13 +1139,25 @@ def salvar_ramal_em_massa(df: pd.DataFrame) -> None:
         VALUES ({', '.join(['?'] * len(_COLUNAS_RAMAL))})
         ON CONFLICT(Numero_Nota) DO UPDATE SET {update};
     '''
-    registros = df_s[_COLUNAS_RAMAL].to_records(index=False).tolist()
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
+        cursor.execute("BEGIN IMMEDIATE")
+        ids, ja_existiam = _resolver_id_cronologia_ramal(df_s, cursor)
+        df_s['ID_Cronologia'] = ids
+        registros = df_s[_COLUNAS_RAMAL].to_records(index=False).tolist()
         cursor.executemany(sql, registros)
+
+        data_hora_log = datetime.datetime.now()
+        logs = [
+            (int(numero), usuario, data_hora_log, "IMPORTAÇÃO DE NOTA RAMAL", "-",
+             "Registro Atualizado" if int(numero) in ja_existiam else "Registro Criado")
+            for numero in df_s["Numero_Nota"]
+        ]
+        cursor.executemany(SQL_LOG_ALTERACOES, logs)
         conn.commit()
     except Exception as e:
+        conn.rollback()
         print(f"Erro no banco (ramal): {e}")
         raise
     finally:
@@ -1345,6 +1374,12 @@ def obter_data_ultima_alteracao():
         return resultado[0] if resultado else None
     finally:
         conn.close()
+
+
+# Prefixo da ação de exportação em `log_arquivos`. A exportação é auditada,
+# mas não altera dado nenhum: fica de fora da versão do dataset para não
+# disparar o aviso de "dados atualizados" em quem está com a tela aberta.
+ACAO_EXPORTACAO = "Exportação"
 
 
 def salvar_log_arquivo(nome_arquivo, usuario, data_hora, acao) -> bool:
@@ -1567,8 +1602,10 @@ def obter_nota_plano(numero: int) -> dict | None:
 def obter_versao_dataset() -> str:
     """Versão barata do dataset, derivada dos logs + contagem de notas.
 
-    Muda quando: edição/exclusão/undo (log_alteracoes), criação (COUNT de
-    notas — criação não passa pelo log), importação de base (log_arquivos).
+    Muda quando: edição/exclusão/undo/criação (log_alteracoes), criação
+    (COUNT de notas), importação de base (log_arquivos). A exportação também
+    grava em `log_arquivos`, mas é filtrada aqui: ela não altera dado algum e
+    não deve invalidar o cache de quem está com a tela aberta.
     É a moeda de revalidação do cache do engine e do ETag de GET /notas.
 
     `PRAGMA schema_version` entra como rede de segurança das importações de
@@ -1582,7 +1619,10 @@ def obter_versao_dataset() -> str:
     try:
         max_alt = conn.execute("SELECT MAX(Data_Hora) FROM log_alteracoes").fetchone()[0]
         qtd_alt = conn.execute("SELECT COUNT(*) FROM log_alteracoes").fetchone()[0]
-        max_arq = conn.execute("SELECT MAX(Data_Hora) FROM log_arquivos").fetchone()[0]
+        max_arq = conn.execute(
+            "SELECT MAX(Data_Hora) FROM log_arquivos "
+            "WHERE Acao IS NULL OR Acao NOT LIKE ?",
+            (f"{ACAO_EXPORTACAO}%",)).fetchone()[0]
         qtd_notas = conn.execute("SELECT COUNT(*) FROM notas").fetchone()[0]
         schema = conn.execute("PRAGMA schema_version").fetchone()[0]
     finally:

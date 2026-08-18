@@ -311,6 +311,9 @@ O que essa string cobre:
   `db.inserir_notas_novas` e registra `"CRIAÇÃO DE NOTA"` em
   `log_alteracoes`, então muda tanto o `COUNT(*)` de `notas`
   (`qtd_notas`) quanto `max_alt`/`qtd_alt`.
+- **Exportação** — grava em `log_arquivos` mas é excluída do cálculo:
+  baixar um `.xlsx` não muda dado nenhum e não pode disparar o aviso de
+  "dados atualizados" nas telas abertas.
 - **Importação de base** (upload manual em `POST /bases/{nome}` e a
   sincronização SAP noturna, `_rotina_sap_background` em
   `routes.py`) — ambas chamam `db.salvar_log_arquivo(...)`, o que muda
@@ -436,12 +439,12 @@ Router `/api/input` (prefixo). Todo endpoint de leitura/escrita chama
 | `POST /notas/{numero}/travar` | Reivindica a edição da nota (`db.travar_nota`). Conflito volta no corpo (`{"ok": false, "usuario", "desde"}`, HTTP 200), não como erro — mesmo padrão de `/desfazer`. |
 | `POST /notas/destravar` | Libera os bloqueios de `numeros` que pertencem ao usuário do header. |
 | `POST /desfazer` | Reverte a última transação de edição (`db.reverter_ultima_alteracao`). |
-| `POST /export` | Gera um `.xlsx` filtrado (linhas/colunas selecionadas) com nomes amigáveis. |
+| `POST /export` | Gera um `.xlsx` filtrado (linhas/colunas selecionadas) com nomes amigáveis. Exige header `X-User` (400 sem ele) e registra a exportação em `log_arquivos` — quem, quando e o volume levado. |
 | `GET /responsaveis`, `PUT /responsaveis` | Mapa Regional → responsável (JSON local). |
 | `GET /bases`, `GET /bases/{nome}/download`, `POST /bases/{nome}` | Lista/baixa/substitui as bases de apoio na rede (`config.BASES_APOIO`). O upload é atômico e só responde `200` se o import para o SQLite deu certo — ver "Upload atômico de bases" abaixo. |
 | `POST /bases/sync-sap` | Dispara a extração SAP em background — é o que o botão **"Sincronizar SAP"** do frontend chama (`InputApi.syncSap()`, ver [`03-frontend-input.md`](03-frontend-input.md)). Roda `Sap_Robot.py` num subprocesso, depois importa os três Excel gerados (IW28/IW38/IW66) para o SQLite via `_processar_upload_base` e invalida o cache do engine. |
 | `GET /backups`, `GET /backups/{nome}/download` | Lista/baixa backups rotativos do banco de notas. |
-| `GET /ramal`, `POST /ramal/bulk`, `DELETE /ramal` | CRUD da tabela `notas_ramal` (obras de ramal, schema paralelo ao de `notas`). |
+| `GET /ramal`, `POST /ramal/bulk`, `DELETE /ramal` | CRUD da tabela `notas_ramal` (obras de ramal, schema paralelo ao de `notas`). A importação em massa exige `X-User` e registra `"IMPORTAÇÃO DE NOTA RAMAL"` por nota, distinguindo registro criado de atualizado. |
 | `POST /hierarquia`, `GET /hierarquia/{numero_nota}` | Vínculo nota-mãe/nota-filha (`Nota_Mae`), respeitando o bloqueio por nota e disparando o pós-escrita canônico. |
 | `POST /migrar` | Força nova tentativa de migração do banco a partir da rede. |
 
@@ -807,10 +810,28 @@ Colunas extras/vazias são ignoradas; linhas com valores faltantes em
 
 Todas as operações de escrita no cadastro de notas registram eventos na tabela `log_alteracoes`:
 
-- **Criação de Notas (`service.criar_notas`):** Registra evento `"CRIAÇÃO DE NOTA"` com usuário autenticado (`X-User`), timestamp e metadados contextuais (`Origem`, `Status_Nota`, `Conjunto`).
+- **Criação de Notas (`service.criar_notas`):** Registra evento `"CRIAÇÃO DE NOTA"` com usuário autenticado (`X-User`), timestamp e metadados contextuais (`Origem`, `Status_Nota`, `Conjunto`). O log entra na mesma transação do INSERT (`db.inserir_notas_novas`): nota sem trilha — ou trilha sem nota — não é um estado possível.
 - **Edições Parciais (`db.aplicar_edicoes`):** Registra diff campo a campo (`Valor_Antigo` → `Valor_Novo`).
 - **Exclusões (`db.deletar_notas`):** Registra `"EXCLUSÃO DE NOTA"`.
+- **Importação em massa de ramal (`db.salvar_ramal_em_massa`):** Registra `"IMPORTAÇÃO DE NOTA RAMAL"` por nota, com `Valor_Novo` em `Registro Criado`/`Registro Atualizado`. Upsert e logs no mesmo `BEGIN IMMEDIATE`; o usuário vem do `X-User` da rota até a persistência.
 - **Desfazer / Undo (`db.reverter_ultima_alteracao`):** Reverte a última transação e remove os registros correspondentes do log.
+
+Exportação não é escrita no cadastro, mas também deixa rastro: `POST /export`
+grava em `log_arquivos` (`Nome_Arquivo`, `Usuario`, `Data_Hora`,
+`Acao = "Exportação (N notas, M colunas)"`). Só metadado operacional — nunca o
+conteúdo exportado. Se o registro não grava, a rota responde `500` e o arquivo
+não é entregue: exportação sem rastro é justamente o que a trilha existe para
+impedir (diferente do upload de base, que é best-effort e apenas avisa). Como a exportação não altera dado nenhum, essas linhas
+ficam de fora de `obter_versao_dataset` (`Acao NOT LIKE 'Exportação%'`), senão
+todo download invalidaria o cache de quem está com a tela aberta.
+
+**Identidade é uma dependência só.** `routes.usuario_atual` exige o header
+`X-User` e responde `400` sem ele — não há fallback para o usuário do
+servidor, que em produção é o mesmo para todo mundo e transformaria a trilha
+num carimbo inútil. Até esta versão o arquivo tinha *duas* funções com esse
+nome: a segunda sombreava a primeira, e as rotas declaradas antes dela
+(responsáveis, e-mails, notificações) seguiam aceitando requisição sem
+identidade.
 
 O frontend (`Logs`) suporta busca de múltiplas notas simultâneas (separadas por vírgula, espaço ou coladas de planilhas), filtros por tipo de evento e exibição cronológica de timeline.
 
