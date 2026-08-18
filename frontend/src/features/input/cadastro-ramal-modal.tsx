@@ -11,7 +11,6 @@ import { Eyebrow } from '@/components/branded/section';
 import { MesExecucaoPicker } from '@/components/branded/mes-execucao-picker';
 
 import { ROTULOS_RAMAL } from './columns-ramal';
-import { CLASSE_SELECT_MONO } from './ui';
 import { InputApi } from './api';
 import { useRecarregarRamal } from './use-ramal-data';
 import type { InputDataset, NotaRamal } from './types';
@@ -114,7 +113,7 @@ export function CadastroRamalModal({
                   <SelectTrigger id={`cad-ramal-${campo}`} className="h-8 text-xs bg-bg-2 border-line">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent className={CLASSE_SELECT_MONO}>
+                  <SelectContent>
                     {dadosPrincipais.meta.status_opcoes.map((s) => (
                       <SelectItem key={s} value={s}>
                         {s}
@@ -130,7 +129,7 @@ export function CadastroRamalModal({
                   <SelectTrigger id={`cad-ramal-${campo}`} className="h-8 text-xs bg-bg-2 border-line">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent className={CLASSE_SELECT_MONO}>
+                  <SelectContent>
                     {dadosPrincipais.meta.prioridade_opcoes.map((p) => (
                       <SelectItem key={p} value={p}>
                         {p}

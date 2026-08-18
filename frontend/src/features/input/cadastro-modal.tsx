@@ -10,7 +10,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Eyebrow } from '@/components/branded/section';
 
 import { ROTULOS } from './columns';
-import { CLASSE_SELECT_MONO } from './ui';
 import { InputApi } from './api';
 import { useRecarregarInput } from './use-input-data';
 import type { InputDataset, NotaInput } from './types';
@@ -160,7 +159,7 @@ export function CadastroModal({
                   <SelectTrigger id={`cad-${campo}`} className="h-8 text-xs bg-bg-2 border-line">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent className={CLASSE_SELECT_MONO}>
+                  <SelectContent>
                     {dados.meta.status_opcoes.map((s) => (
                       <SelectItem key={s} value={s}>
                         {s}
@@ -176,7 +175,7 @@ export function CadastroModal({
                   <SelectTrigger id={`cad-${campo}`} className="h-8 text-xs bg-bg-2 border-line">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent className={CLASSE_SELECT_MONO}>
+                  <SelectContent>
                     {dados.meta.prioridade_opcoes.map((p) => (
                       <SelectItem key={p} value={p}>
                         {p}
