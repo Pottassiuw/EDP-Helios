@@ -38,6 +38,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { SegTabs, Eyebrow, StatNumber, type SegTab } from '@/components/branded/section';
+import { getInputEmptyState, InputEmptyState } from './empty-state';
 
 export type ModoRamal = 'visao' | 'rapida' | 'lote' | 'colagem';
 
@@ -57,9 +58,11 @@ const VISUALIZACOES: { id: Visualizacao; rotulo: string }[] = [
 export function Ramal({
   dadosPrincipais,
   estadoFiltros,
+  onClearFilters,
 }: {
   dadosPrincipais: InputDataset;
   estadoFiltros?: FiltersState;
+  onClearFilters?: () => void;
 }): React.JSX.Element {
   const { data: dadosRamal, isLoading, error } = useRamalData();
   const qc = useQueryClient();
@@ -90,6 +93,7 @@ export function Ramal({
     if (!estadoFiltros) return raw;
     return filtrarRegistros(raw, estadoFiltros);
   }, [registros, estadoFiltros]);
+  const emptyState = getInputEmptyState(registros.length, registrosComoNotaInput.length);
 
   const previewColagem = React.useMemo(
     () => parseColagemTsv(textoColagem, COLUNAS_COLAGEM_RAMAL),
@@ -418,6 +422,7 @@ export function Ramal({
         </div>
       </div>
 
+<<<<<<< HEAD
       {isLoading && (
         <div className="p-8 flex items-center justify-center gap-2 text-text-dim text-sm">
           <Loader2 className="h-4 w-4 animate-spin text-accent" />
@@ -425,11 +430,22 @@ export function Ramal({
         </div>
       )}
 
+=======
+      {isLoading && <div role="status" className="p-8 text-center text-text-dim text-sm">Carregando notas ramal...</div>}
+>>>>>>> origin/develop
       {error != null && !dadosRamal && (
-        <div className="p-4 rounded-md bg-red/10 border border-red/20 text-red text-sm">
+        <div role="alert" className="p-4 rounded-md bg-red/10 border border-red/20 text-red text-sm">
           Erro ao carregar ramal: {String((error as Error).message)}
         </div>
       )}
+<<<<<<< HEAD
+=======
+      {error != null && dadosRamal && (
+        <div role="alert" className="px-3 py-1.5 rounded-md bg-amber/10 border border-amber/20 text-amber text-xs">
+          {`Backend indisponível — mostrando dados salvos${dataUpdatedAt ? ` de ${new Date(dataUpdatedAt).toLocaleString('pt-BR')}` : ''}.`}
+        </div>
+      )}
+>>>>>>> origin/develop
 
       {/* MODO 1: VISÃO GERAL */}
       {modo === 'visao' && dadosRamal && (
@@ -454,6 +470,7 @@ export function Ramal({
           </div>
 
           <div className="rounded-lg border border-line bg-surface overflow-hidden shadow-sm">
+<<<<<<< HEAD
             {modoVisualizacao === 'planilha' ? (
               <DataGrid registros={registrosComoNotaInput} colunas={COLUNAS_RAMAL} altura={580} />
             ) : (
@@ -464,6 +481,13 @@ export function Ramal({
                 agruparGavetinhas={true}
               />
             )}
+=======
+            {emptyState ? (
+              emptyState === 'filter'
+                ? <InputEmptyState state="filter" onClearFilters={onClearFilters} />
+                : <InputEmptyState state="dataset" />
+            ) : <DataGrid registros={registrosComoNotaInput} colunas={COLUNAS_RAMAL} />}
+>>>>>>> origin/develop
           </div>
         </React.Fragment>
       )}
@@ -490,6 +514,7 @@ export function Ramal({
               </div>
             </CardContent>
           </Card>
+<<<<<<< HEAD
 
           <div className="rounded-lg border border-line bg-surface overflow-hidden shadow-sm">
             <NotesTable
@@ -503,6 +528,23 @@ export function Ramal({
               agruparGavetinhas={true}
             />
           </div>
+=======
+          <Card>
+            <CardContent className="pt-6">
+              {emptyState ? (
+                emptyState === 'filter'
+                  ? <InputEmptyState state="filter" onClearFilters={onClearFilters} />
+                  : <InputEmptyState state="dataset" />
+              ) : <NotesTable
+                registros={registrosComoNotaInput}
+                colunas={COLUNAS_RAMAL}
+                edicoes={edicoes as unknown as Map<number, Partial<NotaInput>>}
+                onEditar={onEditar}
+                statusOpcoes={dadosPrincipais.meta.status_opcoes}
+                prioridadeOpcoes={dadosPrincipais.meta.prioridade_opcoes} />}
+            </CardContent>
+          </Card>
+>>>>>>> origin/develop
         </React.Fragment>
       )}
 
@@ -615,8 +657,29 @@ export function Ramal({
                   >
                     Limpar Seleção
                   </Button>
+<<<<<<< HEAD
                 )}
               </div>
+=======
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          <Card>
+            <CardContent className="pt-6">
+              {emptyState ? (
+                emptyState === 'filter'
+                  ? <InputEmptyState state="filter" onClearFilters={onClearFilters} />
+                  : <InputEmptyState state="dataset" />
+              ) : <NotesTable
+                registros={registrosComoNotaInput}
+                colunas={COLUNAS_RAMAL}
+                selecionados={selecionados}
+                onToggleSelecionado={toggleSelecionado}
+                onToggleTodos={toggleTodos}
+                statusOpcoes={dadosPrincipais.meta.status_opcoes}
+                prioridadeOpcoes={dadosPrincipais.meta.prioridade_opcoes} />}
+>>>>>>> origin/develop
             </CardContent>
           </Card>
 

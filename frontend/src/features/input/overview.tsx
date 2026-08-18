@@ -45,6 +45,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Eyebrow, StatNumber, SegTabs, type SegTab } from '@/components/branded/section';
+import { getInputEmptyState, InputEmptyState } from './empty-state';
 
 export type ModoNotas = 'visao' | 'rapida' | 'lote' | 'colagem';
 
@@ -136,6 +137,7 @@ interface OverviewProps {
   onSetEstadoFiltros?: (e: FiltersState) => void;
   onIrParaSincronizacao?: () => void;
   onIrParaRateio?: () => void;
+  onClearFilters?: () => void;
 }
 
 export function Overview({
@@ -144,6 +146,7 @@ export function Overview({
   onSetEstadoFiltros,
   onIrParaSincronizacao = () => {},
   onIrParaRateio,
+  onClearFilters,
 }: OverviewProps): React.JSX.Element {
   const qc = useQueryClient();
   const recarregar = useRecarregarInput();
@@ -569,6 +572,7 @@ export function Overview({
   };
 
   const filtrado = filtrados.length !== dados.registros.length;
+  const emptyState = getInputEmptyState(dados.registros.length, filtrados.length);
 
   return (
     <div className="p-6 flex flex-col gap-6 max-w-full">
@@ -672,6 +676,7 @@ export function Overview({
         </div>
       </div>
 
+<<<<<<< HEAD
       {/* Alerta inteligente quando a busca coincide com notas ocultas */}
       {ocultasNaBusca.length > 0 && (
         <div className="flex items-center justify-between gap-3 p-3.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-200 text-xs shadow-sm">
@@ -969,6 +974,24 @@ export function Overview({
         returnFocusRef={botaoDetalheRef}
         onIrParaSincronizacao={onIrParaSincronizacao}
       />
+=======
+      <div className="rounded-lg border border-line bg-surface overflow-hidden shadow-sm">
+        {emptyState ? (
+          emptyState === 'filter'
+            ? <InputEmptyState state="filter" onClearFilters={onClearFilters} />
+            : <InputEmptyState state="dataset" />
+        ) : agruparGavetinhas ? (
+          <NotesTable
+            registros={filtrados}
+            todosOsRegistros={dados.registros}
+            colunas={COLUNAS}
+            agruparGavetinhas
+          />
+        ) : (
+          <DataGrid registros={filtrados} colunas={COLUNAS} />
+        )}
+      </div>
+>>>>>>> origin/develop
 
       <div className="flex items-center justify-between text-xs text-text-mute font-mono px-3 py-2 bg-surface-2/50 rounded-md border border-line">
         <div className="flex items-center gap-2">

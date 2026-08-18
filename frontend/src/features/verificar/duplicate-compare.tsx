@@ -49,14 +49,14 @@ interface KeyFieldDef { key: DuplicateField; label: string; }
 interface CtxFieldDef { label: string; get: (x: ComparableFields) => string; }
 
 const DUPC_KEYS: KeyFieldDef[] = [
-  { key: "problema",         label: "Problema"      },
-  { key: "local_instalacao", label: "Local instal." },
-  { key: "poste",            label: "Poste(s)"      },
-  { key: "referencia",       label: "Referência"    },
+  { key: "problema",            label: "Problema"          },
+  { key: "local_instalacao",    label: "Local instal."     },
+  { key: "poste",               label: "Poste(s)"          },
+  { key: "referencia",          label: "Referência"        },
+  { key: "referencia_eletrica", label: "Referência elétrica" },
 ];
 const DUPC_CTX: CtxFieldDef[] = [
   { label: "Observação", get: (x) => x.observacao ?? "" },
-  { label: "Referência elétrica", get: (x) => x.referencia_eletrica ?? "" },
   { label: "Tipo de nota", get: (x) => x.tipo_nota },
   { label: "Setor · UF",   get: (x) => x.setor + " · " + x.uf },
 ];
@@ -218,7 +218,7 @@ export const DuplicateCompare: React.FC<DuplicateCompareProps> = ({ note, resolv
                 <div className="dupc-colh">Esta nota · {note.id}</div>
                 <div className="dupc-colh">Candidata · {c.id}</div>
                 {DUPC_KEYS.map((f) => (
-                  <CompareRow key={f.key} label={f.label} open={note[f.key]} cand={c[f.key]} keyField={true} />
+                  <CompareRow key={f.key} label={f.label} open={note[f.key] ?? ""} cand={c[f.key] ?? ""} keyField={true} />
                 ))}
                 {DUPC_CTX.map((f) => (
                   <CompareRow key={f.label} label={f.label} open={f.get(note)} cand={f.get(c)} keyField={false} />

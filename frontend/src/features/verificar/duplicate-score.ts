@@ -3,10 +3,11 @@ export const DUPLICATE_SCORE_FIELDS = [
   "local_instalacao",
   "poste",
   "referencia",
+  "referencia_eletrica",
 ] as const;
 
 export type DuplicateScoreField = (typeof DUPLICATE_SCORE_FIELDS)[number];
-export type DuplicateScoreValues = Record<DuplicateScoreField, string | null | undefined>;
+export type DuplicateScoreValues = Partial<Record<DuplicateScoreField, string | null | undefined>>;
 export type DuplicateScoreIndicator = "match" | "diferente" | "indisponivel";
 export type DuplicateScoreBand = "forte" | "possivel" | "distinta" | "insuficiente";
 
@@ -33,9 +34,10 @@ const FIELD_WEIGHTS: Record<DuplicateScoreField, number> = {
   local_instalacao: 1.6,
   poste: 1.3,
   referencia: 1.1,
+  referencia_eletrica: 2,
 };
 
-const TOTAL_WEIGHT = 6;
+const TOTAL_WEIGHT = 8;
 
 export function normalizeDuplicateValue(value: string | null | undefined): string {
   return String(value ?? "").replace(/\s+/g, "").toLocaleLowerCase("pt-BR");

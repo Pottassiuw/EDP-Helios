@@ -124,6 +124,32 @@ def _nota(numero=1000, **extras):
     return base
 
 
+def test_status10_resumo_serializa_ausentes_com_json_estrito(monkeypatch):
+    import json
+    from input_module import status10_service
+
+    monkeypatch.setattr(
+        status10_service.db,
+        "carregar_dados",
+        lambda: pd.DataFrame([
+            _nota(1000, Planejado_DDPM=float("nan"), Modular=float("nan"),
+                  Regional=None, Conjunto=None, Observacao=None,
+                  Data_Envio_Projeto=float("nan")),
+        ]),
+    )
+
+    resumo = status10_service.obter_resumo_status10()
+    payload = json.dumps(resumo, allow_nan=False)
+
+    assert json.loads(payload)["registros"][0]["Observacao"] is None
+
+
+def test_status10_rotulo_planejado_usa_unidade_de_quantidade():
+    from input_module.status10_service import rotulos_resumo_status10
+
+    assert rotulos_resumo_status10()["Total_Planejado"] == "Total Planejado (un)"
+
+
 def test_upsert_e_carregar(banco_temporario):
     from input_module import db
     db.salvar_em_massa(pd.DataFrame([_nota(1000), _nota(1001, Conjunto="SUZANO")]))
@@ -2033,6 +2059,76 @@ def test_migrar_endpoint(cliente):
     assert r.json()["resultado"] in ("ja-existe", "migrado", "rede-indisponivel")
 
 
+def _iw66_temporaria(caminho: Path, valor: int) -> None:
+    pd.DataFrame({"Nota": [123], "Nº de ordenação": [valor]}).to_excel(
+        caminho, index=False
+    )
+
+
+def test_publicacao_iw66_falha_preserva_alvo_e_propaga_erro(
+        banco_temporario, monkeypatch, tmp_path):
+    from input_module import config, db, service
+
+    caminho = tmp_path / "Gerada_medidas_IW66.XLSX"
+    _iw66_temporaria(caminho, 10)
+    original = caminho.read_bytes()
+    arquivos_antes = set(tmp_path.iterdir())
+    monkeypatch.setattr(config, "CAMINHO_BASE_IW66", str(caminho))
+    monkeypatch.setattr(
+        service.os, "replace",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("volume indisponível")),
+    )
+    monkeypatch.setattr(
+        db, "salvar_base_dataframe",
+        lambda *_args, **_kwargs: pytest.fail("SQLite não deve mudar sem publicação"),
+    )
+
+    with pytest.raises(OSError, match="volume indisponível"):
+        service.atualizar_medidas_excel_local(
+            [{"nota": 123, "quantidade": 2, "unidade": "m"}],
+            [{"Nota": 123, "Status": "OK"}],
+        )
+
+    assert caminho.read_bytes() == original
+    assert set(tmp_path.iterdir()) == arquivos_antes
+
+
+def test_publicacao_iw66_valida_temporario_antes_de_substituir(
+        banco_temporario, monkeypatch, tmp_path):
+    from input_module import config, db, service
+
+    caminho = tmp_path / "Gerada_medidas_IW66.XLSX"
+    _iw66_temporaria(caminho, 10)
+    original = caminho.read_bytes()
+    arquivos_antes = set(tmp_path.iterdir())
+    monkeypatch.setattr(config, "CAMINHO_BASE_IW66", str(caminho))
+    read_excel_real = pd.read_excel
+    leituras = []
+
+    def validar_temporario(caminho_lido, *args, **kwargs):
+        leituras.append(Path(caminho_lido))
+        if Path(caminho_lido) != caminho:
+            raise ValueError("temporário inválido")
+        return read_excel_real(caminho_lido, *args, **kwargs)
+
+    monkeypatch.setattr(service.pd, "read_excel", validar_temporario)
+    monkeypatch.setattr(
+        db, "salvar_base_dataframe",
+        lambda *_args, **_kwargs: pytest.fail("SQLite não deve mudar sem publicação"),
+    )
+
+    with pytest.raises(ValueError, match="temporário inválido"):
+        service.atualizar_medidas_excel_local(
+            [{"nota": 123, "quantidade": 2, "unidade": "m"}],
+            [{"Nota": 123, "Status": "OK"}],
+        )
+
+    assert len(leituras) == 2
+    assert leituras[1].parent == caminho.parent
+    assert caminho.read_bytes() == original
+    assert set(tmp_path.iterdir()) == arquivos_antes
+
+
 # ── Fase 4 (Grupo D): Ramal + Nota_Mae + Hierarquia ─────────────────────────
 def test_inicializar_banco_cria_notas_ramal(banco_temporario):
     from input_module import db
@@ -2092,6 +2188,35 @@ def test_vincular_nota_mae(banco_temporario):
     assert df[df["Numero_Nota"] == 6002].iloc[0]["Nota_Mae"] == "6001"
 
 
+def test_vincular_nota_mae_respeita_lock_de_outro_usuario(banco_temporario):
+    from input_module import db
+
+    db.salvar_em_massa(pd.DataFrame([_nota(6020), _nota(6021)]))
+    assert db.travar_nota(6021, "bob") == {"ok": True}
+
+    atualizadas = db.vincular_nota_mae_lote({"6020": [6021]}, usuario="alice")
+
+    assert atualizadas == 0
+    filha = db.carregar_dados().set_index("Numero_Nota").loc[6021]
+    assert filha["Nota_Mae"] == "-"
+    assert db.obter_bloqueios([6021])[6021]["usuario"] == "bob"
+
+
+def test_vincular_nota_mae_usa_begin_immediate(
+        banco_temporario, monkeypatch):
+    from input_module import db
+
+    db.salvar_em_massa(pd.DataFrame([_nota(6030), _nota(6031)]))
+    conn = db.get_db_connection()
+    comandos = []
+    conn.set_trace_callback(comandos.append)
+    monkeypatch.setattr(db, "realizar_backup", lambda: None)
+    monkeypatch.setattr(db, "get_db_connection", lambda: conn)
+
+    assert db.vincular_nota_mae_lote({"6030": [6031]}, usuario="alice") == 1
+    assert any(comando.upper() == "BEGIN IMMEDIATE" for comando in comandos)
+
+
 def test_nota_mae_nao_sobrescrita_por_salvar(banco_temporario):
     from input_module import db
     db.salvar_em_massa(pd.DataFrame([_nota(6010), _nota(6011)]))
@@ -2117,14 +2242,17 @@ def test_api_ramal_crud(cliente):
     assert cliente.get("/api/input/ramal").json()["registros"] == []
 
 
-def test_api_hierarquia(cliente):
-    from input_module import db, engine
+def test_api_hierarquia(cliente, monkeypatch):
+    from input_module import db, engine, routes
     db.salvar_em_massa(pd.DataFrame([_nota(7010), _nota(7011)]))
     engine.invalidar_cache()
+    pos_escritas = []
+    monkeypatch.setattr(routes, "pos_escrita", lambda tasks: pos_escritas.append(tasks))
     r = cliente.post("/api/input/hierarquia", headers=CABECALHO_USER,
                      json={"dados": {"7010": [7011]}})
     assert r.status_code == 200
     assert r.json()["atualizadas"] >= 1
+    assert len(pos_escritas) == 1
     r = cliente.get("/api/input/hierarquia/7011")
     assert r.status_code == 200
     assert r.json()["nota_mae"] == "7010"

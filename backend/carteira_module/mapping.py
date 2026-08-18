@@ -127,6 +127,12 @@ def _inteiro(valor) -> int | None:
 
 
 def normalizar_linha(origem: dict) -> dict:
+    # observacao/referencia_eletrica: colunas de negocio já existem em
+    # nota_carteira (ver db.py) mas não são lidas daqui ainda — a origem
+    # Databricks marca os candidatos como "avaliar" em
+    # docs/dev/databricks-schema-discovery.md (nome pode ser "observacoes",
+    # plural, e "referencia_fisica"/"referencia_eletrica" é um par ambíguo).
+    # Confirmar o nome real da coluna lá antes de mapear pra cá.
     id_sap = _texto(origem.get("id_sap"))
     sap_real = 1 if (id_sap and id_sap != SENTINELA_SAP) else 0
     quantidade = _inteiro(origem.get("quantidade"))

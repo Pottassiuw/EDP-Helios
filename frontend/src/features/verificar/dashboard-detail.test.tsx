@@ -15,8 +15,8 @@ vi.hoisted(() => {
 });
 
 import { EDPApi } from '../../api';
-import type { CoffeeConsulta } from '../coffee/types';
-import { COFFEE_CONSULTA_KEY } from '../coffee/coffee-query-keys';
+import type { CoffeeConsulta, TipoEquipamento } from '../coffee/types';
+import { COFFEE_CONSULTA_KEY, TIPOS_EQUIPAMENTO_KEY } from '../coffee/coffee-query-keys';
 import type { Note } from '../../types';
 import { Dashboard } from './dashboard';
 
@@ -51,9 +51,10 @@ function consulta(overrides: Partial<CoffeeConsulta> = {}): CoffeeConsulta {
 
 const noop = (): void => {};
 
-function renderDetail(note: Note, dadosCoffee: CoffeeConsulta): string {
+function renderDetail(note: Note, dadosCoffee: CoffeeConsulta, tipos: TipoEquipamento[] = []): string {
   const queryClient = new QueryClient();
   queryClient.setQueryData(COFFEE_CONSULTA_KEY(Number(note.id)), dadosCoffee);
+  queryClient.setQueryData(TIPOS_EQUIPAMENTO_KEY, tipos);
   return renderToStaticMarkup(
     <QueryClientProvider client={queryClient}>
       <Dashboard
@@ -153,5 +154,27 @@ describe('Detail — ordem e deduplicação de campos', () => {
     expect(html).not.toContain('valor-cru-problema-nao-deve-aparecer');
     // o bloco principal segue mostrando o valor da própria nota.
     expect(html.match(/>P1</g)?.length).toBe(1);
+  });
+});
+
+describe('Detail — copiar código de equipamento da referência elétrica', () => {
+  beforeEach(() => {
+    vi.spyOn(EDPApi, 'consultarNota').mockResolvedValue(consulta());
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('mostra botão de copiar pro equipamento reconhecido no texto', () => {
+    const note = nota({ id: '355617' });
+    const tipos: TipoEquipamento[] = [{ id: 'FF', descricao: '' }];
+    const html = renderDetail(note, consulta({ referencia_eletrica: 'INSTALAR RL (NA) EM FF-655816' }), tipos);
+    expect(html).toContain('00655816');
+  });
+
+  it('não mostra botão quando o tipo de equipamento não é reconhecido', () => {
+    const note = nota({ id: '355617' });
+    const html = renderDetail(note, consulta({ referencia_eletrica: 'INSTALAR RL (NA) EM FF-655816' }), []);
+    expect(html).not.toContain('00655816');
   });
 });

@@ -687,7 +687,7 @@ def vincular_hierarquia(pedido: HierarquiaPedido, tasks: BackgroundTasks,
         {k: v for k, v in pedido.dados.items()}, usuario=usuario
     )
     if atualizadas:
-        engine.invalidar_cache()
+        pos_escrita(tasks)
     return {"atualizadas": atualizadas}
 
 

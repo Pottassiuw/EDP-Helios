@@ -53,6 +53,14 @@ def _converter_numero_br(valor) -> float:
         return 0.0
 
 
+def rotulos_resumo_status10() -> dict[str, str]:
+    """Rótulos do relatório, preservando a unidade de quantidade do DDPM."""
+    return {
+        "Total_Planejado": "Total Planejado (un)",
+        "Total_Modular": "Total Modular (R$)",
+    }
+
+
 def eh_status_10(val) -> bool:
     """Verifica se o valor do status corresponde a Status 10."""
     if val is None or pd.isna(val):
@@ -165,9 +173,17 @@ def obter_resumo_status10() -> dict:
     total_custo_ordem = float(df_st10["Custo_Plan"].sum())
 
     if "Regional" not in df_st10.columns:
+<<<<<<< HEAD
         df_st10["Regional"] = "Não Mapeado"
+=======
+        df_st10["Regional"] = "-"
+    else:
+        df_st10["Regional"] = df_st10["Regional"].fillna("-")
+>>>>>>> origin/develop
     if "Conjunto" not in df_st10.columns:
         df_st10["Conjunto"] = "-"
+    else:
+        df_st10["Conjunto"] = df_st10["Conjunto"].fillna("-")
 
     agrupado = (
         df_st10.groupby(["Regional", "Conjunto"])
@@ -180,6 +196,7 @@ def obter_resumo_status10() -> dict:
         .reset_index()
     )
 
+<<<<<<< HEAD
     resumo_regional = agrupado.to_dict(orient="records")
 
     # Mapeia colunas amigáveis para a lista de registros
@@ -209,6 +226,14 @@ def obter_resumo_status10() -> dict:
             "Data_Nota": str(reg.get("Data da nota", reg.get("Data_Nota_SAP", "-")) or "-"),
             "Observacao": str(reg.get("Observacao", "-") or "-"),
         })
+=======
+    resumo_regional = json.loads(
+        agrupado.to_json(orient="records", force_ascii=False)
+    )
+    registros = json.loads(
+        df_st10.to_json(orient="records", force_ascii=False)
+    )
+>>>>>>> origin/develop
 
     return {
         "total_notas": total_notas,
@@ -467,14 +492,20 @@ def gerar_email_outlook_status10(usuario: str = "sistema") -> dict:
         }
 
     df_resumo = pd.DataFrame(resumo_dados["resumo_regional"])
+    rotulos = rotulos_resumo_status10()
     df_resumo = df_resumo.rename(
         columns={
             "Regional": "Regional",
             "Conjunto": "Conjunto",
             "Qtd_Notas": "Qtd Notas",
+<<<<<<< HEAD
             "Total_Fisico": "Físico (Postes)",
             "Total_Modular": "Modular Obra (R$)",
             "Total_Custo_Ordem": "Custo Ordem SAP (R$)",
+=======
+            "Total_Planejado": rotulos["Total_Planejado"],
+            "Total_Modular": rotulos["Total_Modular"],
+>>>>>>> origin/develop
         }
     )
 

@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/dialog';
 import { MultiSelect } from './filters';
 import { Bot, Info, Loader2, Mail, RefreshCw } from 'lucide-react';
+import { anoEncerramento, calcularSLA } from './reports-lib';
 
 /** Cores do "semáforo" (porte de Input/app.py:1132-1139). */
 const CORES_AUDITORIA: Record<string, string> = {
@@ -61,6 +62,7 @@ const FILTROS_RAPIDOS = [
   'Ordem Executada (SAP)',
 ] as const;
 
+<<<<<<< HEAD
 function anoEncerramento(v: Celula | undefined): number | null {
   if (!v || v === '-' || v === '') return null;
   const d = typeof v === 'number' ? new Date(v) : new Date(String(v));
@@ -68,6 +70,8 @@ function anoEncerramento(v: Celula | undefined): number | null {
   return d.getFullYear();
 }
 
+=======
+>>>>>>> origin/develop
 interface FatiaRosca {
   rotulo: string;
   qtd: number;
@@ -135,6 +139,7 @@ const TABS_RELATORIOS = [
   { id: 'planejamento', rotulo: 'Em Planejamento (Status 10)' },
 ];
 
+<<<<<<< HEAD
 const MESES_REV: Record<string, number> = {
   jan: 1, fev: 2, mar: 3, abr: 4, maio: 5, jun: 6,
   jul: 7, ago: 8, set: 9, out: 10, nov: 11, dez: 12,
@@ -221,6 +226,8 @@ function calcularSLA(n: NotaInput): SLADados {
   }
 }
 
+=======
+>>>>>>> origin/develop
 import type { FiltersState } from './filters';
 import { filtrarRegistros } from './overview';
 
