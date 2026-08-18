@@ -7,10 +7,10 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, ChevronUp, Folder, FolderOpen, Lock } from "lucide-react";
+import { ChevronDown, ChevronUp, CornerDownRight, Folder, FolderOpen, Lock } from "lucide-react";
 import { Input } from "@/components/ui/input";
 
-const ALTURA_LINHA = 40;
+const ALTURA_LINHA = 32;
 
 export interface NotesTableProps {
   registros: NotaInput[];
@@ -48,8 +48,6 @@ interface LinhaHierarquica {
   nivel: number;
   temFilhas: boolean;
   qtdFilhas: number;
-  /** Última filha da gavetinha — encurta a linha-guia vertical do indicador de hierarquia. */
-  ultimoFilho: boolean;
 }
 
 const HEADER_STICKY_CLASS =
@@ -127,7 +125,6 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
           nivel: 0,
           temFilhas: false,
           qtdFilhas: 0,
-          ultimoFilho: false,
         })),
         totalMaesComFilhas: 0,
       };
@@ -162,19 +159,17 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
         nivel: 0,
         temFilhas,
         qtdFilhas: filhas.length,
-        ultimoFilho: false,
       });
 
       if (temFilhas && expandidos.has(r.Numero_Nota)) {
-        filhas.forEach((f, i) => {
+        for (const f of filhas) {
           resultado.push({
             registro: f,
             nivel: 1,
             temFilhas: false,
             qtdFilhas: 0,
-            ultimoFilho: i === filhas.length - 1,
           });
-        });
+        }
       }
     }
 
@@ -281,13 +276,13 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
               ? MESES_OPCOES
               : null;
       return (
-        <TableCell key={c.key} className="p-[0px] h-[40px]">
+        <TableCell key={c.key} className="p-[0px] h-[32px]">
           {opcoes ? (
             <select
               autoFocus
               defaultValue={String(v ?? "")}
               aria-label={`Editar ${c.label}`}
-              className="w-full h-[32px] text-[12.5px] bg-surface text-foreground border border-line rounded px-1 cursor-pointer focus:outline-none focus:ring-1 focus:ring-accent"
+              className="w-full h-[28px] text-[12.5px] bg-surface text-foreground border border-line rounded px-1 cursor-pointer focus:outline-none focus:ring-1 focus:ring-accent"
               onChange={(e) => confirmar(e.target.value)}
               onBlur={(e) => confirmar(e.target.value)}
               onKeyDown={(e) => {
@@ -305,7 +300,7 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
               autoFocus
               defaultValue={String(v ?? "")}
               aria-label={`Editar ${c.label}`}
-              className="w-[100%] h-[32px] text-[12.5px] box-border"
+              className="w-[100%] h-[28px] text-[12.5px] box-border"
               onBlur={(e) => confirmar(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter")
@@ -318,34 +313,21 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
       );
     }
 
-    // Renderização especial da coluna ID (Numero_Nota) para exibir gavetinha / indentação
+    // Renderização especial da coluna ID (Numero_Nota) para exibir gavetinha / indetação
     if (c.key === "Numero_Nota") {
       const estaExpandido = expandidos.has(r.Numero_Nota);
       const bloqueio = bloqueioDeOutro(r.Numero_Nota);
-      const ehFilha = item.nivel === 1;
       return (
         <TableCell
           key={c.key}
-          className={`whitespace-nowrap overflow-hidden text-ellipsis min-w-[185px] h-[40px] text-[12.5px] border-b-[1px] border-b-line font-mono ${
-            ehFilha ? "relative" : ""
-          }`}
+          className="whitespace-nowrap overflow-hidden text-ellipsis min-w-[185px] h-[32px] text-[12.5px] border-b-[1px] border-b-line font-mono"
         >
-          {ehFilha && (
-            <React.Fragment>
-              {/* Linha-guia de árvore: traço vertical (conecta ao irmão anterior/pai) + conector horizontal até o número. */}
-              <span
-                aria-hidden="true"
-                className="absolute left-[15px] top-0 w-px bg-line-2"
-                style={{ height: item.ultimoFilho ? ALTURA_LINHA / 2 : ALTURA_LINHA }}
-              />
-              <span
-                aria-hidden="true"
-                className="absolute left-[15px] w-[9px] h-px bg-line-2"
-                style={{ top: ALTURA_LINHA / 2 }}
-              />
-            </React.Fragment>
-          )}
-          <div className={`flex items-center gap-2 ${ehFilha ? "pl-[26px]" : ""}`}>
+          <div className="flex items-center gap-2">
+            {item.nivel === 1 && (
+              <span className="text-[var(--accent)]/80 pl-0.5 font-bold inline-flex items-center gap-1 shrink-0" title="Nota Filha">
+                <CornerDownRight className="h-3.5 w-3.5 inline text-[var(--accent)] stroke-[2.5]" />
+              </span>
+            )}
             <span className="font-semibold text-foreground tracking-tight">
               {formatarNumero(v, 0, false)}
             </span>
@@ -359,26 +341,20 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
               </span>
             )}
             {item.temFilhas ? (
-              <React.Fragment>
-                <button
-                  type="button"
-                  onClick={(e) => toggleExpandir(r.Numero_Nota, e)}
-                  className={`inline-flex items-center justify-center h-[18px] w-[18px] rounded-[4px] border shrink-0 cursor-pointer transition-colors ${
-                    estaExpandido
-                      ? "bg-accent-tint border-[var(--accent)]/40 text-[var(--accent)]"
-                      : "bg-bg-2 border-line-2 text-text-dim hover:border-[var(--accent)]/40 hover:text-[var(--accent)]"
-                  }`}
-                  aria-label={`${estaExpandido ? "Recolher" : "Expandir"} ${item.qtdFilhas} ${
-                    item.qtdFilhas === 1 ? "nota filha" : "notas filhas"
-                  }`}
-                  title={estaExpandido ? "Recolher notas filhas" : "Expandir notas filhas (gavetinha)"}
-                >
-                  {estaExpandido ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                </button>
-                <span className="font-mono text-[10.5px] text-text-mute shrink-0">
-                  ×{item.qtdFilhas}
-                </span>
-              </React.Fragment>
+              <button
+                type="button"
+                onClick={(e) => toggleExpandir(r.Numero_Nota, e)}
+                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-sans font-semibold transition-all shadow-xs cursor-pointer ${
+                  estaExpandido
+                    ? "bg-[var(--accent)] text-primary-foreground ring-1 ring-[var(--accent)]/50 hover:brightness-110"
+                    : "bg-accent-tint text-[var(--accent)] border border-[var(--accent)]/30 hover:border-[var(--accent)]/60"
+                }`}
+                title={estaExpandido ? "Recolher notas filhas" : "Expandir notas filhas (gavetinha)"}
+              >
+                <Folder size={11} className={estaExpandido ? "fill-current" : ""} />
+                <span>{item.qtdFilhas} {item.qtdFilhas === 1 ? "filha" : "filhas"}</span>
+                {estaExpandido ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+              </button>
             ) : null}
           </div>
         </TableCell>
@@ -406,7 +382,7 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
         title={editavel ? "Clique ou duplo clique para editar" : undefined}
         onClick={editavel ? () => { void tentarEditar(); } : undefined}
         onDoubleClick={editavel ? () => { void tentarEditar(); } : undefined}
-        className={`whitespace-nowrap overflow-hidden text-ellipsis max-w-[320px] h-[40px] text-[12.5px] border-b-[1px] border-b-line ${
+        className={`whitespace-nowrap overflow-hidden text-ellipsis max-w-[320px] h-[32px] text-[12.5px] border-b-[1px] border-b-line ${
           editavel ? "hover:bg-accent/10 transition-colors" : ""
         }`}
         style={{
@@ -513,7 +489,7 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
                   }
                 >
                   {selecionados && (
-                    <TableCell className="text-center h-[40px] border-b-[1px] border-b-line">
+                    <TableCell className="text-center h-[32px] border-b-[1px] border-b-line">
                       <input
                         type="checkbox"
                         checked={selecionados.has(r.Numero_Nota)}

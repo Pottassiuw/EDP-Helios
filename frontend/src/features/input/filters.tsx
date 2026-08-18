@@ -8,6 +8,7 @@ import {
   FILTROS_TEXTO,
   ROTULOS,
 } from "./columns";
+import { CLASSE_SELECT_MONO } from "./ui";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -477,7 +478,7 @@ export function Filters({
               <SelectTrigger aria-label="Adicionar campo de filtro" className="h-[32px] bg-surface border-line-2">
                 <SelectValue placeholder="+ Adicionar filtro avançado..." />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className={CLASSE_SELECT_MONO}>
                 {camposDisponiveis.map((c) => (
                   <SelectItem key={c} value={c}>
                     {ROTULOS[c] ?? c}

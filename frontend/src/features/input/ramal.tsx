@@ -9,9 +9,9 @@ import { COLUNAS_RAMAL, COLUNAS_COLAGEM_RAMAL, ROTULOS_RAMAL } from './columns-r
 import { useRamalData, useRecarregarRamal } from './use-ramal-data';
 import { DataGrid } from './data-grid';
 import { NotesTable } from './notes-table';
-import { NotesTableSkeleton } from './notes-table-skeleton';
 import { MesExecucaoPicker } from '@/components/branded/mes-execucao-picker';
 import { ColagemPlanilha } from './colagem-planilha';
+import { CLASSE_SELECT_MONO } from './ui';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -192,11 +192,7 @@ export function Ramal({
         <SegTabs tabs={MODOS} value={modo} onChange={trocarModo} ariaLabel="Modo do ramal" />
       </div>
 
-      {isLoading && (
-        <div className="p-6">
-          <NotesTableSkeleton />
-        </div>
-      )}
+      {isLoading && <div className="p-8 text-center text-text-dim text-sm">Carregando notas ramal...</div>}
       {error != null && !dadosRamal && (
         <div className="p-4 rounded-md bg-red/10 border border-red/20 text-red text-sm">
           Erro ao carregar ramal: {String((error as Error).message)}
@@ -267,7 +263,7 @@ export function Ramal({
                     <SelectTrigger className="w-[220px]">
                       <SelectValue placeholder="Status: (manter atual)" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className={CLASSE_SELECT_MONO}>
                       <SelectItem value="__manter">Status: (manter atual)</SelectItem>
                       {dadosPrincipais.meta.status_opcoes.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                     </SelectContent>
@@ -277,7 +273,7 @@ export function Ramal({
                     <SelectTrigger className="w-[220px]">
                       <SelectValue placeholder="Prioridade: (manter atual)" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className={CLASSE_SELECT_MONO}>
                       <SelectItem value="__manter">Prioridade: (manter atual)</SelectItem>
                       {dadosPrincipais.meta.prioridade_opcoes.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
                     </SelectContent>
@@ -336,7 +332,7 @@ export function Ramal({
                     <Select value={novaNota[campo]}
                             onValueChange={(v) => setNovaNota({ ...novaNota, [campo]: v })}>
                       <SelectTrigger id={`nova-ramal-${campo}`}><SelectValue /></SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className={CLASSE_SELECT_MONO}>
                         {dadosPrincipais.meta.status_opcoes.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
                       </SelectContent>
                     </Select>
@@ -344,7 +340,7 @@ export function Ramal({
                     <Select value={novaNota[campo]}
                             onValueChange={(v) => setNovaNota({ ...novaNota, [campo]: v })}>
                       <SelectTrigger id={`nova-ramal-${campo}`}><SelectValue /></SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className={CLASSE_SELECT_MONO}>
                         {dadosPrincipais.meta.prioridade_opcoes.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
                       </SelectContent>
                     </Select>
