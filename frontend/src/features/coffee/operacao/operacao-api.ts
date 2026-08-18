@@ -39,6 +39,8 @@ export const OperacaoApi = {
     json(`${BASE}/coffee/operacao`),
   consultar: (ids: number[]): Promise<JobResponse> =>
     postIds('consultar', ids),
+  consultarLeitura: (ids: number[]): Promise<JobResponse> =>
+    postIds('consultar-lote', ids),
   gerar: (ids: number[]): Promise<JobResponse> =>
     postIds('gerar', ids),
   atualizarSap: (ids: number[]): Promise<JobResponse> =>
