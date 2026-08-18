@@ -8,7 +8,7 @@ import {
   FILTROS_TEXTO,
   ROTULOS,
 } from "./columns";
-import { CLASSE_SELECT_MONO } from "./ui";
+import { criarFuncaoComDebounce } from "@/lib/debounce";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -359,6 +359,22 @@ export function Filters({
   setEstado,
 }: FiltersProps): React.JSX.Element {
   const [aberto, setAberto] = React.useState(false);
+  const [busca, setBusca] = React.useState(estado.busca);
+  const estadoAtual = React.useRef(estado);
+  estadoAtual.current = estado;
+  const buscaComDebounce = React.useMemo(
+    () => criarFuncaoComDebounce((valor: string) => {
+      setEstado({ ...estadoAtual.current, busca: valor });
+    }, 300),
+    [setEstado],
+  );
+
+  React.useEffect(() => {
+    buscaComDebounce.cancelar();
+    setBusca(estado.busca);
+  }, [buscaComDebounce, estado.busca]);
+
+  React.useEffect(() => () => buscaComDebounce.cancelar(), [buscaComDebounce]);
   const camposDisponiveis = React.useMemo(() => {
     return [
       ...FILTROS_MULTI,
@@ -381,7 +397,7 @@ export function Filters({
     });
   }
 
-  const temFiltrosAtivos = estado.filtros.length > 0 || Boolean(estado.busca) || !estado.somente2026;
+  const temFiltrosAtivos = estado.filtros.length > 0 || Boolean(busca) || !estado.somente2026;
 
   return (
     <div className="flex flex-col gap-[10px]">
@@ -391,14 +407,23 @@ export function Filters({
         <div className="relative flex items-center w-[280px]">
           <Search size={14} className="absolute left-[11px] text-text-mute" />
           <Input
-            value={estado.busca}
+            value={busca}
             placeholder="Buscar notas: 12345, 54321..."
-            onChange={(e) => setEstado({ ...estado, busca: e.target.value })}
+            onChange={(e) => {
+              setBusca(e.target.value);
+              buscaComDebounce.chamar(e.target.value);
+            }}
             className="pl-[32px] pr-[28px] w-full"
           />
-          {estado.busca && (
+          {busca && (
             <button
-              onClick={() => setEstado({ ...estado, busca: "" })}
+              type="button"
+              aria-label="Limpar busca global"
+              onClick={() => {
+                buscaComDebounce.cancelar();
+                setBusca("");
+                setEstado({ ...estadoAtual.current, busca: "" });
+              }}
               className="absolute right-[10px] text-text-mute hover:text-text cursor-pointer transition-colors"
             >
               <X size={14} />
@@ -471,7 +496,11 @@ export function Filters({
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setEstado(FILTROS_INICIAIS)}
+            onClick={() => {
+              buscaComDebounce.cancelar();
+              setBusca("");
+              setEstado(FILTROS_INICIAIS);
+            }}
             className="h-[34px] text-text-mute hover:text-text cursor-pointer"
           >
             Limpar filtros
@@ -500,7 +529,7 @@ export function Filters({
               <SelectTrigger aria-label="Adicionar campo de filtro" className="h-[32px] bg-surface border-line-2 font-sans text-xs">
                 <SelectValue placeholder="+ Adicionar filtro avançado..." />
               </SelectTrigger>
-              <SelectContent className={CLASSE_SELECT_MONO}>
+              <SelectContent>
                 {camposDisponiveis.map((c) => (
                   <SelectItem key={c} value={c}>
                     {ROTULOS[c] ?? c}

@@ -2,9 +2,13 @@ import React from 'react';
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { InputApi } from './api';
 import { gravarSnapshot, lerSnapshot, SNAPSHOT_INPUT, type Snapshot } from './cache';
-import type { InputDataset } from './types';
+import type { InputDataset, SapSyncState } from './types';
 
 export const INPUT_DADOS_KEY = ['input-dados'] as const;
+
+export function estadoSapDaMeta(sap: SapSyncState | undefined): SapSyncState['estado'] {
+  return sap?.estado ?? 'ocioso';
+}
 
 export function semearInputSeVazio(queryClient: QueryClient, snapshot: Snapshot): void {
   if (queryClient.getQueryData(INPUT_DADOS_KEY) !== undefined) return;

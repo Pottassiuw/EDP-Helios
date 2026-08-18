@@ -14,6 +14,9 @@ import {
   Trash2,
   X,
   Loader2,
+  RefreshCw,
+  Folder,
+  List,
 } from 'lucide-react';
 import type { Celula, EdicaoResultado, InputDataset, NotaInput } from './types';
 import { InputApi, getUsuario, baixarBlob } from './api';
@@ -33,7 +36,6 @@ import { NotificacaoModal } from './notificacao-modal';
 import { ExclusaoModal } from './exclusao-modal';
 import { OcultacaoModal } from './ocultacao-modal';
 import { MesExecucaoPicker } from '@/components/branded/mes-execucao-picker';
-import { CLASSE_SELECT_MONO } from './ui';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -56,9 +58,25 @@ const MODOS_NOTAS: SegTab<ModoNotas>[] = [
 ];
 
 type Visualizacao = 'hierarquica' | 'plana';
-const VISUALIZACOES: { id: Visualizacao; rotulo: string }[] = [
-  { id: 'hierarquica', rotulo: '📁 Visão Hierárquica' },
-  { id: 'plana', rotulo: '📊 Visão Planilha' },
+const VISUALIZACOES: { id: Visualizacao; rotulo: React.ReactNode }[] = [
+  {
+    id: 'hierarquica',
+    rotulo: (
+      <span className="inline-flex items-center gap-1.5">
+        <Folder className="h-3.5 w-3.5" />
+        Visão Hierárquica
+      </span>
+    ),
+  },
+  {
+    id: 'plana',
+    rotulo: (
+      <span className="inline-flex items-center gap-1.5">
+        <List className="h-3.5 w-3.5" />
+        Visão Planilha
+      </span>
+    ),
+  },
 ];
 
 export function filtrarRegistros(registros: NotaInput[], estado: FiltersState): NotaInput[] {
@@ -618,6 +636,37 @@ export function Overview({
             Inserir em Massa
           </Button>
 
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 px-3 text-xs"
+            disabled={dados.meta.sap?.estado === 'executando'}
+            onClick={() => {
+              toast.promise(
+                (async () => {
+                  await InputApi.syncSap();
+                })(),
+                {
+                  loading: 'Iniciando extração do SAP...',
+                  success: 'Sincronização SAP rodando em background!',
+                  error: 'Erro ao iniciar SAP',
+                }
+              );
+            }}
+          >
+            {dados.meta.sap?.estado === 'executando' ? (
+              <>
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                Sincronizando...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                Sincronizar SAP
+              </>
+            )}
+          </Button>
+
           {onIrParaRateio && (
             <Button
               variant="outline"
@@ -826,7 +875,7 @@ export function Overview({
                     <SelectTrigger className="h-8 text-xs bg-bg-2 border-line">
                       <SelectValue placeholder="Status: (manter atual)" />
                     </SelectTrigger>
-                    <SelectContent className={CLASSE_SELECT_MONO}>
+                    <SelectContent>
                       <SelectItem value="__manter">Status: (manter atual)</SelectItem>
                       {dados.meta.status_opcoes.map((s) => (
                         <SelectItem key={s} value={s}>
@@ -846,7 +895,7 @@ export function Overview({
                     <SelectTrigger className="h-8 text-xs bg-bg-2 border-line">
                       <SelectValue placeholder="Prioridade: (manter atual)" />
                     </SelectTrigger>
-                    <SelectContent className={CLASSE_SELECT_MONO}>
+                    <SelectContent>
                       <SelectItem value="__manter">Prioridade: (manter atual)</SelectItem>
                       {dados.meta.prioridade_opcoes.map((p) => (
                         <SelectItem key={p} value={p}>

@@ -22,11 +22,11 @@ import { useRamalData, useRecarregarRamal, RAMAL_KEY } from './use-ramal-data';
 import { useQueryClient } from '@tanstack/react-query';
 import { DataGrid } from './data-grid';
 import { NotesTable } from './notes-table';
+import { NotesTableSkeleton } from './notes-table-skeleton';
 import { MesExecucaoPicker } from '@/components/branded/mes-execucao-picker';
 import { ColagemPlanilha } from './colagem-planilha';
 import { CadastroRamalModal } from './cadastro-ramal-modal';
 import { ExclusaoModal } from './exclusao-modal';
-import { CLASSE_SELECT_MONO } from './ui';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -423,9 +423,8 @@ export function Ramal({
       </div>
 
       {isLoading && (
-        <div role="status" className="p-8 flex items-center justify-center gap-2 text-text-dim text-sm">
-          <Loader2 className="h-4 w-4 animate-spin text-accent" />
-          <span>Carregando notas do ramal...</span>
+        <div className="p-6">
+          <NotesTableSkeleton />
         </div>
       )}
       {error != null && !dadosRamal && (
@@ -535,7 +534,7 @@ export function Ramal({
                     <SelectTrigger className="h-8 text-xs bg-bg-2 border-line">
                       <SelectValue placeholder="Status: (manter atual)" />
                     </SelectTrigger>
-                    <SelectContent className={CLASSE_SELECT_MONO}>
+                    <SelectContent>
                       <SelectItem value="__manter">Status: (manter atual)</SelectItem>
                       {dadosPrincipais.meta.status_opcoes.map((s) => (
                         <SelectItem key={s} value={s}>
@@ -555,7 +554,7 @@ export function Ramal({
                     <SelectTrigger className="h-8 text-xs bg-bg-2 border-line">
                       <SelectValue placeholder="Prioridade: (manter atual)" />
                     </SelectTrigger>
-                    <SelectContent className={CLASSE_SELECT_MONO}>
+                    <SelectContent>
                       <SelectItem value="__manter">Prioridade: (manter atual)</SelectItem>
                       {dadosPrincipais.meta.prioridade_opcoes.map((p) => (
                         <SelectItem key={p} value={p}>

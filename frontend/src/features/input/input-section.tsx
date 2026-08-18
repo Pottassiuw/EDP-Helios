@@ -4,13 +4,14 @@ import { toast } from 'sonner';
 import { getUsuario, setUsuario, InputApi } from './api';
 import { useInputData, useRecarregarInput } from './use-input-data';
 import { useInputSync } from './use-input-sync';
-import { Loader2, RefreshCw, AlertTriangle } from 'lucide-react';
+import { RefreshCw, AlertTriangle } from 'lucide-react';
 import { Overview } from './overview';
 import { Rateio } from './rateio';
 import { Ramal } from './ramal';
 import { Reports } from './reports';
 import { Logs } from './logs';
 import { Settings } from './settings';
+import { NotesTableSkeleton } from './notes-table-skeleton';
 import { Button } from '@/components/ui/button';
 import { PageHeader, SegTabs } from '@/components/branded/section';
 import { Filters, FILTROS_INICIAIS, type FiltersState } from './filters';
@@ -50,7 +51,7 @@ export function InputSection({
     }
     return FILTROS_INICIAIS;
   });
-  const { estado: estadoRede, tentarNovamente } = useInputSync(dados?.meta.versao);
+  const { estado: estadoRede, tentarNovamente } = useInputSync(dados?.meta.versao, dados?.meta.sap?.estado);
 
   React.useEffect(() => {
     try {
@@ -134,9 +135,8 @@ export function InputSection({
       )}
 
       {isLoading && (
-        <div role="status" className="p-8 flex items-center justify-center gap-2 text-text-dim text-sm">
-          <Loader2 className="h-4 w-4 animate-spin text-accent" />
-          <span>Carregando notas...</span>
+        <div className="p-6">
+          <NotesTableSkeleton />
         </div>
       )}
 

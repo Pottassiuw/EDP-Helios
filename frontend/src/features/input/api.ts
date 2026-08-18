@@ -52,7 +52,7 @@ function escrita(method: string, corpo?: unknown): RequestInit {
 export const InputApi = {
   me: () => req<{ usuario: string }>('/me'),
   dados: () => req<InputDataset>('/notas'),
-  sync: () => req<{ ultima_alteracao: string | null; versao: string; sincronizando?: boolean }>('/sync'),
+  sync: () => req<{ ultima_alteracao: string | null; versao: string; sincronizando?: boolean; sap?: import('./types').SapSyncState }>('/sync'),
 
   editar: (linhas: Partial<NotaInput>[]) =>
     req<EdicaoResultado>('/notas', escrita('PATCH', { linhas })),
@@ -80,7 +80,7 @@ export const InputApi = {
     req<{ ok: boolean }>('/responsaveis', escrita('PUT', mapa)),
 
   bases: () => req<{ bases: BaseStatus[] }>('/bases'),
-  syncSap: () => req<{ mensagem: string }>('/bases/sync-sap', escrita('POST')),
+  syncSap: () => req<{ mensagem: string; sap: import('./types').SapSyncState }>('/bases/sync-sap', escrita('POST')),
   urlDownloadBase: (arquivo: string) => `${base()}/input/bases/${encodeURIComponent(arquivo)}/download`,
   substituirBase: async (arquivo: string, f: File): Promise<void> => {
     const usuario = getUsuario();
