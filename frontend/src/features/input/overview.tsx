@@ -1,5 +1,5 @@
 import React from 'react';
-import { Loader2, Download, RefreshCw, CheckCircle2, GitMerge } from 'lucide-react';
+import { Loader2, Download, RefreshCw, CheckCircle2, GitMerge, Folder, List } from 'lucide-react';
 import type { InputDataset, NotaInput } from './types';
 import { InputApi, baixarBlob } from './api';
 import { toast } from 'sonner';
@@ -14,9 +14,25 @@ import { Button } from '@/components/ui/button';
 import { Eyebrow, StatNumber, SegTabs } from '@/components/branded/section';
 
 type Visualizacao = 'hierarquica' | 'plana';
-const VISUALIZACOES: { id: Visualizacao; rotulo: string }[] = [
-  { id: 'hierarquica', rotulo: '📁 Visão Hierárquica' },
-  { id: 'plana', rotulo: '📄 Visão Plana' },
+const VISUALIZACOES: { id: Visualizacao; rotulo: React.ReactNode }[] = [
+  {
+    id: 'hierarquica',
+    rotulo: (
+      <span className="inline-flex items-center gap-1.5">
+        <Folder className="h-3.5 w-3.5" />
+        Visão Hierárquica
+      </span>
+    ),
+  },
+  {
+    id: 'plana',
+    rotulo: (
+      <span className="inline-flex items-center gap-1.5">
+        <List className="h-3.5 w-3.5" />
+        Visão Plana
+      </span>
+    ),
+  },
 ];
 
 export function filtrarRegistros(registros: NotaInput[], estado: FiltersState): NotaInput[] {

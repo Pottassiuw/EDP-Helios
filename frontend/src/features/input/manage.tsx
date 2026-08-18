@@ -1,5 +1,5 @@
 import React from 'react';
-import { Loader2, Undo2, Save, Trash2 } from 'lucide-react';
+import { Loader2, Undo2, Save, Trash2, Folder, List, ClipboardList, Cable } from 'lucide-react';
 import type { Celula, EdicaoResultado, InputDataset, NotaInput } from './types';
 import { InputApi, getUsuario } from './api';
 import { toast } from 'sonner';
@@ -12,7 +12,6 @@ import { useRecarregarInput } from './use-input-data';
 import { useBloqueios } from './use-bloqueios';
 import { MesExecucaoPicker } from '@/components/branded/mes-execucao-picker';
 import { ColagemPlanilha } from './colagem-planilha';
-import { CLASSE_SELECT_MONO } from './ui';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -38,9 +37,46 @@ const MODOS: { id: Modo; rotulo: string }[] = [
 ];
 
 type Visualizacao = 'hierarquica' | 'plana';
-const VISUALIZACOES: { id: Visualizacao; rotulo: string }[] = [
-  { id: 'hierarquica', rotulo: '📁 Visão Hierárquica' },
-  { id: 'plana', rotulo: '📄 Visão Plana' },
+const VISUALIZACOES: { id: Visualizacao; rotulo: React.ReactNode }[] = [
+  {
+    id: 'hierarquica',
+    rotulo: (
+      <span className="inline-flex items-center gap-1.5">
+        <Folder className="h-3.5 w-3.5" />
+        Visão Hierárquica
+      </span>
+    ),
+  },
+  {
+    id: 'plana',
+    rotulo: (
+      <span className="inline-flex items-center gap-1.5">
+        <List className="h-3.5 w-3.5" />
+        Visão Plana
+      </span>
+    ),
+  },
+];
+
+const BASES: { id: 'geral' | 'ramal'; rotulo: React.ReactNode }[] = [
+  {
+    id: 'geral',
+    rotulo: (
+      <span className="inline-flex items-center gap-1.5">
+        <ClipboardList className="h-3.5 w-3.5" />
+        Geral
+      </span>
+    ),
+  },
+  {
+    id: 'ramal',
+    rotulo: (
+      <span className="inline-flex items-center gap-1.5">
+        <Cable className="h-3.5 w-3.5" />
+        Ramal
+      </span>
+    ),
+  },
 ];
 
 interface Mensagem { tipo: 'ok' | 'erro'; texto: string; }
@@ -267,10 +303,7 @@ export function Manage({ dados, estadoFiltros }: ManageProps): React.JSX.Element
         <div className="flex items-center gap-3">
           <span className="text-xs font-mono font-semibold uppercase tracking-wider text-text-mute">Base de Dados:</span>
           <SegTabs
-            tabs={[
-              { id: 'geral', rotulo: '📋 Geral' },
-              { id: 'ramal', rotulo: '🔌 Ramal' },
-            ]}
+            tabs={BASES}
             value={base}
             onChange={(b) => setBase(b as 'geral' | 'ramal')}
             ariaLabel="Selecionar base de dados para gerenciar"
@@ -324,7 +357,7 @@ export function Manage({ dados, estadoFiltros }: ManageProps): React.JSX.Element
                         <SelectTrigger className="w-56 h-9 text-xs bg-bg-2 border-line">
                           <SelectValue placeholder="Status: (manter atual)" />
                         </SelectTrigger>
-                        <SelectContent className={CLASSE_SELECT_MONO}>
+                        <SelectContent>
                           <SelectItem value="__manter">Status: (manter atual)</SelectItem>
                           {dados.meta.status_opcoes.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                         </SelectContent>
@@ -334,7 +367,7 @@ export function Manage({ dados, estadoFiltros }: ManageProps): React.JSX.Element
                         <SelectTrigger className="w-56 h-9 text-xs bg-bg-2 border-line">
                           <SelectValue placeholder="Prioridade: (manter atual)" />
                         </SelectTrigger>
-                        <SelectContent className={CLASSE_SELECT_MONO}>
+                        <SelectContent>
                           <SelectItem value="__manter">Prioridade: (manter atual)</SelectItem>
                           {dados.meta.prioridade_opcoes.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
                         </SelectContent>
@@ -418,14 +451,14 @@ export function Manage({ dados, estadoFiltros }: ManageProps): React.JSX.Element
                       {campo === 'Status_Nota' ? (
                         <Select value={novaNota[campo]} onValueChange={(v) => setNovaNota({ ...novaNota, [campo]: v })}>
                           <SelectTrigger className="h-9 text-xs bg-bg-2 border-line"><SelectValue /></SelectTrigger>
-                          <SelectContent className={CLASSE_SELECT_MONO}>
+                          <SelectContent>
                             {dados.meta.status_opcoes.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                           </SelectContent>
                         </Select>
                       ) : campo === 'Prioridade_Nota' ? (
                         <Select value={novaNota[campo]} onValueChange={(v) => setNovaNota({ ...novaNota, [campo]: v })}>
                           <SelectTrigger className="h-9 text-xs bg-bg-2 border-line"><SelectValue /></SelectTrigger>
-                          <SelectContent className={CLASSE_SELECT_MONO}>
+                          <SelectContent>
                             {dados.meta.prioridade_opcoes.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
                           </SelectContent>
                         </Select>
