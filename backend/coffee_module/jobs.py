@@ -5,7 +5,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 
-from coffee_module import client, config, db, operation_service
+from coffee_module import classify, client, config, db, operation_service
 
 _LOCK = threading.Lock()
 
@@ -157,6 +157,77 @@ def _rodar_consulta_operacao(
         chave = etapa if etapa in snapshot["por_etapa"] else "ignorada"
         with _LOCK:
             snapshot["por_etapa"][chave] += 1
+
+    _rodar_em_paralelo(job_id, snapshot, ids, trace, usuario, processar, config.DELAY_BUSCA)
+
+
+def iniciar_consulta_leitura(
+    ids: list[int],
+    trace: str | None = None,
+    usuario: str | None = None,
+) -> str:
+    job_id, snapshot = _novo_job("consulta_leitura", len(ids))
+    threading.Thread(
+        target=_rodar_consulta_leitura,
+        args=(job_id, snapshot, list(ids), trace, usuario),
+        daemon=True,
+    ).start()
+    return job_id
+
+
+def _rodar_consulta_leitura(
+    job_id: str,
+    snapshot: dict,
+    ids: list[int],
+    trace: str | None,
+    usuario: str | None,
+) -> None:
+    """Consulta somente-leitura em lote: nunca escreve em notas_coffee nem
+    em coffee_fila_operacao. Mesma lógica de GET /consultar/{id}
+    (routes.py), só que em lote e via job (menos rajada na API externa que
+    N requisições paralelas do front)."""
+    snapshot["resultados"] = []
+    ids_na_operacao = {
+        identificador
+        for item in db.listar_itens_operacao()
+        for identificador in (item["entrada_id"], item["nota_pk"])
+        if identificador is not None
+    }
+
+    def processar(ident: int) -> None:
+        try:
+            nota = client.buscar_nota(ident)
+        except Exception as exc:  # noqa: BLE001 - vira linha de erro, nao derruba o lote
+            with _LOCK:
+                snapshot["resultados"].append({
+                    "pk": int(ident),
+                    "id_sap": None,
+                    "classificacao": None,
+                    "ja_na_operacao": False,
+                    "elegivel": False,
+                    "local_instalacao": None,
+                    "erro": str(exc),
+                })
+            raise
+        estado_local = db.obter_nota(nota["pk"])
+        classificacao = classify.classificar(
+            nota["id_sap"],
+            None if estado_local is None else estado_local["id_sap"],
+            None if estado_local is None else estado_local["origem"],
+        )
+        ja_na_operacao = (
+            nota["pk"] in ids_na_operacao or int(ident) in ids_na_operacao
+        )
+        with _LOCK:
+            snapshot["resultados"].append({
+                "pk": nota["pk"],
+                "id_sap": nota["id_sap"],
+                "classificacao": classificacao,
+                "ja_na_operacao": ja_na_operacao,
+                "elegivel": classificacao == "nao_gerada" and not ja_na_operacao,
+                "local_instalacao": nota["local_instalacao"],
+                "erro": None,
+            })
 
     _rodar_em_paralelo(job_id, snapshot, ids, trace, usuario, processar, config.DELAY_BUSCA)
 
