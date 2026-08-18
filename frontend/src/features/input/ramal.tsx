@@ -196,7 +196,11 @@ export function Ramal({
         <SegTabs tabs={MODOS} value={modo} onChange={trocarModo} ariaLabel="Modo do ramal" />
       </div>
 
-      {isLoading && <div role="status" className="p-8 text-center text-text-dim text-sm">Carregando notas ramal...</div>}
+      {isLoading && (
+        <div className="p-6">
+          <NotesTableSkeleton />
+        </div>
+      )}
       {error != null && !dadosRamal && (
         <div role="alert" className="p-4 rounded-md bg-red/10 border border-red/20 text-red text-sm">
           Erro ao carregar ramal: {String((error as Error).message)}

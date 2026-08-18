@@ -135,9 +135,8 @@ export function InputSection({
       )}
 
       {isLoading && (
-        <div role="status" className="p-8 flex items-center justify-center gap-2 text-text-dim text-sm">
-          <Loader2 className="h-4 w-4 animate-spin text-accent" />
-          <span>Carregando notas...</span>
+        <div className="p-6">
+          <NotesTableSkeleton />
         </div>
       )}
 
