@@ -321,12 +321,11 @@
 ::-webkit-scrollbar-track { background: transparent; }
 
 @layer components {
-/* Escopo do módulo Input — borda de card alinhada ao --line-2 usado no
-   resto do app (revisão de consistência visual). Único resíduo de escopo
-   por classe que sobreviveu à Fase 4c: não é paleta, é ajuste local de
-   anatomia. A fonte mono nos selects saiu daqui — ver histórico do módulo
-   Input em docs/dev/03-frontend-input.md. */
-.input-scope [data-slot="card"] { border-color: var(--line-2); }
+/* Escopo do módulo Input — hairline discreto nos cards e fonte mono nos
+   selects (casa com a grade de dados). Único resíduo de escopo por classe
+   que sobreviveu à Fase 4c: não é paleta, é ajuste local de anatomia. */
+.input-scope [data-slot="card"] { border-color: var(--line); }
+.input-scope [data-slot="select-trigger"] { font-family: var(--font-mono); }
 }
 
 

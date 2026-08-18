@@ -115,7 +115,7 @@ export function Banner({ tipo, className, children }: {
 
 export interface SegTab<T extends string> {
   id: T;
-  rotulo: React.ReactNode;
+  rotulo: string;
 }
 
 /** Abas segmentadas com sublinhado. Envolve o ToggleGroup do shadcn para
