@@ -37,6 +37,20 @@ v4, React Query (frontend). No new dependencies.
   palette.
 - Every code change that touches a documented module updates the matching
   `docs/dev/*.md` file in the same task (CLAUDE.md, "Documentation").
+- **Component tests use `renderToStaticMarkup` from `react-dom/server`
+  (already a dependency) + string assertions — the exact pattern already
+  used throughout this codebase (e.g. `frontend/src/features/verificar/dashboard-detail.test.tsx`,
+  `nota-ficha-completa.test.tsx`). Never add `@testing-library/react`,
+  `happy-dom`, `jsdom`, or any other testing-library/DOM-environment
+  package, and never modify `vite.config.ts`'s `test` block — the project
+  has no interactive DOM testing today, and adding it is a project-wide
+  tooling decision outside this plan's scope (CLAUDE.md, "adding a
+  dependency when the trade-off is material" → pause and ask, not decide
+  unilaterally). `renderToStaticMarkup` strips event handlers, so tests
+  verify what a given set of props renders, not simulated clicks/typing —
+  interactive wiring (typing in the composer, clicking "+ Fila") is
+  covered by the manual verification step in Task 7, not by an automated
+  test.**
 
 ---
 
@@ -482,26 +496,33 @@ git commit -m "refactor(coffee): parseCoffeeIds exposes exact repeated IDs, not 
 
 - [ ] **Step 1: Write the failing test**
 
+Follow this codebase's existing React-component-test convention exactly
+(see `frontend/src/features/verificar/dashboard-detail.test.tsx`):
+`renderToStaticMarkup` from `react-dom/server` (already a dependency —
+`react-dom` is in `package.json`) renders to a string, and the test
+asserts on that string. No `@testing-library/react`, no new dependency, no
+`vite.config.ts` change.
+
 ```tsx
 // frontend/src/features/coffee/operacao/components/operacao-stepper.test.tsx
 import { describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { OperacaoStepper } from './operacao-stepper';
 
 describe('OperacaoStepper', () => {
   it('mostra o rótulo da etapa atual', () => {
-    render(<OperacaoStepper etapa="processando" />);
-    expect(screen.getByText('Processando')).toBeInTheDocument();
+    const html = renderToStaticMarkup(<OperacaoStepper etapa="processando" />);
+    expect(html).toContain('Processando');
   });
 
   it('acrescenta o aviso de saída só em aguardando_sap', () => {
-    render(<OperacaoStepper etapa="aguardando_sap" />);
-    expect(screen.getByText(/sai ao concluir/)).toBeInTheDocument();
+    const html = renderToStaticMarkup(<OperacaoStepper etapa="aguardando_sap" />);
+    expect(html).toContain('sai ao concluir');
   });
 
   it('não mostra o aviso de saída em outras etapas', () => {
-    render(<OperacaoStepper etapa="fila" />);
-    expect(screen.queryByText(/sai ao concluir/)).not.toBeInTheDocument();
+    const html = renderToStaticMarkup(<OperacaoStepper etapa="fila" />);
+    expect(html).not.toContain('sai ao concluir');
   });
 });
 ```
@@ -622,10 +643,13 @@ git commit -m "feat(coffee): add OperacaoStepper — per-note progress mini-step
 
 - [ ] **Step 1: Write the failing test**
 
+Same convention as Task 4: `renderToStaticMarkup` + string assertions, no
+new dependency.
+
 ```tsx
 // frontend/src/features/coffee/operacao/components/operacao-lista.test.tsx
-import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, expect, it } from 'vitest';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { OperacaoLista } from './operacao-lista';
 import type { CoffeeOperacaoItem } from '../../types';
 
@@ -644,23 +668,25 @@ function item(overrides: Partial<CoffeeOperacaoItem>): CoffeeOperacaoItem {
   };
 }
 
+const noop = (): void => {};
+
 describe('OperacaoLista', () => {
   it('mostra uma linha por nota, sem colunas', () => {
-    render(
+    const html = renderToStaticMarkup(
       <OperacaoLista
         itens={[item({ entrada_id: 1, nota_pk: 1 }), item({ entrada_id: 2, nota_pk: 2, etapa: 'pronta' })]}
         jobs={[]}
         selected={new Set()}
-        onToggle={vi.fn()}
-        onOpen={vi.fn()}
+        onToggle={noop}
+        onOpen={noop}
       />,
     );
-    expect(screen.getByText('#1')).toBeInTheDocument();
-    expect(screen.getByText('#2')).toBeInTheDocument();
+    expect(html).toContain('#1');
+    expect(html).toContain('#2');
   });
 
   it('ordena por atualização mais recente por padrão', () => {
-    render(
+    const html = renderToStaticMarkup(
       <OperacaoLista
         itens={[
           item({ entrada_id: 1, nota_pk: 1, atualizado_em: '2026-08-18T09:00:00' }),
@@ -668,17 +694,18 @@ describe('OperacaoLista', () => {
         ]}
         jobs={[]}
         selected={new Set()}
-        onToggle={vi.fn()}
-        onOpen={vi.fn()}
+        onToggle={noop}
+        onOpen={noop}
       />,
     );
-    const ids = screen.getAllByText(/^#\d$/).map((node) => node.textContent);
-    expect(ids).toEqual(['#2', '#1']);
+    expect(html.indexOf('#2')).toBeLessThan(html.indexOf('#1'));
   });
 
   it('mostra estado vazio quando não há notas', () => {
-    render(<OperacaoLista itens={[]} jobs={[]} selected={new Set()} onToggle={vi.fn()} onOpen={vi.fn()} />);
-    expect(screen.getByText('Nenhuma nota na operação.')).toBeInTheDocument();
+    const html = renderToStaticMarkup(
+      <OperacaoLista itens={[]} jobs={[]} selected={new Set()} onToggle={noop} onOpen={noop} />,
+    );
+    expect(html).toContain('Nenhuma nota na operação.');
   });
 });
 ```
@@ -984,7 +1011,10 @@ git commit -m "feat(coffee): replace Operação Kanban with a sortable list + pe
 
 **Files:**
 - Modify: `frontend/src/features/coffee/operacao/components/operacao-composer.tsx`
+  (also exports a new pure sub-component, `ComposerFeedback`)
 - Test: `frontend/src/features/coffee/operacao/components/operacao-composer.test.ts`
+  (unchanged from Task 3, still passes)
+- Test: `frontend/src/features/coffee/operacao/components/operacao-composer-feedback.test.tsx` (new)
 - Test: `frontend/src/features/coffee/operacao/components/operacao-composer.render.test.tsx` (new)
 
 **Interfaces:**
@@ -993,87 +1023,104 @@ git commit -m "feat(coffee): replace Operação Kanban with a sortable list + pe
   idsNaOperacao?, onConsultar: (ids) => Promise<void>, onAdicionarFila:
   (ids) => Promise<void> }): React.JSX.Element` — always rendered, no
   `open`/collapsed state. Task 7 wires `onConsultar` to the new read-only
-  job and `onAdicionarFila` to the existing enqueue mutation.
+  job and `onAdicionarFila` to the existing enqueue mutation. Also
+  produces `ComposerFeedback(props: { parsed: ParsedIds, jaNaOperacao:
+  number }): React.JSX.Element` — the pure chip-rendering piece, extracted
+  so it can be tested with a given `parsed` value directly (see the
+  Global Constraint on testing: no `@testing-library/react`, so the parent
+  `OperacaoComposer`'s own internal typing state can't be driven from a
+  test — this split keeps the chip-rendering logic fully covered anyway).
 
-- [ ] **Step 1: Write the failing render test**
+Interactive behavior (typing in the textarea, clicking either button) is
+**not** covered by an automated test in this task — it's covered by the
+manual verification step in Task 7 (which exercises the composer inside
+the full page). This is a deliberate trade-off: this codebase has no
+DOM-interaction test tooling today (see Global Constraints), and adding it
+is out of this plan's scope.
+
+- [ ] **Step 1: Write the failing tests**
 
 ```tsx
-// frontend/src/features/coffee/operacao/components/operacao-composer.render.test.tsx
-import { describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { OperacaoComposer } from './operacao-composer';
+// frontend/src/features/coffee/operacao/components/operacao-composer-feedback.test.tsx
+import { describe, expect, it } from 'vitest';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { ComposerFeedback } from './operacao-composer';
 
-describe('OperacaoComposer', () => {
-  it('está sempre visível, sem precisar expandir', () => {
-    render(
-      <OperacaoComposer
-        pendingConsulta={false}
-        pendingAdicionar={false}
-        onConsultar={vi.fn().mockResolvedValue(undefined)}
-        onAdicionarFila={vi.fn().mockResolvedValue(undefined)}
-      />,
+describe('ComposerFeedback', () => {
+  it('mostra a contagem de válidos e chips com o token exato de repetidos e inválidos', () => {
+    const html = renderToStaticMarkup(
+      <ComposerFeedback parsed={{ ids: [10, 20], invalidos: ['abc'], repetidos: [10] }} jaNaOperacao={0} />,
     );
-    expect(screen.getByPlaceholderText(/Cole IDs/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Consultar' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Adicionar à fila/ })).toBeInTheDocument();
+    expect(html).toContain('2 válidos');
+    expect(html).toContain('repetido: 10');
+    expect(html).toContain('inválido: abc');
   });
 
-  it('mostra chips com o token exato de repetidos e inválidos', () => {
-    render(
-      <OperacaoComposer
-        pendingConsulta={false}
-        pendingAdicionar={false}
-        onConsultar={vi.fn().mockResolvedValue(undefined)}
-        onAdicionarFila={vi.fn().mockResolvedValue(undefined)}
-      />,
+  it('mostra o aviso de "já na operação" só quando houver', () => {
+    const semAviso = renderToStaticMarkup(
+      <ComposerFeedback parsed={{ ids: [], invalidos: [], repetidos: [] }} jaNaOperacao={0} />,
     );
-    fireEvent.change(screen.getByPlaceholderText(/Cole IDs/), {
-      target: { value: '10 10 abc' },
-    });
-    expect(screen.getByText('repetido: 10')).toBeInTheDocument();
-    expect(screen.getByText('inválido: abc')).toBeInTheDocument();
-  });
+    expect(semAviso).not.toContain('já na operação');
 
-  it('chama onConsultar com os IDs válidos sem limpar o texto', async () => {
-    const onConsultar = vi.fn().mockResolvedValue(undefined);
-    render(
-      <OperacaoComposer
-        pendingConsulta={false}
-        pendingAdicionar={false}
-        onConsultar={onConsultar}
-        onAdicionarFila={vi.fn().mockResolvedValue(undefined)}
-      />,
+    const comAviso = renderToStaticMarkup(
+      <ComposerFeedback parsed={{ ids: [10], invalidos: [], repetidos: [] }} jaNaOperacao={2} />,
     );
-    fireEvent.change(screen.getByPlaceholderText(/Cole IDs/), { target: { value: '10 20' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Consultar' }));
-    await Promise.resolve();
-    expect(onConsultar).toHaveBeenCalledWith([10, 20]);
-    expect(screen.getByPlaceholderText(/Cole IDs/)).toHaveValue('10 20');
-  });
-
-  it('chama onAdicionarFila e limpa o texto ao concluir', async () => {
-    const onAdicionarFila = vi.fn().mockResolvedValue(undefined);
-    render(
-      <OperacaoComposer
-        pendingConsulta={false}
-        pendingAdicionar={false}
-        onConsultar={vi.fn().mockResolvedValue(undefined)}
-        onAdicionarFila={onAdicionarFila}
-      />,
-    );
-    fireEvent.change(screen.getByPlaceholderText(/Cole IDs/), { target: { value: '10 20' } });
-    fireEvent.click(screen.getByRole('button', { name: /Adicionar à fila/ }));
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(onAdicionarFila).toHaveBeenCalledWith([10, 20]);
+    expect(comAviso).toContain('2 já na operação');
   });
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+```tsx
+// frontend/src/features/coffee/operacao/components/operacao-composer.render.test.tsx
+import { describe, expect, it } from 'vitest';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { OperacaoComposer } from './operacao-composer';
 
-Run: `cd frontend && npx vitest run src/features/coffee/operacao/components/operacao-composer.render.test.tsx`
-Expected: FAIL — component still has the old `open`/single-`Consultar`-button shape.
+const asyncNoop = async (): Promise<void> => {};
+
+describe('OperacaoComposer', () => {
+  it('está sempre visível, sem precisar expandir, com os dois botões', () => {
+    const html = renderToStaticMarkup(
+      <OperacaoComposer
+        pendingConsulta={false}
+        pendingAdicionar={false}
+        onConsultar={asyncNoop}
+        onAdicionarFila={asyncNoop}
+      />,
+    );
+    expect(html).toContain('Cole IDs');
+    expect(html).toContain('Consultar');
+    expect(html).toContain('Adicionar à fila');
+  });
+
+  it('reflete pendingConsulta/pendingAdicionar nos rótulos dos botões', () => {
+    const consultando = renderToStaticMarkup(
+      <OperacaoComposer
+        pendingConsulta
+        pendingAdicionar={false}
+        onConsultar={asyncNoop}
+        onAdicionarFila={asyncNoop}
+      />,
+    );
+    expect(consultando).toContain('Consultando…');
+
+    const adicionando = renderToStaticMarkup(
+      <OperacaoComposer
+        pendingConsulta={false}
+        pendingAdicionar
+        onConsultar={asyncNoop}
+        onAdicionarFila={asyncNoop}
+      />,
+    );
+    expect(adicionando).toContain('Adicionando…');
+  });
+});
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `cd frontend && npx vitest run src/features/coffee/operacao/components/operacao-composer-feedback.test.tsx src/features/coffee/operacao/components/operacao-composer.render.test.tsx`
+Expected: FAIL — `ComposerFeedback` doesn't exist yet; `OperacaoComposer` still has the old `open`/single-`Consultar`-button shape.
 
 - [ ] **Step 3: Rewrite the component**
 
@@ -1082,9 +1129,40 @@ Replace the component part of `operacao-composer.tsx` (keep the
 with:
 
 ```tsx
+import React from 'react';
 import { Plus, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+
+interface ComposerFeedbackProps {
+  parsed: ParsedIds;
+  jaNaOperacao: number;
+}
+
+/** Pura: renderiza a contagem de válidos e um chip por token exato de
+ * repetido/inválido, dado um ParsedIds já calculado. Extraída de
+ * OperacaoComposer pra poder ser testada diretamente com um `parsed`
+ * arbitrário (ver a nota de testes no cabeçalho da Task 6 do plano). */
+export function ComposerFeedback({ parsed, jaNaOperacao }: ComposerFeedbackProps): React.JSX.Element {
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-[6px] text-xs text-text-mute">
+      <span className="font-medium text-text">{parsed.ids.length} válidos</span>
+      {parsed.repetidos.map((id) => (
+        <span key={`rep-${id}`} className="rounded-full bg-tint-amber px-[9px] py-[3px] font-mono text-[11px] text-amber">
+          repetido: {id}
+        </span>
+      ))}
+      {parsed.invalidos.map((token, indice) => (
+        <span key={`inv-${indice}-${token}`} className="rounded-full bg-tint-red px-[9px] py-[3px] font-mono text-[11px] text-red">
+          inválido: {token}
+        </span>
+      ))}
+      {jaNaOperacao > 0 && (
+        <span className="text-amber">{jaNaOperacao} já na operação</span>
+      )}
+    </div>
+  );
+}
 
 interface OperacaoComposerProps {
   pendingConsulta: boolean;
@@ -1170,22 +1248,7 @@ export function OperacaoComposer({
           </Button>
         </div>
       </div>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-[6px] text-xs text-text-mute">
-        <span className="font-medium text-text">{parsed.ids.length} válidos</span>
-        {parsed.repetidos.map((id) => (
-          <span key={`rep-${id}`} className="rounded-full bg-tint-amber px-[9px] py-[3px] font-mono text-[11px] text-amber">
-            repetido: {id}
-          </span>
-        ))}
-        {parsed.invalidos.map((token, indice) => (
-          <span key={`inv-${indice}-${token}`} className="rounded-full bg-tint-red px-[9px] py-[3px] font-mono text-[11px] text-red">
-            inválido: {token}
-          </span>
-        ))}
-        {jaNaOperacao > 0 && (
-          <span className="text-amber">{jaNaOperacao} já na operação</span>
-        )}
-      </div>
+      <ComposerFeedback parsed={parsed} jaNaOperacao={jaNaOperacao} />
       {erro && (
         <p role="alert" className="text-xs text-red">{erro}</p>
       )}
@@ -1195,30 +1258,31 @@ export function OperacaoComposer({
 }
 ```
 
-Add `import React from 'react';` at the top of the file alongside the
-existing `lucide-react` import if it isn't already there.
-
-- [ ] **Step 4: Run both composer test files**
+- [ ] **Step 4: Run all three composer test files**
 
 Run: `cd frontend && npx vitest run src/features/coffee/operacao/components/operacao-composer`
-Expected: PASS (parsing tests from Task 3 + the new render tests).
+Expected: PASS — Task 3's parsing tests, plus the two new test files.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add frontend/src/features/coffee/operacao/components/operacao-composer.tsx frontend/src/features/coffee/operacao/components/operacao-composer.render.test.tsx
+git add frontend/src/features/coffee/operacao/components/operacao-composer.tsx frontend/src/features/coffee/operacao/components/operacao-composer-feedback.test.tsx frontend/src/features/coffee/operacao/components/operacao-composer.render.test.tsx
 git commit -m "feat(coffee): composer always visible, splits consult from enqueue"
 ```
 
 ---
 
-### Task 7: Frontend — consulta-leitura hook, result panel, final wiring
+### Task 7: Frontend — consulta-leitura state, hook, result panel, final wiring
 
 **Files:**
+- Create: `frontend/src/features/coffee/operacao/consulta-leitura-estado.ts`
+  (pure state-transition functions, no React — this is what gets tested)
 - Create: `frontend/src/features/coffee/operacao/use-consulta-leitura.ts`
+  (thin React hook wrapping the pure module — not unit-tested directly,
+  see the note below)
 - Create: `frontend/src/features/coffee/operacao/components/operacao-consulta-resultado.tsx`
 - Modify: `frontend/src/features/coffee/operacao/coffee-operacao.tsx`
-- Test: `frontend/src/features/coffee/operacao/use-consulta-leitura.test.ts`
+- Test: `frontend/src/features/coffee/operacao/consulta-leitura-estado.test.ts`
 - Test: `frontend/src/features/coffee/operacao/components/operacao-consulta-resultado.test.tsx`
 
 **Interfaces:**
@@ -1227,86 +1291,141 @@ git commit -m "feat(coffee): composer always visible, splits consult from enqueu
   `OperacaoComposer` (Task 6).
 - Produces: `useConsultaLeitura()` returning `{ resultados, selecionados,
   pending, iniciar(ids), toggle(pk), selecionarTodasElegiveis(), fechar(),
-  removerDosResultados(ids) }`; `OperacaoConsultaResultado` component.
+  removerDosResultados(ids) }` — same public shape as originally planned;
+  `OperacaoConsultaResultado` component.
 
-- [ ] **Step 1: Write the failing hook test**
+A React hook that calls `useState` cannot be unit-tested without a
+DOM-rendering test library (see the plan's Global Constraint on testing —
+no `@testing-library/react` in this codebase). So this task splits the
+hook in two: `consulta-leitura-estado.ts` holds every actual state
+transition as a plain, synchronous, pure function of
+`(estado, ...args) -> estado` — fully unit-testable with plain `vitest`,
+no React involved, the same way `parseCoffeeIds` (Task 3) and
+`resumo-job.ts` are already tested in this codebase. `use-consulta-leitura.ts`
+is then a thin `useState` wrapper with zero branching logic of its own —
+it is covered by the manual verification in Step 11, not by an automated
+test.
+
+- [ ] **Step 1: Write the failing test for the pure state module**
 
 ```typescript
-// frontend/src/features/coffee/operacao/use-consulta-leitura.test.ts
-import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { act, renderHook } from '@testing-library/react';
-import { useConsultaLeitura } from './use-consulta-leitura';
-import { OperacaoApi } from './operacao-api';
-import * as useCoffeeOperacao from './use-coffee-operacao';
+// frontend/src/features/coffee/operacao/consulta-leitura-estado.test.ts
+import { describe, expect, it } from 'vitest';
+import {
+  estadoInicial,
+  aplicarResultado,
+  alternarSelecao,
+  selecionarElegiveis,
+  removerDosResultados,
+} from './consulta-leitura-estado';
+import type { ConsultaLoteItem } from '../types';
 
-describe('useConsultaLeitura', () => {
-  beforeEach(() => {
-    vi.spyOn(OperacaoApi, 'consultarLeitura').mockResolvedValue({ job_id: 'job-1' });
-    vi.spyOn(useCoffeeOperacao, 'aguardarJobOperacao').mockResolvedValue({
-      estado: 'concluido',
-      total: 2,
-      feitas: 2,
-      erros: [],
-      iniciado_em: '2026-08-18T10:00:00',
-      resultados: [
-        { pk: 1, id_sap: null, classificacao: 'nao_gerada', ja_na_operacao: false, elegivel: true, local_instalacao: null, erro: null },
-        { pk: 2, id_sap: 123, classificacao: 'gerada', ja_na_operacao: false, elegivel: false, local_instalacao: null, erro: null },
-      ],
-    });
+const RESULTADOS: ConsultaLoteItem[] = [
+  { pk: 1, id_sap: null, classificacao: 'nao_gerada', ja_na_operacao: false, elegivel: true, local_instalacao: null, erro: null },
+  { pk: 2, id_sap: 123, classificacao: 'gerada', ja_na_operacao: false, elegivel: false, local_instalacao: null, erro: null },
+];
+
+describe('consulta-leitura-estado', () => {
+  it('estadoInicial não tem resultados nem seleção', () => {
+    expect(estadoInicial()).toEqual({ resultados: null, selecionados: new Set() });
   });
 
-  it('popula resultados após iniciar', async () => {
-    const { result } = renderHook(() => useConsultaLeitura());
-    await act(async () => { await result.current.iniciar([1, 2]); });
-    expect(result.current.resultados).toHaveLength(2);
+  it('aplicarResultado popula resultados e limpa a seleção', () => {
+    const estado = aplicarResultado(RESULTADOS);
+    expect(estado.resultados).toHaveLength(2);
+    expect(estado.selecionados.size).toBe(0);
   });
 
-  it('selecionarTodasElegiveis marca só as notas elegíveis', async () => {
-    const { result } = renderHook(() => useConsultaLeitura());
-    await act(async () => { await result.current.iniciar([1, 2]); });
-    act(() => { result.current.selecionarTodasElegiveis(); });
-    expect(result.current.selecionados).toEqual(new Set([1]));
+  it('alternarSelecao adiciona e depois remove o mesmo pk', () => {
+    let estado = aplicarResultado(RESULTADOS);
+    estado = alternarSelecao(estado, 1);
+    expect(estado.selecionados.has(1)).toBe(true);
+    estado = alternarSelecao(estado, 1);
+    expect(estado.selecionados.has(1)).toBe(false);
   });
 
-  it('removerDosResultados tira os IDs da lista e da seleção', async () => {
-    const { result } = renderHook(() => useConsultaLeitura());
-    await act(async () => { await result.current.iniciar([1, 2]); });
-    act(() => { result.current.toggle(1); });
-    act(() => { result.current.removerDosResultados([1]); });
-    expect(result.current.resultados?.map((item) => item.pk)).toEqual([2]);
-    expect(result.current.selecionados.has(1)).toBe(false);
+  it('selecionarElegiveis marca só as notas elegíveis', () => {
+    const estado = selecionarElegiveis(aplicarResultado(RESULTADOS));
+    expect(estado.selecionados).toEqual(new Set([1]));
   });
 
-  it('fechar limpa resultados e seleção', async () => {
-    const { result } = renderHook(() => useConsultaLeitura());
-    await act(async () => { await result.current.iniciar([1, 2]); });
-    act(() => { result.current.fechar(); });
-    expect(result.current.resultados).toBeNull();
+  it('removerDosResultados tira os IDs da lista e da seleção', () => {
+    let estado = aplicarResultado(RESULTADOS);
+    estado = alternarSelecao(estado, 1);
+    estado = removerDosResultados(estado, [1]);
+    expect(estado.resultados?.map((item) => item.pk)).toEqual([2]);
+    expect(estado.selecionados.has(1)).toBe(false);
   });
 });
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd frontend && npx vitest run src/features/coffee/operacao/use-consulta-leitura.test.ts`
+Run: `cd frontend && npx vitest run src/features/coffee/operacao/consulta-leitura-estado.test.ts`
 Expected: FAIL — module doesn't exist.
 
-- [ ] **Step 3: Implement the hook**
+- [ ] **Step 3: Implement the pure state module and the hook**
+
+```typescript
+// frontend/src/features/coffee/operacao/consulta-leitura-estado.ts
+import type { ConsultaLoteItem } from '../types';
+
+export interface ConsultaLeituraEstado {
+  resultados: ConsultaLoteItem[] | null;
+  selecionados: Set<number>;
+}
+
+export function estadoInicial(): ConsultaLeituraEstado {
+  return { resultados: null, selecionados: new Set() };
+}
+
+export function aplicarResultado(resultados: ConsultaLoteItem[]): ConsultaLeituraEstado {
+  return { resultados, selecionados: new Set() };
+}
+
+export function alternarSelecao(estado: ConsultaLeituraEstado, pk: number): ConsultaLeituraEstado {
+  const proximo = new Set(estado.selecionados);
+  if (proximo.has(pk)) proximo.delete(pk);
+  else proximo.add(pk);
+  return { ...estado, selecionados: proximo };
+}
+
+export function selecionarElegiveis(estado: ConsultaLeituraEstado): ConsultaLeituraEstado {
+  const elegiveis = (estado.resultados ?? [])
+    .filter((item) => item.elegivel)
+    .map((item) => item.pk);
+  return { ...estado, selecionados: new Set(elegiveis) };
+}
+
+export function removerDosResultados(estado: ConsultaLeituraEstado, ids: number[]): ConsultaLeituraEstado {
+  const resultados = estado.resultados?.filter((item) => !ids.includes(item.pk)) ?? null;
+  const selecionados = new Set(estado.selecionados);
+  ids.forEach((id) => selecionados.delete(id));
+  return { resultados, selecionados };
+}
+```
 
 ```typescript
 // frontend/src/features/coffee/operacao/use-consulta-leitura.ts
 import React from 'react';
 import { OperacaoApi } from './operacao-api';
 import { aguardarJobOperacao } from './use-coffee-operacao';
-import type { ConsultaLoteItem } from '../types';
+import {
+  estadoInicial,
+  aplicarResultado,
+  alternarSelecao,
+  selecionarElegiveis,
+  removerDosResultados,
+} from './consulta-leitura-estado';
 
 /** Estado da consulta somente-leitura da Operação: separado de
  * useCoffeeOperacao porque não mexe no quadro (nenhuma invalidação de
  * query) — é um resultado à parte que o usuário decide, linha a linha ou
- * em lote, se quer promover pra fila de geração. */
+ * em lote, se quer promover pra fila de geração. Toda transição de estado
+ * vive em consulta-leitura-estado.ts (testável sem React); este hook só
+ * conecta isso a useState e à chamada assíncrona do job. */
 export function useConsultaLeitura() {
-  const [resultados, setResultados] = React.useState<ConsultaLoteItem[] | null>(null);
-  const [selecionados, setSelecionados] = React.useState<Set<number>>(new Set());
+  const [estado, setEstado] = React.useState(estadoInicial);
   const [pending, setPending] = React.useState(false);
 
   async function iniciar(ids: number[]): Promise<void> {
@@ -1314,67 +1433,41 @@ export function useConsultaLeitura() {
     try {
       const { job_id } = await OperacaoApi.consultarLeitura(ids);
       const job = await aguardarJobOperacao(job_id);
-      setResultados(job.resultados ?? []);
-      setSelecionados(new Set());
+      setEstado(aplicarResultado(job.resultados ?? []));
     } finally {
       setPending(false);
     }
   }
 
-  function toggle(pk: number): void {
-    setSelecionados((atual) => {
-      const proximo = new Set(atual);
-      if (proximo.has(pk)) proximo.delete(pk);
-      else proximo.add(pk);
-      return proximo;
-    });
-  }
-
-  function selecionarTodasElegiveis(): void {
-    const elegiveis = (resultados ?? [])
-      .filter((item) => item.elegivel)
-      .map((item) => item.pk);
-    setSelecionados(new Set(elegiveis));
-  }
-
-  function fechar(): void {
-    setResultados(null);
-    setSelecionados(new Set());
-  }
-
-  function removerDosResultados(ids: number[]): void {
-    setResultados((atual) => atual?.filter((item) => !ids.includes(item.pk)) ?? null);
-    setSelecionados((atual) => {
-      const proximo = new Set(atual);
-      ids.forEach((id) => proximo.delete(id));
-      return proximo;
-    });
-  }
-
   return {
-    resultados,
-    selecionados,
+    resultados: estado.resultados,
+    selecionados: estado.selecionados,
     pending,
     iniciar,
-    toggle,
-    selecionarTodasElegiveis,
-    fechar,
-    removerDosResultados,
+    toggle: (pk: number) => setEstado((atual) => alternarSelecao(atual, pk)),
+    selecionarTodasElegiveis: () => setEstado(selecionarElegiveis),
+    fechar: () => setEstado(estadoInicial()),
+    removerDosResultados: (ids: number[]) => setEstado((atual) => removerDosResultados(atual, ids)),
   };
 }
 ```
 
-- [ ] **Step 4: Run hook test to verify it passes**
+- [ ] **Step 4: Run the pure-module test to verify it passes**
 
-Run: `cd frontend && npx vitest run src/features/coffee/operacao/use-consulta-leitura.test.ts`
+Run: `cd frontend && npx vitest run src/features/coffee/operacao/consulta-leitura-estado.test.ts`
 Expected: PASS.
 
 - [ ] **Step 5: Write the failing result-panel test**
 
+Same convention as the rest of this plan from here on: `renderToStaticMarkup`
++ string assertions. This covers what a given `resultados`/`selecionados`
+combination renders; it does not simulate clicking "+ Fila" (see Step 11
+for that).
+
 ```tsx
 // frontend/src/features/coffee/operacao/components/operacao-consulta-resultado.test.tsx
-import { describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, expect, it } from 'vitest';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { OperacaoConsultaResultado } from './operacao-consulta-resultado';
 import type { ConsultaLoteItem } from '../../types';
 
@@ -1385,52 +1478,53 @@ const RESULTADOS: ConsultaLoteItem[] = [
   { pk: 4, id_sap: null, classificacao: null, ja_na_operacao: false, elegivel: false, local_instalacao: null, erro: 'nota não encontrada' },
 ];
 
+const noop = (): void => {};
+
 describe('OperacaoConsultaResultado', () => {
   it('mostra o resumo por contagem', () => {
-    render(
+    const html = renderToStaticMarkup(
       <OperacaoConsultaResultado
         resultados={RESULTADOS}
         selecionados={new Set()}
-        onToggle={vi.fn()}
-        onSelecionarTodasElegiveis={vi.fn()}
-        onAdicionarFila={vi.fn()}
-        onFechar={vi.fn()}
+        onToggle={noop}
+        onSelecionarTodasElegiveis={noop}
+        onAdicionarFila={noop}
+        onFechar={noop}
       />,
     );
-    expect(screen.getByText('1 ainda não geradas')).toBeInTheDocument();
-    expect(screen.getByText('1 já concluídas')).toBeInTheDocument();
-    expect(screen.getByText('1 já na Operação')).toBeInTheDocument();
-    expect(screen.getByText('1 erros')).toBeInTheDocument();
+    expect(html).toContain('1 ainda não geradas');
+    expect(html).toContain('1 já concluídas');
+    expect(html).toContain('1 já na Operação');
+    expect(html).toContain('1 erros');
   });
 
   it('só mostra "+ Fila" pra notas elegíveis', () => {
-    render(
+    const html = renderToStaticMarkup(
       <OperacaoConsultaResultado
         resultados={RESULTADOS}
         selecionados={new Set()}
-        onToggle={vi.fn()}
-        onSelecionarTodasElegiveis={vi.fn()}
-        onAdicionarFila={vi.fn()}
-        onFechar={vi.fn()}
+        onToggle={noop}
+        onSelecionarTodasElegiveis={noop}
+        onAdicionarFila={noop}
+        onFechar={noop}
       />,
     );
-    expect(screen.getAllByRole('button', { name: '+ Fila' })).toHaveLength(1);
+    expect(html.split('+ Fila').length - 1).toBe(1);
   });
 
-  it('+ Fila de uma linha chama onAdicionarFila com um único id', () => {
-    const onAdicionarFila = vi.fn();
-    render(
+  it('mostra o SAP real e "já concluída" pra nota não elegível com SAP real', () => {
+    const html = renderToStaticMarkup(
       <OperacaoConsultaResultado
         resultados={RESULTADOS}
         selecionados={new Set()}
-        onToggle={vi.fn()}
-        onSelecionarTodasElegiveis={vi.fn()}
-        onAdicionarFila={onAdicionarFila}
-        onFechar={vi.fn()}
+        onToggle={noop}
+        onSelecionarTodasElegiveis={noop}
+        onAdicionarFila={noop}
+        onFechar={noop}
       />,
     );
-    fireEvent.click(screen.getByRole('button', { name: '+ Fila' }));
-    expect(onAdicionarFila).toHaveBeenCalledWith([1]);
+    expect(html).toContain('SAP 17259425');
+    expect(html).toContain('já concluída');
   });
 });
 ```
@@ -1676,12 +1770,23 @@ Expected: PASS.
 - [ ] **Step 11: Manual verification**
 
 Run: `cd frontend && npm run dev` (or the project's existing dev-server
-command), open COFFEE → Operação, and confirm:
+command), open COFFEE → Operação, and confirm — this step is the only
+coverage for every interactive path in Tasks 6-7, since this codebase's
+tests don't simulate clicks/typing (see the plan's Global Constraint on
+testing):
 - the composer is visible without clicking anything;
-- pasting IDs and clicking "Consultar" opens the result panel without any
-  new item appearing in the list below;
+- typing/pasting a mix of valid, repeated, and invalid IDs shows one chip
+  per exact repeated/invalid token (not just a count), and the two buttons
+  enable once at least one valid ID is present;
+- clicking "Consultar" opens the result panel without any new item
+  appearing in the list below;
 - clicking "+ Fila" on an eligible result row makes that row disappear from
   the result panel and a new row appear in the list;
+- checking a few eligible rows, then "Selecionar todas elegíveis", then the
+  bulk "Adicionar à fila de geração" button enqueues all of them and clears
+  the result panel's selection;
+- clicking "Fechar"/"Recolher" dismisses the result panel without losing
+  the list below;
 - pasting a large batch (30+ IDs) into "Consultar" keeps the result list's
   own scrollbar — the page layout doesn't grow unbounded.
 

@@ -415,6 +415,17 @@ Recebe `resultados: ConsultaLoteItem[]`, `selecionados: Set<number>`,
 
 ### Frontend
 
+Componentes React são testados com `renderToStaticMarkup` (de
+`react-dom/server`, já uma dependência) + asserção em string — o padrão já
+usado em todo o projeto (`verificar/dashboard-detail.test.tsx`,
+`nota-ficha-completa.test.tsx`). Esta entrega não adiciona
+`@testing-library/react`, `happy-dom` nem qualquer outra dependência de
+teste de DOM interativo — isso seria uma decisão de ferramental do projeto
+inteiro, fora do escopo deste spec. Consequência prática: testes
+automatizados cobrem o que cada componente renderiza dado um conjunto de
+props, não cliques/digitação simulados; interação (digitar no composer,
+clicar em `+ Fila`) é coberta por verificação manual.
+
 - `operacao-composer.test.ts`: parsing continua idêntico; novo teste dos
   chips de token exato (repetido/inválido nomeando o valor, não só a
   contagem);
