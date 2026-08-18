@@ -12,7 +12,7 @@ import { formatRelativeTime } from '../format';
 import type { NotaRevisao } from '../types';
 import { OperacaoBatchBar } from './components/operacao-batch-bar';
 import { OperacaoComposer } from './components/operacao-composer';
-import { OperacaoKanban } from './components/operacao-kanban';
+import { OperacaoLista } from './components/operacao-lista';
 import { aguardarJobOperacao, useCoffeeOperacao } from './use-coffee-operacao';
 import { resumoJobConsulta } from './resumo-job';
 
@@ -251,7 +251,7 @@ export function CoffeeOperacao({
           Não foi possível carregar a operação. Atualize a página para tentar novamente.
         </div>
       )}
-      <OperacaoKanban
+      <OperacaoLista
         itens={itens}
         jobs={quadro.data?.operacoes_ativas ?? []}
         selected={selected}
