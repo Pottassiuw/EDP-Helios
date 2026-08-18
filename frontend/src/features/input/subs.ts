@@ -4,6 +4,7 @@ import type { AbaInput } from './types';
 // input-section para o bundle inicial.
 export const INPUT_SUBS: { id: AbaInput; rotulo: string }[] = [
   { id: 'visao', rotulo: 'Notas Gerais' },
+  { id: 'rateio', rotulo: 'Rateio de Medidas' },
   { id: 'ramal', rotulo: 'Ramal' },
   { id: 'relatorios', rotulo: 'Relatórios' },
   { id: 'logs', rotulo: 'Logs' },

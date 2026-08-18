@@ -4,12 +4,10 @@ import type { FiltersState } from './filters';
 import { filtrarRegistros } from './overview';
 import { InputApi } from './api';
 import { toast } from 'sonner';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
-import { SegTabs, SectionPage, Eyebrow } from '@/components/branded/section';
+import { SegTabs } from '@/components/branded/section';
 import {
   Search,
   Sparkles,
@@ -22,6 +20,12 @@ import {
   CheckSquare,
   Square,
   ChevronDown,
+  User,
+  KeyRound,
+  ShieldCheck,
+  Flame,
+  CornerDownRight,
+  HelpCircle,
 } from 'lucide-react';
 
 interface RateioProps {
@@ -58,9 +62,9 @@ function limparNotaMae(val: string | number | null | undefined): string {
   }
 }
 
-function extrairValorUnidadeMedida(medida: string | null | undefined): [number, 'km' | 'un' | null] {
-  if (!medida || medida === '-') return [0, null];
-  const medLower = medida.toLowerCase().replace(',', '.');
+function extrairValorUnidadeMedida(medida: string | number | null | undefined): [number, 'km' | 'un' | null] {
+  if (medida === null || medida === undefined || medida === '' || medida === '-') return [0, null];
+  const medLower = String(medida).toLowerCase().replace(',', '.');
   const matchNum = medLower.match(/([\d.]+)/);
   if (!matchNum) return [0, null];
   const val = parseFloat(matchNum[1]);
@@ -120,233 +124,260 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
     return map;
   }, [dados.registros]);
 
+  // Apenas filhas cujas MÃES também estão ativas
   const ativasComMae = React.useMemo(() => {
     return dfComMae.filter((r) => {
-      const stMae = statusMap.get(r.Nota_Mae_Limpa) ?? '-';
-      return ehNotaAtiva(stMae);
+      const stMae = statusMap.get(r.Nota_Mae_Limpa);
+      return stMae !== undefined && ehNotaAtiva(stMae);
     });
   }, [dfComMae, statusMap]);
 
-  // Notas mãe únicas que possuem divergência de medição nelas ou nas filhas
-  const notasMaesUnicas = React.useMemo(() => {
+  // Identificação de grupos de notas que possuem divergência entre si
+  const { notasMaesComDivergencia } = React.useMemo(() => {
     const maes = new Set<string>();
-    const uniqueMaes = Array.from(new Set(ativasComMae.map((r) => r.Nota_Mae_Limpa)));
 
-    uniqueMaes.forEach((maeId) => {
+    const filhasPorMae = new Map<string, Array<NotaInput & { Nota_Mae_Limpa: string }>>();
+    ativasComMae.forEach((r) => {
+      const list = filhasPorMae.get(r.Nota_Mae_Limpa) ?? [];
+      list.push(r);
+      filhasPorMae.set(r.Nota_Mae_Limpa, list);
+    });
+
+    filhasPorMae.forEach((filhas, maeId) => {
       const maeRow = dados.registros.find((r) => String(r.Numero_Nota) === maeId);
-      const maeDiv = maeRow?.['Medida_vs_Planejado'] === 'Não';
+      if (!maeRow) return;
 
-      const filhas = ativasComMae.filter((r) => r.Nota_Mae_Limpa === maeId);
-      const filhasDiv = filhas.some((r) => r['Medida_vs_Planejado'] === 'Não');
-
-      if (maeDiv || filhasDiv) {
+      const grupo = [maeRow, ...filhas];
+      const temDivergencia = grupo.some((r) => r.Medida_vs_Planejado === 'Não');
+      if (temDivergencia) {
         maes.add(maeId);
       }
     });
 
-    return Array.from(maes).sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+    return {
+      notasMaesComDivergencia: Array.from(maes).sort((a, b) => Number(a) - Number(b)),
+    };
   }, [ativasComMae, dados.registros]);
 
-  // --- ESTADO DO RATEIO HIERÁRQUICO ---
-  const [maeSelecionada, setMaeSelecionada] = React.useState('');
-  const [buscaMae, setBuscaMae] = React.useState('');
-  const [novasMedidasHier, setNovasMedidasHier] = React.useState<Record<number, number>>({});
+  // Lista de Mães com pendência
+  const notasMaesUnicas = notasMaesComDivergencia;
 
-  // Reseta os inputs quando a nota mãe selecionada muda
+  // Estado da Nota Mãe Selecionada
+  const [maeSelecionada, setMaeSelecionada] = React.useState<string>('');
+  const [buscaMae, setBuscaMae] = React.useState<string>('');
+
+  // Seleciona a primeira mãe automaticamente se houver
   React.useEffect(() => {
-    if (!maeSelecionada) return;
-    const maeRow = dados.registros.find((r) => String(r.Numero_Nota) === maeSelecionada);
-    const filhas = ativasComMae.filter((r) => r.Nota_Mae_Limpa === maeSelecionada);
-    const initial: Record<number, number> = {};
-    if (maeRow) {
-      initial[maeRow.Numero_Nota] = Number(maeRow['Planejado_DDPM'] ?? 0);
+    if (notasMaesUnicas.length > 0 && (!maeSelecionada || !notasMaesUnicas.includes(maeSelecionada))) {
+      setMaeSelecionada(notasMaesUnicas[0]);
+    } else if (notasMaesUnicas.length === 0) {
+      setMaeSelecionada('');
     }
-    filhas.forEach((f) => {
-      initial[f.Numero_Nota] = Number(f['Planejado_DDPM'] ?? 0);
-    });
-    setNovasMedidasHier(initial);
-    setRelatorio(null);
-  }, [maeSelecionada, ativasComMae, dados.registros]);
+  }, [notasMaesUnicas, maeSelecionada]);
 
-  // Detalhes da nota mãe selecionada
+  // Dados da Mãe Selecionada
   const maeRowDetails = React.useMemo(() => {
-    return dados.registros.find((r) => String(r.Numero_Nota) === maeSelecionada);
-  }, [maeSelecionada, dados.registros]);
+    if (!maeSelecionada) return null;
+    return dados.registros.find((r) => String(r.Numero_Nota) === maeSelecionada) ?? null;
+  }, [dados.registros, maeSelecionada]);
 
+  // Filhas da Mãe Selecionada
   const filhasDaMae = React.useMemo(() => {
+    if (!maeSelecionada) return [];
     return ativasComMae.filter((r) => r.Nota_Mae_Limpa === maeSelecionada);
-  }, [maeSelecionada, ativasComMae]);
+  }, [ativasComMae, maeSelecionada]);
 
-  const undMae = React.useMemo(() => {
+  // Unidade de medida da Mãe
+  const undMae = React.useMemo<'km' | 'un'>(() => {
     if (!maeRowDetails) return 'km';
-    const [, und] = extrairValorUnidadeMedida(maeRowDetails['Medida_SAP'] as string);
-    if (und) return und;
-    const valMae = Number(maeRowDetails['Planejado_DDPM'] ?? 0.0);
-    return Number.isInteger(valMae) && valMae <= 50 ? 'un' : 'km';
+    const [, un] = extrairValorUnidadeMedida(maeRowDetails.Medida_SAP);
+    return un ?? 'km';
   }, [maeRowDetails]);
 
-  // Métricas do Rateio Hierárquico
-  const valMaeTarget = React.useMemo(() => {
-    if (!maeRowDetails) return 0;
-    const valMae = Number(maeRowDetails['Planejado_DDPM'] ?? 0.0);
-    const valPlanFilhas = filhasDaMae.reduce((acc, f) => acc + Number(f['Planejado_DDPM'] ?? 0.0), 0);
-    return valMae + valPlanFilhas;
+  // Estado de novas medidas a serem salvas no rateio hierárquico
+  const [novasMedidasHier, setNovasMedidasHier] = React.useState<Record<number, number>>({});
+
+  // Atualiza as medidas iniciais quando muda a mãe selecionada
+  React.useEffect(() => {
+    if (!maeRowDetails) {
+      setNovasMedidasHier({});
+      return;
+    }
+    const initial: Record<number, number> = {};
+    const [valMae] = extrairValorUnidadeMedida(maeRowDetails.Medida_SAP);
+    initial[maeRowDetails.Numero_Nota] = valMae;
+
+    filhasDaMae.forEach((f) => {
+      const [valF] = extrairValorUnidadeMedida(f.Medida_SAP);
+      initial[f.Numero_Nota] = valF;
+    });
+
+    setNovasMedidasHier(initial);
   }, [maeRowDetails, filhasDaMae]);
 
+  // Cálculos matemáticos do Rateio
+  const valMaeTarget = Number(maeRowDetails?.Planejado_DDPM ?? 0);
   const somaFilhas = React.useMemo(() => {
-    return Object.values(novasMedidasHier).reduce((acc, v) => acc + v, 0);
-  }, [novasMedidasHier]);
+    if (!maeRowDetails) return 0;
+    const all = [maeRowDetails, ...filhasDaMae];
+    return all.reduce((acc, r) => acc + (novasMedidasHier[r.Numero_Nota] ?? 0), 0);
+  }, [maeRowDetails, filhasDaMae, novasMedidasHier]);
 
-  const diferenca = valMaeTarget - somaFilhas;
-  const tolerancia = undMae === 'km' ? 0.010 : 0.0;
-  const somaFechada = forcarValidacao ? true : Math.abs(diferenca) <= (tolerancia + 1e-7);
+  const diferenca = React.useMemo(() => {
+    return Number((valMaeTarget - somaFilhas).toFixed(3));
+  }, [valMaeTarget, somaFilhas]);
 
-  // Validação de número inteiro para unidade "un"
+  const somaFechada = React.useMemo(() => {
+    if (undMae === 'un') {
+      return diferenca === 0;
+    }
+    return Math.abs(diferenca) <= 0.005;
+  }, [diferenca, undMae]);
+
   const unidadeCorreta = React.useMemo(() => {
-    if (undMae !== 'un') return true;
-    return Object.values(novasMedidasHier).every((val) => Number.isInteger(val));
-  }, [novasMedidasHier, undMae]);
+    if (undMae === 'un') {
+      const all = maeRowDetails ? [maeRowDetails, ...filhasDaMae] : [];
+      return all.every((r) => {
+        const v = novasMedidasHier[r.Numero_Nota] ?? 0;
+        return Number.isInteger(v);
+      });
+    }
+    return true;
+  }, [undMae, maeRowDetails, filhasDaMae, novasMedidasHier]);
 
-  // --- AUTOMATIZAÇÕES DO RATEIO HIERÁRQUICO ---
-
-  // 1. Rateio Proporcional Automático
+  // 2. FUNÇÕES DE AÇÃO RÁPIDA DE RATEIO HIERÁRQUICO
   const ratearProporcionalmente = () => {
     if (!maeRowDetails) return;
-    const rows = [maeRowDetails, ...filhasDaMae];
-    const totalPlanOriginal = rows.reduce((acc, r) => acc + Number(r['Planejado_DDPM'] ?? 0), 0);
+    const all = [maeRowDetails, ...filhasDaMae];
+    const n = all.length;
+    if (n === 0) return;
 
-    const novastMedidas: Record<number, number> = {};
-    let acumulado = 0;
+    if (undMae === 'un') {
+      const targetInt = Math.floor(valMaeTarget);
+      const base = Math.floor(targetInt / n);
+      let resto = targetInt % n;
 
-    rows.forEach((r, idx) => {
-      const plan = Number(r['Planejado_DDPM'] ?? 0);
-      let val = totalPlanOriginal > 0 ? (plan / totalPlanOriginal) * valMaeTarget : valMaeTarget / rows.length;
-
-      if (undMae === 'km') {
-        val = Math.round(val * 1000) / 1000;
-      } else {
-        val = Math.round(val);
-      }
-
-      if (idx < rows.length - 1) {
-        acumulado += val;
-        novastMedidas[r.Numero_Nota] = val;
-      } else {
-        // A última nota absorve a pequena sobra de arredondamento para fechar em 0.000 exato
-        const resto = valMaeTarget - acumulado;
-        novastMedidas[r.Numero_Nota] = undMae === 'km' ? Math.round(resto * 1000) / 1000 : Math.round(resto);
-      }
-    });
-
-    setNovasMedidasHier(novastMedidas);
-    toast.success('⚡ Rateio proporcional aplicado!');
+      const next: Record<number, number> = {};
+      all.forEach((r) => {
+        let quota = base;
+        if (resto > 0) {
+          quota += 1;
+          resto -= 1;
+        }
+        next[r.Numero_Nota] = quota;
+      });
+      setNovasMedidasHier(next);
+      toast.success(`⚡ Rateio proporcional distribuído igualmente (${n} notas).`);
+    } else {
+      const quota = Number((valMaeTarget / n).toFixed(3));
+      const next: Record<number, number> = {};
+      all.forEach((r, i) => {
+        if (i === 0) {
+          const quotaRestante = Number((valMaeTarget - quota * (n - 1)).toFixed(3));
+          next[r.Numero_Nota] = quotaRestante;
+        } else {
+          next[r.Numero_Nota] = quota;
+        }
+      });
+      setNovasMedidasHier(next);
+      toast.success(`⚡ Rateio proporcional distribuído igualmente (${quota} ${undMae}/nota).`);
+    }
   };
 
-  // 2. Zerar Filhas e Concentrar Medida na Mãe
   const concentrarNaMae = () => {
     if (!maeRowDetails) return;
-    const initial: Record<number, number> = {
-      [maeRowDetails.Numero_Nota]: valMaeTarget,
-    };
+    const next: Record<number, number> = {};
+    next[maeRowDetails.Numero_Nota] = valMaeTarget;
     filhasDaMae.forEach((f) => {
-      initial[f.Numero_Nota] = 0;
+      next[f.Numero_Nota] = 0;
     });
-    setNovasMedidasHier(initial);
-    toast.info('Medida total concentrada na Nota Mãe.');
+    setNovasMedidasHier(next);
+    toast.info('🎯 Medida total concentrada na Nota Mãe (filhas zeradas).');
   };
 
-  // 3. Fechar Restante na Nota Selecionada
-  const fecharRestanteEm = (numeroNota: number) => {
-    const valAtual = novasMedidasHier[numeroNota] ?? 0;
-    const novoVal = valAtual + diferenca;
-    const valAjustado = undMae === 'km' ? Math.round(novoVal * 1000) / 1000 : Math.round(novoVal);
-    setNovasMedidasHier((prev) => ({
-      ...prev,
-      [numeroNota]: Math.max(0, valAjustado),
-    }));
-    toast.success(`Diferença aplicada na Nota ${numeroNota}!`);
-  };
-
-  // 4. Copiar Planejado DDPM (Reset ao original)
   const restaurarOriginal = () => {
     if (!maeRowDetails) return;
     const initial: Record<number, number> = {};
-    initial[maeRowDetails.Numero_Nota] = Number(maeRowDetails['Planejado_DDPM'] ?? 0);
+    const [valMae] = extrairValorUnidadeMedida(maeRowDetails.Medida_SAP);
+    initial[maeRowDetails.Numero_Nota] = valMae;
+
     filhasDaMae.forEach((f) => {
-      initial[f.Numero_Nota] = Number(f['Planejado_DDPM'] ?? 0);
+      const [valF] = extrairValorUnidadeMedida(f.Medida_SAP);
+      initial[f.Numero_Nota] = valF;
     });
+
     setNovasMedidasHier(initial);
-    toast.info('Valores originais do Planejado DDPM restaurados.');
+    toast.info('↺ Medidas restauradas para os valores lidos do SAP.');
   };
 
-  // 5. Navegação entre Notas Mãe (Anterior / Próxima)
+  const fecharRestanteEm = (notaId: number) => {
+    setNovasMedidasHier((prev) => {
+      const atual = prev[notaId] ?? 0;
+      const novo = Number((atual + diferenca).toFixed(3));
+      return {
+        ...prev,
+        [notaId]: Math.max(0, novo),
+      };
+    });
+  };
+
+  // Navegação entre Mães
   const irParaProximaMae = () => {
     if (notasMaesUnicas.length === 0) return;
-    const idxAtual = notasMaesUnicas.indexOf(maeSelecionada);
-    if (idxAtual === -1 || idxAtual === notasMaesUnicas.length - 1) {
-      setMaeSelecionada(notasMaesUnicas[0]);
+    const idx = notasMaesUnicas.indexOf(maeSelecionada);
+    if (idx < notasMaesUnicas.length - 1) {
+      setMaeSelecionada(notasMaesUnicas[idx + 1]);
     } else {
-      setMaeSelecionada(notasMaesUnicas[idxAtual + 1]);
+      setMaeSelecionada(notasMaesUnicas[0]);
     }
   };
 
   const irParaMaeAnterior = () => {
     if (notasMaesUnicas.length === 0) return;
-    const idxAtual = notasMaesUnicas.indexOf(maeSelecionada);
-    if (idxAtual <= 0) {
-      setMaeSelecionada(notasMaesUnicas[notasMaesUnicas.length - 1]);
+    const idx = notasMaesUnicas.indexOf(maeSelecionada);
+    if (idx > 0) {
+      setMaeSelecionada(notasMaesUnicas[idx - 1]);
     } else {
-      setMaeSelecionada(notasMaesUnicas[idxAtual - 1]);
+      setMaeSelecionada(notasMaesUnicas[notasMaesUnicas.length - 1]);
     }
   };
 
-  // --- ESTADO DO RATEIO INDIVIDUAL ---
+  // 3. ABA DE REFERÊNCIA INDIVIDUAL
   const dfDivergentes = React.useMemo(() => {
-    return dados.registros.filter((r) => r['Medida_vs_Planejado'] === 'Não' && ehNotaAtiva(r['Status_Nota']));
-  }, [dados.registros]);
+    return ativas.filter((r) => r.Medida_vs_Planejado === 'Não');
+  }, [ativas]);
 
   const [buscaInd, setBuscaInd] = React.useState('');
   const [selecionadasInd, setSelecionadasInd] = React.useState<Set<number>>(new Set());
   const [novasMedidasInd, setNovasMedidasInd] = React.useState<Record<number, number>>({});
   const [unidadesInd, setUnidadesInd] = React.useState<Record<number, 'km' | 'un'>>({});
 
-  // Filtragem local na aba individual por termo de busca
+  // Inicializa dicionários de edição individual
+  React.useEffect(() => {
+    const medMap: Record<number, number> = {};
+    const unMap: Record<number, 'km' | 'un'> = {};
+
+    dfDivergentes.forEach((r) => {
+      const [val, un] = extrairValorUnidadeMedida(r.Medida_SAP);
+      medMap[r.Numero_Nota] = val;
+      unMap[r.Numero_Nota] = un ?? 'km';
+    });
+
+    setNovasMedidasInd(medMap);
+    setUnidadesInd(unMap);
+  }, [dfDivergentes]);
+
   const dfDivergentesFiltradas = React.useMemo(() => {
     const q = buscaInd.trim().toLowerCase();
     if (!q) return dfDivergentes;
     return dfDivergentes.filter((r) => {
-      const notaStr = String(r.Numero_Nota);
-      const conjStr = String(r.Conjunto ?? '').toLowerCase();
-      const locStr = String(r.Local_Instalacao ?? '').toLowerCase();
-      return notaStr.includes(q) || conjStr.includes(q) || locStr.includes(q);
+      const num = String(r.Numero_Nota);
+      const cnj = String(r.Conjunto ?? '').toLowerCase();
+      const loc = String(r.Local_Instalacao ?? '').toLowerCase();
+      return num.includes(q) || cnj.includes(q) || loc.includes(q);
     });
   }, [dfDivergentes, buscaInd]);
 
-  // Reseta estado individual quando muda a lista de divergentes
-  React.useEffect(() => {
-    const sel = new Set<number>();
-    const measures: Record<number, number> = {};
-    const units: Record<number, 'km' | 'un'> = {};
-
-    dfDivergentes.forEach((r) => {
-      sel.add(r.Numero_Nota);
-      measures[r.Numero_Nota] = Number(r['Planejado_DDPM'] ?? 0);
-      const [, und] = extrairValorUnidadeMedida(r['Medida_SAP'] as string);
-      if (und) {
-        units[r.Numero_Nota] = und;
-      } else {
-        const valPlan = Number(r['Planejado_DDPM'] ?? 0.0);
-        units[r.Numero_Nota] = Number.isInteger(valPlan) && valPlan <= 50 ? 'un' : 'km';
-      }
-    });
-
-    setSelecionadasInd(sel);
-    setNovasMedidasInd(measures);
-    setUnidadesInd(units);
-    setRelatorio(null);
-  }, [dfDivergentes]);
-
-  // Ações em Lote para Rateio Individual
   const toggleSelecionarTodasInd = () => {
     if (selecionadasInd.size === dfDivergentesFiltradas.length) {
       setSelecionadasInd(new Set());
@@ -396,8 +427,8 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
 
     if (subTab === 'hierarquico') {
       if (!maeSelecionada) return;
-      if (!somaFechada || !unidadeCorreta) {
-        toast.error('O robô não pode ser executado devido a pendências de validação matemática.');
+      if ((!somaFechada || !unidadeCorreta) && !forcarValidacao) {
+        toast.error('O robô não pode ser executado devido a pendências de validação matemática. Marque "Forçar Execução" se desejar prosseguir mesmo assim.');
         return;
       }
       const rows = [maeRowDetails!, ...filhasDaMae];
@@ -413,8 +444,8 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
         toast.warning('Nenhuma nota selecionada para correção.');
         return;
       }
-      if (!individualValido) {
-        toast.error('Erro de validação: valores decimais em unidades do tipo "un" (Equipamento).');
+      if (!individualValido && !forcarValidacao) {
+        toast.error('Erro de validação: valores decimais em unidades do tipo "un" (Equipamento). Marque "Forçar Execução" se desejar prosseguir.');
         return;
       }
 
@@ -475,46 +506,82 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
   }, [notasMaesUnicas, buscaMae, dados.registros]);
 
   return (
-    <SectionPage className="overflow-y-auto">
-      <div className="mb-[20px]">
-        <Eyebrow>Rateio de Medidas</Eyebrow>
-        <h2 className="text-[18px] font-semibold leading-[1.15] tracking-display text-balance">Ajuste e Rateio de Medidas SAP</h2>
-        <p className="text-[12.5px] text-text-mute mt-[2px]">
-          Distribua ou corrija as medidas físicas de suas notas diretamente no SAP GUI de forma estruturada, automatizada e validada.
-        </p>
+    <div className="flex flex-col gap-5 w-full">
+      {/* Cabeçalho da Seção de Rateio */}
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <span className="text-[11px] font-bold uppercase tracking-wider text-accent font-mono">Automação SAP · IW66 / IW28</span>
+          <h2 className="text-xl font-bold text-foreground">Rateio de Medidas Físicas</h2>
+          <p className="text-xs text-text-dim mt-0.5">
+            Distribuição e balanceamento de medidas físicas (km / un) entre grupos hierárquicos e gravação no SAP.
+          </p>
+        </div>
       </div>
 
-      {/* CARD DE CREDENCIAIS DO SAP GUI */}
-      <Card className="mb-[20px] border-line">
-        <CardHeader className="pb-[10px] pt-[14px]">
-          <CardTitle className="text-[13.5px] font-semibold flex items-center gap-[8px]">
-            🤖 Autenticação SAP GUI
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="pb-[14px]">
-          <div className="flex gap-[16px] flex-wrap items-end">
-            <div className="flex flex-col gap-[4px] w-[180px]">
-              <Label htmlFor="sap-usr" className="text-[11.5px] text-text-mute">Usuário SAP (Lembrado)</Label>
-              <Input id="sap-usr" value={loginSap} onChange={(e) => handleUserChange(e.target.value)}
-                     className="h-[32px] text-[12.5px]" placeholder="Ex: C123456" />
-            </div>
-            <div className="flex flex-col gap-[4px] w-[180px]">
-              <Label htmlFor="sap-pwd" className="text-[11.5px] text-text-mute">Senha SAP (Opcional)</Label>
-              <Input id="sap-pwd" type="password" value={senhaSap} onChange={(e) => setSenhaSap(e.target.value)}
-                     className="h-[32px] text-[12.5px]" placeholder="••••••••" />
-            </div>
-            <div className="flex items-center gap-[8px] h-[32px] bg-bg-2 border border-line-2 px-[12px] rounded-sm">
-              <Switch checked={!modoTeste} onCheckedChange={(val) => setModoTeste(!val)} id="modo-real" size="sm" />
-              <Label htmlFor="modo-real" className="text-[12px] font-medium cursor-pointer">
-                {!modoTeste ? '🔴 Gravar no SAP (Modo Real)' : '🟡 Apenas Simular (Modo Teste)'}
-              </Label>
+      {/* Barra de Autenticação SAP & Chave de Modo */}
+      <div className="p-3.5 bg-surface-2/60 border border-line rounded-xl flex items-center justify-between gap-4 flex-wrap shadow-2xs">
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2 bg-surface px-3 py-1.5 rounded-lg border border-line">
+            <User className="h-4 w-4 text-text-mute shrink-0" />
+            <div className="flex flex-col">
+              <span className="text-[10px] uppercase font-mono tracking-wider text-text-mute leading-tight">Usuário SAP</span>
+              <input
+                id="sap-usr"
+                value={loginSap}
+                onChange={(e) => handleUserChange(e.target.value)}
+                className="h-5 text-xs font-mono font-medium bg-transparent border-0 outline-none text-foreground w-28"
+                placeholder="Ex: 713105"
+              />
             </div>
           </div>
-        </CardContent>
-      </Card>
 
-      {/* SELEÇÃO DE ABAS */}
-      <div className="border-b border-line mb-[16px]">
+          <div className="flex items-center gap-2 bg-surface px-3 py-1.5 rounded-lg border border-line">
+            <KeyRound className="h-4 w-4 text-text-mute shrink-0" />
+            <div className="flex flex-col">
+              <span className="text-[10px] uppercase font-mono tracking-wider text-text-mute leading-tight">Senha SAP (Opcional)</span>
+              <input
+                id="sap-pwd"
+                type="password"
+                value={senhaSap}
+                onChange={(e) => setSenhaSap(e.target.value)}
+                className="h-5 text-xs bg-transparent border-0 outline-none text-foreground w-28"
+                placeholder="••••••••"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Chave de Alternância: Simulação vs Modo Real */}
+        <div className="flex items-center gap-1 bg-surface p-1 rounded-lg border border-line">
+          <button
+            type="button"
+            onClick={() => setModoTeste(true)}
+            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
+              modoTeste
+                ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 shadow-2xs font-semibold'
+                : 'text-text-mute hover:text-foreground'
+            }`}
+          >
+            <ShieldCheck className="h-3.5 w-3.5" />
+            <span>Simulação (Teste)</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setModoTeste(false)}
+            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
+              !modoTeste
+                ? 'bg-red/15 text-red border border-red/30 shadow-2xs font-semibold'
+                : 'text-text-mute hover:text-foreground'
+            }`}
+          >
+            <Flame className="h-3.5 w-3.5" />
+            <span>Modo Real (SAP)</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Sub-Abas do Rateio */}
+      <div className="border-b border-line">
         <SegTabs
           tabs={[
             { id: 'hierarquico', rotulo: `Rateio Hierárquico (${notasMaesUnicas.length} Mães Pendentes)` },
@@ -531,125 +598,144 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
 
       {subTab === 'hierarquico' ? (
         // --- VISÃO DE RATEIO HIERÁRQUICO ---
-        <div className="flex flex-col gap-[16px]">
+        <div className="flex flex-col gap-4">
           {notasMaesUnicas.length === 0 ? (
-            <div className="p-[24px] text-center border border-dashed border-line rounded-[8px] text-text-mute text-[13px]">
-              🎉 Nenhum vínculo de hierarquia (Notas Filhas com Nota Mãe) com divergências de medição no banco atualmente.
+            <div className="p-12 text-center border border-dashed border-line rounded-xl bg-surface-2/30 text-text-mute text-xs flex flex-col items-center gap-2">
+              <span className="text-2xl">🎉</span>
+              <span className="font-medium text-foreground">Tudo em dia!</span>
+              <span>Nenhum grupo hierárquico com divergências de medição pendente no momento.</span>
             </div>
           ) : (
-            <div className="flex flex-col gap-[16px]">
-              {/* Barra de Seleção e Navegação de Notas Mãe */}
-              <div className="flex items-center gap-[12px] flex-wrap bg-surface border border-line p-[12px] rounded-[8px] shadow-sm">
-                <div className="flex flex-col gap-[4px] flex-1 min-w-[280px]">
-                  <Label htmlFor="select-mae" className="text-[12px] font-semibold text-text-dim flex items-center justify-between">
-                    <span>Selecione a Nota Mãe:</span>
-                    <span className="text-[11px] font-normal text-text-mute">
-                      {notasMaesUnicas.indexOf(maeSelecionada) + 1} de {notasMaesUnicas.length} pendentes
-                    </span>
-                  </Label>
-                  <div className="flex gap-[8px]">
-                    <div className="relative flex-1">
-                      <select
-                        id="select-mae"
-                        value={maeSelecionada}
-                        onChange={(e) => setMaeSelecionada(e.target.value)}
-                        className="h-[34px] w-full rounded-[6px] border border-line bg-bg-2 px-[10px] text-[12.5px] font-mono outline-none focus:border-primary pr-[28px] appearance-none"
-                      >
-                        <option value="">Selecione uma Nota Mãe...</option>
-                        {maesFiltradas.map((maeId) => {
-                          const maeRow = dados.registros.find((r) => String(r.Numero_Nota) === maeId);
-                          const plan = maeRow?.Planejado_DDPM ?? 0;
-                          const sap = maeRow?.Medida_SAP ?? '-';
-                          const conj = maeRow?.Conjunto ?? '-';
-                          const filhasCount = ativasComMae.filter((r) => r.Nota_Mae_Limpa === maeId).length;
-                          return (
-                            <option key={maeId} value={maeId}>
-                              Nota {maeId} | {conj} ({filhasCount} filhas) — Plan: {plan} | SAP: {sap}
-                            </option>
-                          );
-                        })}
-                      </select>
-                      <ChevronDown size={14} className="absolute right-[10px] top-[10px] text-text-mute pointer-events-none" />
+            <div className="flex flex-col gap-4">
+              {/* Barra de Seleção e Navegação da Nota Mãe */}
+              <div className="flex items-center justify-between gap-3 flex-wrap bg-surface border border-line p-3 rounded-xl shadow-2xs">
+                <div className="flex items-center gap-3 flex-1 min-w-[320px]">
+                  <div className="flex flex-col gap-1 flex-1">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="select-mae" className="text-xs font-semibold text-foreground">
+                        Selecionar Nota Mãe:
+                      </Label>
+                      <span className="text-[11px] font-mono text-text-mute">
+                        {notasMaesUnicas.indexOf(maeSelecionada) + 1} de {notasMaesUnicas.length} pendentes
+                      </span>
                     </div>
-                    {/* Campo de Busca Rápida na Lista de Mães */}
-                    <div className="relative w-[180px]">
-                      <Search size={12} className="absolute left-[8px] top-[11px] text-text-mute" />
-                      <input
-                        type="text"
-                        value={buscaMae}
-                        onChange={(e) => setBuscaMae(e.target.value)}
-                        placeholder="Filtrar lista..."
-                        className="h-[34px] w-full pl-[26px] pr-[8px] text-[12px] rounded-[6px] border border-line bg-bg-2 text-text outline-none focus:border-primary"
-                      />
+
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <select
+                          id="select-mae"
+                          value={maeSelecionada}
+                          onChange={(e) => setMaeSelecionada(e.target.value)}
+                          className="h-9 w-full rounded-lg border border-line bg-surface-2 px-3 text-xs font-mono font-medium outline-none focus:border-primary pr-8 appearance-none cursor-pointer"
+                        >
+                          <option value="">Selecione uma Nota Mãe...</option>
+                          {maesFiltradas.map((maeId) => {
+                            const maeRow = dados.registros.find((r) => String(r.Numero_Nota) === maeId);
+                            const plan = maeRow?.Planejado_DDPM ?? 0;
+                            const sap = maeRow?.Medida_SAP ?? '-';
+                            const conj = maeRow?.Conjunto ?? '-';
+                            const filhasCount = ativasComMae.filter((r) => r.Nota_Mae_Limpa === maeId).length;
+                            return (
+                              <option key={maeId} value={maeId}>
+                                Nota {maeId} | {conj} ({filhasCount} filhas) — Plan: {plan} | SAP: {sap}
+                              </option>
+                            );
+                          })}
+                        </select>
+                        <ChevronDown size={14} className="absolute right-3 top-3 text-text-mute pointer-events-none" />
+                      </div>
+
+                      {/* Campo de Busca Rápida */}
+                      <div className="relative w-48">
+                        <Search size={13} className="absolute left-2.5 top-3 text-text-mute" />
+                        <input
+                          type="text"
+                          value={buscaMae}
+                          onChange={(e) => setBuscaMae(e.target.value)}
+                          placeholder="Filtrar mães..."
+                          className="h-9 w-full pl-8 pr-2.5 text-xs rounded-lg border border-line bg-surface-2 text-foreground outline-none focus:border-primary"
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
 
-                {/* Botões de Navegação Próxima / Anterior */}
-                <div className="flex items-center gap-[6px] self-end h-[34px]">
+                {/* Botões de Navegação Anterior / Próxima */}
+                <div className="flex items-center gap-1.5 self-end">
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={irParaMaeAnterior}
                     title="Ir para Nota Mãe Anterior"
-                    className="h-[34px] px-[10px]"
+                    className="h-9 px-3 text-xs font-medium gap-1.5"
                   >
-                    <ArrowLeft size={14} className="mr-[4px]" /> Anterior
+                    <ArrowLeft size={13} /> Anterior
                   </Button>
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={irParaProximaMae}
                     title="Ir para Próxima Nota Mãe Pendente"
-                    className="h-[34px] px-[10px]"
+                    className="h-9 px-3 text-xs font-medium gap-1.5"
                   >
-                    Próxima <ArrowRight size={14} className="ml-[4px]" />
+                    Próxima <ArrowRight size={13} />
                   </Button>
                 </div>
               </div>
 
               {maeRowDetails && (
-                <div className="flex flex-col gap-[16px]">
-                  {/* Card de Detalhes da Nota Mãe Selecionada */}
-                  <Card className="bg-surface-2 border-line shadow-xs">
-                    <CardContent className="pt-[14px] pb-[14px]">
-                      <div className="flex items-center justify-between border-b border-line pb-[8px] mb-[10px]">
-                        <h4 className="text-[13px] font-semibold text-text flex items-center gap-[6px]">
-                          📌 Detalhes da Nota Mãe <span className="font-mono text-primary">{maeSelecionada}</span>
-                        </h4>
-                        <span className="text-[11.5px] px-[8px] py-[2px] rounded-full bg-primary/10 text-primary font-semibold">
-                          {filhasDaMae.length} Nota(s) Filha(s) Vinculada(s)
+                <div className="flex flex-col gap-4">
+                  {/* Card de Métricas da Nota Mãe */}
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div className="p-3.5 bg-surface border border-line rounded-xl shadow-2xs flex flex-col justify-between">
+                      <span className="text-[11px] text-text-mute font-medium uppercase font-mono tracking-wider">Nota Mãe</span>
+                      <div className="flex items-baseline gap-2 mt-1">
+                        <span className="font-mono text-base font-bold text-foreground">#{maeSelecionada}</span>
+                        <span className="text-[10.5px] px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-medium">
+                          {filhasDaMae.length} {filhasDaMae.length === 1 ? 'filha' : 'filhas'}
                         </span>
                       </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-[12px] text-[12.5px]">
-                        <div>
-                          <span className="text-text-mute">Conjunto:</span> <strong>{maeRowDetails.Conjunto}</strong><br/>
-                          <span className="text-text-mute">Regional:</span> <strong>{maeRowDetails.Regional}</strong>
-                        </div>
-                        <div>
-                          <span className="text-text-mute">Local Instalação:</span> <span className="font-mono font-medium">{maeRowDetails.Local_Instalacao}</span><br/>
-                          <span className="text-text-mute">Status Nota:</span> <strong>{maeRowDetails.Status_Nota}</strong>
-                        </div>
-                        <div>
-                          <span className="text-text-mute">Medida Correta (Planejado):</span> <strong>{maeRowDetails.Planejado_DDPM} {undMae}</strong><br/>
-                          <span className="text-text-mute">Medida Atual no SAP:</span> <strong>{maeRowDetails.Medida_SAP}</strong>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  {/* BARRA DE ATALHOS RÁPIDOS DE RATEIO (1-CLICK ACTIONS) */}
-                  <div className="flex items-center justify-between gap-[10px] flex-wrap bg-primary/5 border border-primary/20 p-[10px] rounded-[8px]">
-                    <div className="flex items-center gap-[6px]">
-                      <Sparkles size={15} className="text-primary" />
-                      <span className="text-[12px] font-semibold text-text">Ações Rápidas de Rateio:</span>
                     </div>
-                    <div className="flex items-center gap-[8px] flex-wrap">
+
+                    <div className="p-3.5 bg-surface border border-line rounded-xl shadow-2xs flex flex-col justify-between">
+                      <span className="text-[11px] text-text-mute font-medium uppercase font-mono tracking-wider">Conjunto / Regional</span>
+                      <div className="mt-1">
+                        <span className="font-semibold text-foreground text-xs">{maeRowDetails.Conjunto}</span>
+                        <span className="text-text-mute text-xs ml-1.5">({maeRowDetails.Regional})</span>
+                      </div>
+                    </div>
+
+                    <div className="p-3.5 bg-surface border border-line rounded-xl shadow-2xs flex flex-col justify-between">
+                      <span className="text-[11px] text-text-mute font-medium uppercase font-mono tracking-wider">Local de Instalação</span>
+                      <div className="mt-1 flex items-center justify-between">
+                        <span className="font-mono font-semibold text-foreground text-xs">{maeRowDetails.Local_Instalacao}</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-2 text-text-mute border border-line">
+                          {maeRowDetails.Status_Nota}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="p-3.5 bg-surface border border-line rounded-xl shadow-2xs flex flex-col justify-between">
+                      <span className="text-[11px] text-text-mute font-medium uppercase font-mono tracking-wider">Medida Alvo vs SAP</span>
+                      <div className="mt-1 flex items-baseline gap-2">
+                        <span className="font-mono text-xs font-bold text-primary">{maeRowDetails.Planejado_DDPM} {undMae}</span>
+                        <span className="text-[11px] text-text-mute font-mono">SAP: {maeRowDetails.Medida_SAP}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Barra de Ações Rápidas de Rateio */}
+                  <div className="flex items-center justify-between gap-3 flex-wrap bg-surface-2/70 border border-line px-3.5 py-2.5 rounded-xl">
+                    <div className="flex items-center gap-2">
+                      <Sparkles size={14} className="text-primary" />
+                      <span className="text-xs font-semibold text-foreground">Ações de Distribuição Rápida:</span>
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
                       <Button
                         variant="default"
                         size="sm"
                         onClick={ratearProporcionalmente}
-                        className="h-[30px] text-[12px] gap-[4px] bg-primary hover:bg-primary/90 text-primary-foreground"
+                        className="h-8 text-xs font-medium gap-1.5 shadow-2xs"
                       >
                         <Zap size={13} /> Ratear Proporcionalmente
                       </Button>
@@ -657,7 +743,7 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
                         variant="outline"
                         size="sm"
                         onClick={concentrarNaMae}
-                        className="h-[30px] text-[12px] gap-[4px]"
+                        className="h-8 text-xs font-medium"
                       >
                         Concentrar na Mãe
                       </Button>
@@ -665,38 +751,48 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
                         variant="outline"
                         size="sm"
                         onClick={restaurarOriginal}
-                        className="h-[30px] text-[12px] gap-[4px]"
+                        className="h-8 text-xs font-medium gap-1.5 text-text-mute hover:text-foreground"
                       >
-                        <RotateCcw size={13} /> Restaurar Original
+                        <RotateCcw size={12} /> Restaurar Original
                       </Button>
                     </div>
                   </div>
 
-                  {/* Tabela de Distribuição */}
-                  <div className="border border-line rounded-[8px] overflow-hidden bg-surface shadow-xs">
-                    <table className="w-full border-collapse text-[12.5px] text-left">
+                  {/* Tabela de Medidas */}
+                  <div className="border border-line rounded-xl overflow-hidden bg-surface shadow-2xs">
+                    <table className="w-full border-collapse text-xs text-left">
                       <thead>
-                        <tr className="bg-surface-2 border-b border-b-line text-text-mute">
-                          <th className="py-[10px] px-[12px] font-medium">Tipo</th>
-                          <th className="py-[10px] px-[12px] font-medium">Nº Nota</th>
-                          <th className="py-[10px] px-[12px] font-medium">Local Instalação</th>
-                          <th className="py-[10px] px-[12px] font-medium text-right">Planejado DDPM</th>
-                          <th className="py-[10px] px-[12px] font-medium">Medida SAP Atual</th>
-                          <th className="py-[10px] px-[12px] font-medium text-center">Medida vs Plan</th>
-                          <th className="py-[10px] px-[12px] font-medium w-[180px]">Nova Medida ({undMae})</th>
-                          <th className="py-[10px] px-[12px] font-medium w-[100px] text-center">Ação</th>
+                        <tr className="bg-surface-2 border-b border-line text-text-mute font-mono text-[10.5px] uppercase tracking-wider">
+                          <th className="py-2.5 px-3 font-semibold w-16">Tipo</th>
+                          <th className="py-2.5 px-3 font-semibold">Nº Nota</th>
+                          <th className="py-2.5 px-3 font-semibold">Local Instalação</th>
+                          <th className="py-2.5 px-3 font-semibold text-right">Planejado DDPM</th>
+                          <th className="py-2.5 px-3 font-semibold">Medida Atual SAP</th>
+                          <th className="py-2.5 px-3 font-semibold text-center">Status</th>
+                          <th className="py-2.5 px-3 font-semibold w-48 text-right">Nova Medida ({undMae})</th>
+                          <th className="py-2.5 px-3 font-semibold w-28 text-center">Ajuste</th>
                         </tr>
                       </thead>
                       <tbody>
                         {/* Linha da Mãe */}
-                        <tr className="border-b border-b-line hover:bg-surface-2 font-semibold">
-                          <td className="py-[10px] px-[12px] text-primary">MÃE</td>
-                          <td className="py-[10px] px-[12px] font-mono">{maeRowDetails.Numero_Nota}</td>
-                          <td className="py-[10px] px-[12px] font-mono">{maeRowDetails.Local_Instalacao}</td>
-                          <td className="py-[10px] px-[12px] text-right">{maeRowDetails.Planejado_DDPM}</td>
-                          <td className="py-[10px] px-[12px]">{maeRowDetails.Medida_SAP}</td>
-                          <td className="py-[10px] px-[12px] text-center">{maeRowDetails.Medida_vs_Planejado}</td>
-                          <td className="py-[6px] px-[12px]">
+                        <tr className="border-b border-line bg-primary/5 hover:bg-primary/10 transition-colors">
+                          <td className="py-2 px-3">
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-sans font-bold bg-primary text-primary-foreground">
+                              MÃE
+                            </span>
+                          </td>
+                          <td className="py-2 px-3 font-mono font-bold text-foreground">{maeRowDetails.Numero_Nota}</td>
+                          <td className="py-2 px-3 font-mono text-text-dim">{maeRowDetails.Local_Instalacao}</td>
+                          <td className="py-2 px-3 text-right font-mono font-medium">{maeRowDetails.Planejado_DDPM}</td>
+                          <td className="py-2 px-3 font-mono text-text-dim">{maeRowDetails.Medida_SAP}</td>
+                          <td className="py-2 px-3 text-center">
+                            <span className={`inline-block text-[10.5px] font-medium px-2 py-0.5 rounded-full ${
+                              maeRowDetails.Medida_vs_Planejado === 'Sim' ? 'bg-green/10 text-green' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                            }`}>
+                              {maeRowDetails.Medida_vs_Planejado === 'Sim' ? 'OK' : 'Divergente'}
+                            </span>
+                          </td>
+                          <td className="py-2 px-3 text-right">
                             <Input
                               type="number"
                               step={undMae === 'un' ? '1' : '0.001'}
@@ -705,15 +801,15 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
                                 const v = parseFloat(e.target.value) || 0;
                                 setNovasMedidasHier((prev) => ({ ...prev, [maeRowDetails.Numero_Nota]: v }));
                               }}
-                              className="h-[28px] py-0 px-[6px] text-right text-[12.5px] border-line font-mono font-semibold"
+                              className="h-8 py-0 px-2 text-right text-xs border-line font-mono font-semibold bg-surface w-36 ml-auto"
                             />
                           </td>
-                          <td className="py-[6px] px-[12px] text-center">
+                          <td className="py-2 px-3 text-center">
                             {Math.abs(diferenca) > 1e-5 && (
                               <button
                                 type="button"
                                 onClick={() => fecharRestanteEm(maeRowDetails.Numero_Nota)}
-                                className="text-[11px] font-medium text-primary hover:underline cursor-pointer"
+                                className="text-[11px] font-medium text-primary hover:underline cursor-pointer bg-primary/10 hover:bg-primary/20 px-2 py-1 rounded-md transition-colors"
                                 title="Jogar a diferença restante nesta nota"
                               >
                                 + Restante
@@ -721,16 +817,28 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
                             )}
                           </td>
                         </tr>
+
                         {/* Linhas das Filhas */}
                         {filhasDaMae.map((f) => (
-                          <tr key={f.Numero_Nota} className="border-b border-b-line hover:bg-surface-2">
-                            <td className="py-[10px] px-[12px] text-text-mute">FILHA</td>
-                            <td className="py-[10px] px-[12px] font-mono">{f.Numero_Nota}</td>
-                            <td className="py-[10px] px-[12px] font-mono">{f['Local_Instalacao']}</td>
-                            <td className="py-[10px] px-[12px] text-right">{f['Planejado_DDPM']}</td>
-                            <td className="py-[10px] px-[12px]">{f['Medida_SAP']}</td>
-                            <td className="py-[10px] px-[12px] text-center">{f['Medida_vs_Planejado']}</td>
-                            <td className="py-[6px] px-[12px]">
+                          <tr key={f.Numero_Nota} className="border-b border-line bg-surface hover:bg-surface-2/80 transition-colors">
+                            <td className="py-2 px-3">
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-sans font-medium bg-surface-2 text-text-mute border border-line">
+                                <CornerDownRight className="h-3 w-3 text-accent" />
+                                FILHA
+                              </span>
+                            </td>
+                            <td className="py-2 px-3 font-mono font-medium text-foreground">{f.Numero_Nota}</td>
+                            <td className="py-2 px-3 font-mono text-text-dim">{f.Local_Instalacao}</td>
+                            <td className="py-2 px-3 text-right font-mono text-text-dim">{f.Planejado_DDPM}</td>
+                            <td className="py-2 px-3 font-mono text-text-dim">{f.Medida_SAP}</td>
+                            <td className="py-2 px-3 text-center">
+                              <span className={`inline-block text-[10.5px] font-medium px-2 py-0.5 rounded-full ${
+                                f.Medida_vs_Planejado === 'Sim' ? 'bg-green/10 text-green' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                              }`}>
+                                {f.Medida_vs_Planejado === 'Sim' ? 'OK' : 'Divergente'}
+                              </span>
+                            </td>
+                            <td className="py-2 px-3 text-right">
                               <Input
                                 type="number"
                                 step={undMae === 'un' ? '1' : '0.001'}
@@ -739,15 +847,15 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
                                   const v = parseFloat(e.target.value) || 0;
                                   setNovasMedidasHier((prev) => ({ ...prev, [f.Numero_Nota]: v }));
                                 }}
-                                className="h-[28px] py-0 px-[6px] text-right text-[12.5px] border-line font-mono"
+                                className="h-8 py-0 px-2 text-right text-xs border-line font-mono bg-surface w-36 ml-auto"
                               />
                             </td>
-                            <td className="py-[6px] px-[12px] text-center">
+                            <td className="py-2 px-3 text-center">
                               {Math.abs(diferenca) > 1e-5 && (
                                 <button
                                   type="button"
                                   onClick={() => fecharRestanteEm(f.Numero_Nota)}
-                                  className="text-[11px] font-medium text-primary hover:underline cursor-pointer"
+                                  className="text-[11px] font-medium text-primary hover:underline cursor-pointer bg-primary/10 hover:bg-primary/20 px-2 py-1 rounded-md transition-colors"
                                   title="Jogar a diferença restante nesta nota"
                                 >
                                   + Restante
@@ -760,77 +868,68 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
                     </table>
                   </div>
 
-                  {/* Painel de Métricas e Balanço do Rateio */}
-                  <div className="flex gap-[12px] flex-wrap items-stretch">
-                    <Card className="flex-1 min-w-[180px] border-line bg-surface">
-                      <CardContent className="pt-[12px] pb-[12px]">
-                        <span className="text-[11px] text-text-mute uppercase tracking-[.04em] font-sans">Total Alvo (DDPM)</span>
-                        <div className="text-[17px] font-semibold mt-[2px] font-mono">
-                          {valMaeTarget.toFixed(3)} {undMae}
-                        </div>
-                      </CardContent>
-                    </Card>
-                    <Card className="flex-1 min-w-[180px] border-line bg-surface">
-                      <CardContent className="pt-[12px] pb-[12px]">
-                        <span className="text-[11px] text-text-mute uppercase tracking-[.04em] font-sans">Soma Distribuída</span>
-                        <div className="text-[17px] font-semibold mt-[2px] font-mono">
-                          {somaFilhas.toFixed(3)} {undMae}
-                        </div>
-                      </CardContent>
-                    </Card>
-                    <Card className={`flex-1 min-w-[180px] border ${
+                  {/* Painel de Métricas e Balanço */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="p-3.5 bg-surface border border-line rounded-xl shadow-2xs">
+                      <span className="text-[11px] text-text-mute font-medium">Total Alvo (Planejado DDPM)</span>
+                      <div className="text-base font-bold mt-1 font-mono text-foreground">
+                        {valMaeTarget.toFixed(3)} {undMae}
+                      </div>
+                    </div>
+                    <div className="p-3.5 bg-surface border border-line rounded-xl shadow-2xs">
+                      <span className="text-[11px] text-text-mute font-medium">Soma Distribuída Atual</span>
+                      <div className="text-base font-bold mt-1 font-mono text-foreground">
+                        {somaFilhas.toFixed(3)} {undMae}
+                      </div>
+                    </div>
+                    <div className={`p-3.5 border rounded-xl shadow-2xs ${
                       somaFechada ? 'border-green/30 bg-green/5' : 'border-red/30 bg-red/5'
                     }`}>
-                      <CardContent className="pt-[12px] pb-[12px]">
-                        <span className="text-[11px] text-text-mute uppercase tracking-[.04em] font-sans">Diferença Restante</span>
-                        <div className={`text-[17px] font-semibold mt-[2px] font-mono flex items-center gap-[6px] ${
-                          somaFechada ? 'text-green' : 'text-red'
-                        }`}>
-                          {somaFechada ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
-                          <span>{diferenca > 0 ? `+${diferenca.toFixed(3)}` : diferenca.toFixed(3)} {undMae}</span>
-                        </div>
-                      </CardContent>
-                    </Card>
+                      <span className="text-[11px] text-text-mute font-medium">Diferença Restante</span>
+                      <div className={`text-base font-bold mt-1 font-mono flex items-center gap-1.5 ${
+                        somaFechada ? 'text-green' : 'text-red'
+                      }`}>
+                        {somaFechada ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+                        <span>{diferenca > 0 ? `+${diferenca.toFixed(3)}` : diferenca.toFixed(3)} {undMae}</span>
+                      </div>
+                    </div>
                   </div>
 
-                  {/* Avisos de Validação e Botão de Disparo */}
-                  <div className="flex flex-col gap-[10px]">
+                  {/* Avisos e Botão de Disparo do SAP */}
+                  <div className="flex flex-col gap-3">
                     {!somaFechada && (
-                      <div className="p-[10px] bg-red/10 border border-red/20 text-red text-[12px] rounded-[6px]">
-                        ⚠️ <strong>Bloqueio de Execução:</strong> A diferença restante ({Math.abs(diferenca).toFixed(3)} {undMae}) supera a tolerância de {tolerancia * 1000} metros/unidades. Use a ação <strong>⚡ Ratear Proporcionalmente</strong> ou clique em <strong>+ Restante</strong>.
+                      <div className="p-3 bg-red/10 border border-red/20 text-red text-xs rounded-xl flex items-center gap-2">
+                        <AlertCircle className="h-4 w-4 shrink-0" />
+                        <span><strong>Divergência matemática:</strong> A soma das medidas difere em {Math.abs(diferenca).toFixed(3)} {undMae} do planejado. Use <strong>Ratear Proporcionalmente</strong> ou <strong>+ Restante</strong>.</span>
                       </div>
                     )}
                     {somaFechada && Math.abs(diferenca) > 1e-5 && (
-                      <div className="p-[10px] bg-amber/10 border border-amber/20 text-amber text-[12px] rounded-[6px]">
-                        💡 <strong>Diferença Aceitável:</strong> Há uma pequena diferença de {Math.round(Math.abs(diferenca) * 1000)} mm/un dentro da tolerância de {tolerancia * 1000} metros.
-                      </div>
-                    )}
-                    {undMae === 'un' && !unidadeCorreta && (
-                      <div className="p-[10px] bg-red/10 border border-red/20 text-red text-[12px] rounded-[6px]">
-                        ❌ <strong>Erro de Validação:</strong> Para a unidade &quot;un&quot; (Equipamentos), todas as medidas devem ser números inteiros.
+                      <div className="p-3 bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-xs rounded-xl flex items-center gap-2">
+                        <HelpCircle className="h-4 w-4 shrink-0" />
+                        <span><strong>Tolerância aceita:</strong> Há uma variação residual de {Math.round(Math.abs(diferenca) * 1000)} mm/un aceita pelo sistema.</span>
                       </div>
                     )}
 
-                    <div className="flex gap-[16px] items-center flex-wrap mt-[4px]">
-                      <div className="flex items-center gap-[8px]">
+                    <div className="flex gap-4 items-center justify-between flex-wrap pt-1">
+                      <div className="flex items-center gap-2">
                         <input
                           type="checkbox"
                           id="forcar-val"
                           checked={forcarValidacao}
                           onChange={(e) => setForcarValidacao(e.target.checked)}
-                          className="w-[15px] h-[15px] cursor-pointer"
+                          className="w-4 h-4 rounded border-line cursor-pointer"
                         />
-                        <Label htmlFor="forcar-val" className="text-[12px] cursor-pointer text-text-mute">
-                          ⚠️ Forçar Execução (Ignorar Validação matemática)
+                        <Label htmlFor="forcar-val" className="text-xs cursor-pointer text-text-mute font-normal">
+                          Forçar Execução (Ignorar validação matemática)
                         </Label>
                       </div>
                       <Button
                         variant="default"
                         onClick={executarNoSap}
                         disabled={loadingRobot || (!somaFechada && !forcarValidacao) || (undMae === 'un' && !unidadeCorreta)}
-                        className="ml-auto bg-primary hover:bg-primary/90 text-primary-foreground"
+                        className="font-semibold text-xs h-9 px-5 shadow-xs"
                       >
-                        {loadingRobot ? 'Processando SAP...' : '🚀 Executar no SAP'}
+                        {loadingRobot ? 'Processando no SAP GUI...' : !modoTeste ? '🚀 Gravar no SAP (Modo Real)' : '⚡ Simular no SAP (Teste)'}
                       </Button>
                     </div>
                   </div>
@@ -840,35 +939,37 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
           )}
         </div>
       ) : (
-        // --- VISÃO DE RATEIO INDIVIDUAL ---
-        <div className="flex flex-col gap-[16px]">
+        // --- VISÃO DE REFERÊNCIA INDIVIDUAL ---
+        <div className="flex flex-col gap-4">
           {dfDivergentes.length === 0 ? (
-            <div className="p-[24px] text-center border border-dashed border-line rounded-[8px] text-text-mute text-[13px]">
-              🎉 Nenhuma nota ativa com divergência de medição física encontrada no banco.
+            <div className="p-12 text-center border border-dashed border-line rounded-xl bg-surface-2/30 text-text-mute text-xs flex flex-col items-center gap-2">
+              <span className="text-2xl">🎉</span>
+              <span className="font-medium text-foreground">Sem divergências</span>
+              <span>Nenhuma nota ativa com divergência de medição física encontrada no banco de dados.</span>
             </div>
           ) : (
-            <div className="flex flex-col gap-[14px]">
+            <div className="flex flex-col gap-4">
               {/* Barra de Busca e Ações em Lote */}
-              <div className="flex items-center justify-between gap-[12px] flex-wrap bg-surface border border-line p-[12px] rounded-[8px] shadow-sm">
-                <div className="relative flex items-center w-[280px]">
-                  <Search size={14} className="absolute left-[11px] text-text-mute" />
+              <div className="flex items-center justify-between gap-3 flex-wrap bg-surface border border-line p-3 rounded-xl shadow-2xs">
+                <div className="relative flex items-center w-80">
+                  <Search size={14} className="absolute left-3 text-text-mute" />
                   <Input
                     type="text"
                     value={buscaInd}
                     onChange={(e) => setBuscaInd(e.target.value)}
-                    placeholder="Buscar nota, conjunto ou local..."
-                    className="pl-[32px] pr-[10px] w-full"
+                    placeholder="Buscar por nota, conjunto ou local..."
+                    className="pl-9 pr-3 h-9 text-xs w-full"
                   />
                 </div>
 
-                <div className="flex items-center gap-[8px]">
+                <div className="flex items-center gap-2">
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={toggleSelecionarTodasInd}
-                    className="h-[34px] text-[12px] gap-[6px]"
+                    className="h-9 text-xs font-medium gap-1.5"
                   >
-                    {selecionadasInd.size === dfDivergentesFiltradas.length ? <CheckSquare size={14} /> : <Square size={14} />}
+                    {selecionadasInd.size === dfDivergentesFiltradas.length ? <CheckSquare size={13} /> : <Square size={13} />}
                     {selecionadasInd.size === dfDivergentesFiltradas.length ? 'Deselecionar Todas' : 'Selecionar Todas'}
                   </Button>
                   <Button
@@ -876,27 +977,27 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
                     size="sm"
                     onClick={igualarPlanejadoEmLote}
                     disabled={selecionadasInd.size === 0}
-                    className="h-[34px] text-[12px] gap-[6px] bg-primary hover:bg-primary/90 text-primary-foreground"
+                    className="h-9 text-xs font-medium gap-1.5 shadow-2xs"
                   >
-                    <Zap size={14} /> Igualar ao Planejado DDPM ({selecionadasInd.size})
+                    <Zap size={13} /> Igualar ao Planejado ({selecionadasInd.size})
                   </Button>
                 </div>
               </div>
 
               {/* Tabela de Notas Divergentes */}
-              <div className="border border-line rounded-[8px] overflow-hidden bg-surface max-h-[460px] overflow-y-auto shadow-xs">
-                <table className="w-full border-collapse text-[12.5px] text-left">
+              <div className="border border-line rounded-xl overflow-hidden bg-surface max-h-[460px] overflow-y-auto shadow-2xs">
+                <table className="w-full border-collapse text-xs text-left">
                   <thead>
-                    <tr className="bg-surface-2 border-b border-b-line text-text-mute sticky top-0 z-10">
-                      <th className="py-[10px] px-[12px] font-medium w-[60px] text-center">Corrigir?</th>
-                      <th className="py-[10px] px-[12px] font-medium">Nº Nota</th>
-                      <th className="py-[10px] px-[12px] font-medium">Conjunto</th>
-                      <th className="py-[10px] px-[12px] font-medium">Local Instalação</th>
-                      <th className="py-[10px] px-[12px] font-medium text-right">Planejado DDPM</th>
-                      <th className="py-[10px] px-[12px] font-medium">Medida SAP Atual</th>
-                      <th className="py-[10px] px-[12px] font-medium">Nota Mãe</th>
-                      <th className="py-[10px] px-[12px] font-medium w-[90px]">Unidade</th>
-                      <th className="py-[10px] px-[12px] font-medium w-[140px]">Nova Medida</th>
+                    <tr className="bg-surface-2 border-b border-line text-text-mute font-mono text-[10.5px] uppercase tracking-wider sticky top-0 z-10">
+                      <th className="py-2.5 px-3 font-semibold w-14 text-center">Corrigir?</th>
+                      <th className="py-2.5 px-3 font-semibold">Nº Nota</th>
+                      <th className="py-2.5 px-3 font-semibold">Conjunto</th>
+                      <th className="py-2.5 px-3 font-semibold">Local Instalação</th>
+                      <th className="py-2.5 px-3 font-semibold text-right">Planejado DDPM</th>
+                      <th className="py-2.5 px-3 font-semibold">Medida SAP</th>
+                      <th className="py-2.5 px-3 font-semibold">Nota Mãe</th>
+                      <th className="py-2.5 px-3 font-semibold w-24">Unidade</th>
+                      <th className="py-2.5 px-3 font-semibold w-36 text-right">Nova Medida</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -908,32 +1009,32 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
                       const isUnValError = unit === 'un' && !Number.isInteger(val) && selected;
 
                       return (
-                        <tr key={num} className={`border-b border-b-line hover:bg-surface-2 ${isUnValError ? 'bg-red/5' : ''}`}>
-                          <td className="py-[10px] px-[12px] text-center">
+                        <tr key={num} className={`border-b border-line hover:bg-surface-2 transition-colors ${isUnValError ? 'bg-red/5' : ''}`}>
+                          <td className="py-2 px-3 text-center">
                             <input
                               type="checkbox"
                               checked={selected}
                               onChange={() => handleIndCheckboxToggle(num)}
-                              className="w-[15px] h-[15px] cursor-pointer"
+                              className="w-4 h-4 rounded border-line cursor-pointer"
                             />
                           </td>
-                          <td className="py-[10px] px-[12px] font-mono font-medium">{num}</td>
-                          <td className="py-[10px] px-[12px]">{r.Conjunto}</td>
-                          <td className="py-[10px] px-[12px] font-mono">{r.Local_Instalacao}</td>
-                          <td className="py-[10px] px-[12px] text-right font-medium">{r.Planejado_DDPM}</td>
-                          <td className="py-[10px] px-[12px]">{r.Medida_SAP}</td>
-                          <td className="py-[10px] px-[12px] font-mono">{r.Nota_Mae}</td>
-                          <td className="py-[6px] px-[12px]">
+                          <td className="py-2 px-3 font-mono font-medium text-foreground">{num}</td>
+                          <td className="py-2 px-3">{r.Conjunto}</td>
+                          <td className="py-2 px-3 font-mono text-text-dim">{r.Local_Instalacao}</td>
+                          <td className="py-2 px-3 text-right font-mono font-medium">{r.Planejado_DDPM}</td>
+                          <td className="py-2 px-3 font-mono text-text-dim">{r.Medida_SAP}</td>
+                          <td className="py-2 px-3 font-mono text-text-dim">{r.Nota_Mae}</td>
+                          <td className="py-1.5 px-3">
                             <select
                               value={unit}
                               onChange={(e) => setUnidadesInd((prev) => ({ ...prev, [num]: e.target.value as 'km' | 'un' }))}
-                              className="h-[28px] w-full rounded-[4px] border border-line bg-bg-2 text-[12px] outline-none"
+                              className="h-8 w-full rounded border border-line bg-surface text-xs outline-none px-2 font-mono"
                             >
                               <option value="km">km</option>
                               <option value="un">un</option>
                             </select>
                           </td>
-                          <td className="py-[6px] px-[12px]">
+                          <td className="py-1.5 px-3 text-right">
                             <Input
                               type="number"
                               step={unit === 'un' ? '1' : '0.001'}
@@ -942,7 +1043,7 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
                                 const v = parseFloat(e.target.value) || 0;
                                 setNovasMedidasInd((prev) => ({ ...prev, [num]: v }));
                               }}
-                              className={`h-[28px] py-0 px-[6px] text-right text-[12.5px] font-mono ${isUnValError ? 'border-red' : 'border-line'}`}
+                              className={`h-8 py-0 px-2 text-right text-xs font-mono bg-surface ${isUnValError ? 'border-red' : 'border-line'}`}
                             />
                           </td>
                         </tr>
@@ -953,29 +1054,43 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
               </div>
 
               {/* Avisos e Envio em Lote */}
-              <div className="flex flex-col gap-[10px]">
+              <div className="flex flex-col gap-2.5">
                 {!individualValido && (
-                  <div className="p-[10px] bg-red/10 border border-red/20 text-red text-[12px] rounded-[6px]">
-                    ❌ <strong>Erro de Validação:</strong> Algumas notas selecionadas possuem unidade &quot;un&quot; mas seus novos valores não são inteiros.
+                  <div className="p-3 bg-red/10 border border-red/20 text-red text-xs rounded-xl">
+                    ❌ <strong>Validação:</strong> Notas com unidade &quot;un&quot; selecionadas precisam de valores inteiros.
                   </div>
                 )}
                 {selecionadasInd.size === 0 && (
-                  <div className="p-[10px] bg-amber/10 border border-amber/20 text-amber text-[12px] rounded-[6px]">
-                    ⚠️ Nenhuma nota selecionada para envio. Marque a caixa de seleção &quot;Corrigir?&quot; de pelo menos uma nota.
+                  <div className="p-3 bg-surface-2 border border-line text-text-mute text-xs rounded-xl">
+                    ℹ️ Selecione pelo menos uma nota na tabela para enviar ao SAP.
                   </div>
                 )}
 
-                <div className="flex items-center justify-between mt-[6px]">
-                  <span className="text-[12.5px] text-text-mute">
-                    Selecionadas para envio: <strong>{selecionadasInd.size}</strong> nota(s)
-                  </span>
+                <div className="flex items-center justify-between pt-1 flex-wrap gap-3">
+                  <div className="flex items-center gap-4 flex-wrap">
+                    <span className="text-xs text-text-mute">
+                      Selecionadas: <strong className="text-foreground">{selecionadasInd.size}</strong> nota(s)
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="forcar-val-ind"
+                        checked={forcarValidacao}
+                        onChange={(e) => setForcarValidacao(e.target.checked)}
+                        className="w-4 h-4 rounded border-line cursor-pointer"
+                      />
+                      <Label htmlFor="forcar-val-ind" className="text-xs cursor-pointer text-text-mute font-normal">
+                        Forçar Execução (ignorar validação)
+                      </Label>
+                    </div>
+                  </div>
                   <Button
                     variant="default"
                     onClick={executarNoSap}
-                    disabled={loadingRobot || selecionadasInd.size === 0 || !individualValido}
-                    className="bg-primary hover:bg-primary/90 text-primary-foreground"
+                    disabled={loadingRobot || selecionadasInd.size === 0 || (!individualValido && !forcarValidacao)}
+                    className="text-xs font-semibold h-9 px-5 shadow-xs"
                   >
-                    {loadingRobot ? 'Processando SAP...' : '🚀 Corrigir Selecionadas no SAP'}
+                    {loadingRobot ? 'Processando no SAP GUI...' : !modoTeste ? '🚀 Gravar Selecionadas no SAP' : '⚡ Simular Selecionadas no SAP'}
                   </Button>
                 </div>
               </div>
@@ -986,46 +1101,47 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
 
       {/* RELATÓRIO DE EXECUÇÃO DO ROBÔ SAP */}
       {relatorio && (
-        <Card className="mt-[20px] border-line bg-surface shadow-xs">
-          <CardHeader className="pb-[10px] border-b border-line">
-            <CardTitle className="text-[14px] font-semibold">📋 Relatório de Execução do Robô SAP</CardTitle>
-          </CardHeader>
-          <CardContent className="pt-[12px]">
-            <div className="border border-line rounded-[6px] overflow-hidden max-h-[220px] overflow-y-auto">
-              <table className="w-full border-collapse text-[12px] text-left">
+        <div className="mt-4 border border-line rounded-xl bg-surface shadow-2xs overflow-hidden">
+          <div className="px-4 py-3 border-b border-line bg-surface-2 flex items-center justify-between">
+            <span className="text-xs font-semibold text-foreground">Relatório de Execução do Robô SAP</span>
+            <span className="text-[11px] text-text-mute font-mono">{relatorio.length} nota(s) processada(s)</span>
+          </div>
+          <div className="p-3">
+            <div className="border border-line rounded-lg overflow-hidden max-h-56 overflow-y-auto">
+              <table className="w-full border-collapse text-xs text-left">
                 <thead>
-                  <tr className="bg-surface-2 text-text-mute font-medium border-b border-line">
-                    <th className="py-[8px] px-[12px]">Nota</th>
-                    <th className="py-[8px] px-[12px] w-[90px] text-center">Status</th>
-                    <th className="py-[8px] px-[12px]">Mensagem</th>
+                  <tr className="bg-surface-2 text-text-mute font-mono text-[10.5px] uppercase border-b border-line">
+                    <th className="py-2 px-3">Nota</th>
+                    <th className="py-2 px-3 w-24 text-center">Status</th>
+                    <th className="py-2 px-3">Mensagem do SAP</th>
                   </tr>
                 </thead>
                 <tbody>
                   {relatorio.map((r, i) => (
-                    <tr key={i} className="border-b border-line hover:bg-surface-2">
-                      <td className="py-[8px] px-[12px] font-mono font-medium">{r.Nota}</td>
-                      <td className="py-[8px] px-[12px] text-center">
+                    <tr key={i} className="border-b border-line hover:bg-surface-2 transition-colors">
+                      <td className="py-2 px-3 font-mono font-medium text-foreground">{r.Nota}</td>
+                      <td className="py-2 px-3 text-center">
                         <span
-                          className={`inline-block py-[2px] px-[6px] rounded-[4px] font-semibold text-[10px] uppercase ${
+                          className={`inline-block py-0.5 px-2 rounded-full font-medium text-[10px] uppercase ${
                             r.Status === 'OK'
                               ? 'bg-green/15 text-green'
                               : r.Status === 'TESTE'
-                              ? 'bg-amber/15 text-amber'
+                              ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
                               : 'bg-red/15 text-red'
                           }`}
                         >
                           {r.Status}
                         </span>
                       </td>
-                      <td className="py-[8px] px-[12px] text-text-mute">{r.Mensagem}</td>
+                      <td className="py-2 px-3 text-text-mute text-xs">{r.Mensagem}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
-    </SectionPage>
+    </div>
   );
 }

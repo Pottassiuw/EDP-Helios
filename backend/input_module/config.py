@@ -86,7 +86,9 @@ REDE_BASES_APOIO = REDE_INPUT_SQL + r"\Bases_Apoio"
 REDE_DB_ORIGEM = REDE_INPUT_SQL + r"\notas_departamento.db"
 
 CAMINHO_BASE_IW28 = REDE_ARQUIVOS_SAP + r"\Gerada_base_IW28.XLSX"
-CAMINHO_CUSTO_ORD_IW38 = REDE_ARQUIVOS_SAP + r"\Gerada_custo_ord_IW38.XLSX"
+_caminho_iw38_custo = REDE_ARQUIVOS_SAP + r"\Gerada_custo_ord_IW38.XLSX"
+_caminho_iw38_ord = REDE_ARQUIVOS_SAP + r"\Gerada_ord_IW38.XLSX"
+CAMINHO_CUSTO_ORD_IW38 = _caminho_iw38_ord if os.path.exists(_caminho_iw38_ord) else _caminho_iw38_custo
 CAMINHO_BASE_IW66 = REDE_ARQUIVOS_SAP + r"\Gerada_medidas_IW66.XLSX"
 CAMINHO_INDICADOR_CONTINUIDADE = REDE_BASES_APOIO + r"\Indicador base conjunto - Limite Aneel.xlsx"
 CAMINHO_CLIENTES_CONJUNTO = REDE_BASES_APOIO + r"\Clientes_Conjunto.xlsx"
@@ -487,8 +489,6 @@ PRIORIDADES = [
 # Responsáveis padrão (Input/database.py:87-91) e projeto construção padrão
 # (Input/database.py:106-120 — copiar literal)
 DE_PARA_RESPONSAVEIS_PADRAO = {
-    "Poa": "Danilo",
-    "Suzano": "Danilo",
     "São José dos Campos": "James",
     "Guaratinguetá": "Danilo",
     "Litoral Norte": "Danilo",
@@ -582,7 +582,7 @@ COLUNAS_PAINEL = [
     "Regional",
     "Numero_Nota",
     "Nota_Mae",
-    "Status_Obra",
+    "Observacao",
     "Conjunto",
     "Circuito",
     "Local_Instalacao",
@@ -598,7 +598,6 @@ COLUNAS_PAINEL = [
     "Prioridade_Nota",
     "Status_Nota",
     "Cidade",
-    "Observacao",
     "CJ_Aneel",
     "substacao_conjunto",
     "Conj.critico",

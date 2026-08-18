@@ -136,6 +136,9 @@ export const InputApi = {
   obterStatus10Resumo: async (): Promise<import('./types').Status10Resumo> => {
     return req<import('./types').Status10Resumo>('/status10/resumo');
   },
+  extrairSapStatus10: async (): Promise<{ ok: boolean; mensagem: string; total_notas?: number }> => {
+    return req<{ ok: boolean; mensagem: string; total_notas?: number }>('/status10/extrair-sap', escrita('POST'));
+  },
   enviarEmailStatus10: async (): Promise<{ ok: boolean; mensagem: string }> => {
     return req<{ ok: boolean; mensagem: string }>('/status10/enviar-email', escrita('POST'));
   },

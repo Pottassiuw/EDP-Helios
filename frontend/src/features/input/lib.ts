@@ -92,7 +92,7 @@ export function aplicarFiltros(registros: NotaInput[], filtros: Filtro[]): NotaI
   }));
 }
 
-export function valoresUnicos(registros: NotaInput[], campo: string): string[] {
+export function valoresUnicos<T extends Record<string, any>>(registros: T[], campo: string): string[] {
   const valores = new Set<string>();
   for (const r of registros) {
     const v = r[campo];

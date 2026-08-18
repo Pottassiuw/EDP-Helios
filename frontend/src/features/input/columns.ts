@@ -7,12 +7,12 @@ export interface ColunaDef {
   opcoes?: 'status' | 'prioridade' | 'mes';
 }
 
-/** Colunas do painel na ordem especificada (Regional, Nº Nota, Nota Mãe, Status Obra, etc.). */
+/** Colunas do painel na ordem especificada (Regional, Nº Nota, Nota Mãe, Observação, etc.). */
 export const COLUNAS: ColunaDef[] = [
   { key: 'Regional', label: 'Regional' },
   { key: 'Numero_Nota', label: 'Nº Nota (ID)', numeric: true, largura: 110 },
-  { key: 'Nota_Mae', label: 'Nota Mãe', numeric: true, largura: 110 },
-  { key: 'Status_Obra', label: 'Status Obra', largura: 140 },
+  { key: 'Nota_Mae', label: 'Nota Mãe', largura: 110 },
+  { key: 'Observacao', label: 'Observação', editavel: true, largura: 260 },
   { key: 'Conjunto', label: 'Conjunto', editavel: true },
   { key: 'Circuito', label: 'Circuito', editavel: true },
   { key: 'Local_Instalacao', label: 'Local Instalação', editavel: true, largura: 170 },
@@ -27,7 +27,6 @@ export const COLUNAS: ColunaDef[] = [
   { key: 'Prioridade_Nota', label: 'Prioridade Nota', editavel: true, opcoes: 'prioridade' },
   { key: 'Status_Nota', label: 'Status Nota', editavel: true, opcoes: 'status', largura: 180 },
   { key: 'Cidade', label: 'Cidade' },
-  { key: 'Observacao', label: 'Observação', editavel: true, largura: 260 },
   { key: 'CJ_Aneel', label: 'Cj. Aneel' },
   { key: 'substacao_conjunto', label: 'Subestação Conj' },
   { key: 'Conj.critico', label: 'Conjunto Crítico' },
@@ -84,6 +83,7 @@ export const FILTROS_MULTI = [
 export const COLUNAS_COLAGEM = [
   'Numero_Nota',
   'Nota_Mae',
+  'Observacao',
   'Status_Nota',
   'Prioridade_Nota',
   'Planejado_DDPM',
@@ -92,6 +92,5 @@ export const COLUNAS_COLAGEM = [
   'Local_Instalacao',
   'Mes_Execucao_Planejado',
   'Data_Envio_Projeto',
-  'Observacao',
   'Check',
 ];

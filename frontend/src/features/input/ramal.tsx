@@ -369,9 +369,9 @@ export function Ramal({
         <div className="flex items-center gap-2 flex-wrap">
           <Button
             size="sm"
-            className="h-9 px-3 text-xs font-semibold gap-1.5"
+            className="h-9 px-3 text-xs font-medium gap-1.5"
             onClick={() => setModalCadastro(true)}
-            title="Cadastrar uma nova nota no ramal"
+            title="Cadastrar uma nova nota ramal"
           >
             <PlusCircle className="h-3.5 w-3.5" />
             Nova Nota Ramal
@@ -380,18 +380,18 @@ export function Ramal({
           <Button
             variant="outline"
             size="sm"
-            className="h-9 px-3 text-xs font-semibold gap-1.5 border-line hover:border-accent hover:text-accent"
+            className="h-9 px-3 text-xs font-medium gap-1.5 border-line hover:bg-surface-2 hover:text-text hover:border-line-2"
             onClick={() => setModo('colagem')}
             title="Inserir lote de notas ramal em massa colando planilha Excel / TSV"
           >
-            <FileSpreadsheet className="h-3.5 w-3.5 text-accent" />
+            <FileSpreadsheet className="h-3.5 w-3.5 text-text-dim" />
             Inserir em Massa
           </Button>
 
           <Button
             variant="outline"
             size="sm"
-            className="h-9 px-3 text-xs"
+            className="h-9 px-3 text-xs font-medium gap-1.5 border-line hover:bg-surface-2 hover:text-text hover:border-line-2"
             disabled={salvando}
             onClick={desfazer}
             title="Reverte a última alteração realizada"
@@ -403,7 +403,7 @@ export function Ramal({
           <Button
             variant="outline"
             size="sm"
-            className="h-9 px-3 text-xs"
+            className="h-9 px-3 text-xs font-medium gap-1.5 border-line hover:bg-surface-2 hover:text-text hover:border-line-2"
             disabled={exportando || registrosComoNotaInput.length === 0}
             onClick={() => { void exportar(); }}
             title="Baixar planilha Excel do Ramal"

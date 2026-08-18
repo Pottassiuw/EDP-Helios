@@ -106,16 +106,44 @@ export interface Status10Regional {
   Regional: string;
   Conjunto: string;
   Qtd_Notas: number;
-  Total_Planejado: number;
+  Total_Fisico: number;
   Total_Modular: number;
+  Total_Custo_Ordem: number;
+}
+
+export interface Status10Registro {
+  Numero_Nota: number;
+  Ordem?: Celula;
+  Status_Nota?: Celula;
+  Status_Usuario?: Celula;
+  Conjunto?: Celula;
+  Denominacao_Conjunto?: Celula;
+  Local_Instalacao?: Celula;
+  Local_Instalacao_Afetado?: Celula;
+  Planejado_DDPM?: number;
+  Modular?: number;
+  Modular_Obra?: number;
+  Custo_Plan?: number;
+  PEP?: Celula;
+  Mes_Execucao_Planejado?: Celula;
+  Prioridade_Nota?: Celula;
+  Regional?: Celula;
+  Centro_Responsavel?: Celula;
+  Cidade?: Celula;
+  Descricao?: Celula;
+  Criado_Por?: Celula;
+  Data_Nota?: Celula;
+  Observacao?: Celula;
+  [key: string]: Celula | undefined;
 }
 
 export interface Status10Resumo {
   total_notas: number;
-  total_planejado: number;
-  total_modular: number;
+  total_fisico: number;
+  total_modular_obra: number;
+  total_custo_ordem: number;
   resumo_regional: Status10Regional[];
-  registros: NotaInput[];
+  registros: Status10Registro[];
 }
 
 export interface ItemAlteracaoNotificacao {
@@ -150,5 +178,5 @@ export interface ResumoNotificacoesDiarias {
   engenheiros: Record<string, EngenheiroResumoNotificacao>;
 }
 
-export type AbaInput = 'visao' | 'gerenciar' | 'ramal' | 'relatorios' | 'logs' | 'config';
+export type AbaInput = 'visao' | 'gerenciar' | 'rateio' | 'ramal' | 'relatorios' | 'logs' | 'config';
 

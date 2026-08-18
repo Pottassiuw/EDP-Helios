@@ -79,13 +79,13 @@ export function NotificacaoModal({ aberto, onFechar }: NotificacaoModalProps): R
         <DialogHeader className="pb-3 border-b border-line shrink-0">
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div>
-              <Eyebrow className="text-xs tracking-wider text-accent">Comunicação & Auditoria</Eyebrow>
+              <Eyebrow className="text-xs tracking-wider text-accent">EDP-Helios • Comunicação Executiva</Eyebrow>
               <DialogTitle className="text-lg font-bold text-foreground flex items-center gap-2">
                 <Mail className="h-5 w-5 text-accent" />
                 <span>Notificação Diária aos Engenheiros</span>
               </DialogTitle>
               <DialogDescription className="text-xs text-text-dim mt-0.5">
-                Consolidação diária de notas editadas, vinculadas ou excluídas por regional para envio via Outlook.
+                Consolidação diária de alterações com envio de resumo executivo, link do sistema e planilha Excel anexa via Outlook.
               </DialogDescription>
             </div>
 

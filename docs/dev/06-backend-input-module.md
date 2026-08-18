@@ -581,7 +581,7 @@ Setup (uma vez por máquina):
 
 ```bash
 cd backend
-venv\Scripts\python.exe -m pip install -r requirements-sap-robot.txt
+.venv\Scripts\python.exe -m pip install -r requirements-sap-robot.txt
 copy credenciais.json.example credenciais.json
 # edite credenciais.json com LOGIN_SAP/SENHA_SAP reais — nunca commitar esse arquivo
 ```
@@ -598,6 +598,23 @@ Duas formas de rodar:
 `requirements-sap-robot.txt` fica separado de `requirements.txt` porque
 `pywin32`/`pyperclip` são Windows-only e o backend web (FastAPI) não precisa
 deles — só quem for rodar a extração local precisa instalá-las.
+
+## Serviço e Extração SAP do Status 10 (`input_module/status10_service.py`)
+
+O serviço `status10_service.py` gerencia o backlog de notas em **Status 10 (Em Planejamento)**:
+
+- `obter_resumo_status10()`: Retorna métricas analíticas (`total_notas`, `total_fisico`, `total_modular_obra`, `total_custo_ordem`), resumo agrupado por Regional/Conjunto e lista completa de registros com colunas enriquecidas.
+- `extrair_sap_status10()`: Automação SAP GUI (via `win32com` e `pyperclip`):
+  1. Conecta ao SAP Logon (`P40_S4/HANA`) usando credenciais de `credenciais.json`.
+  2. Executa transação `IW28` com filtro no Status `10` e criador `703846`, exportando XXL para `Gerada_base_IW29_Status10.XLSX`.
+  3. Executa transação `IW38` com layout `/GALVAO` para coletar custos das ordens vinculadas para `Gerada_custo_ord_IW38_Status10.XLSX`.
+  4. Cruza dados no Pandas com a base de notas e `Custo_Modular.xlsx`, calculando `PEP`, `Modular Obra` e gerando `Base_Analise_Status_10.xlsx`.
+- `gerar_email_outlook_status10()`: Monta resumo analítico formatado em HTML e abre rascunho de e-mail no Outlook.
+
+Endpoints associados:
+- `GET /api/input/status10/resumo`
+- `POST /api/input/status10/extrair-sap`
+- `POST /api/input/status10/enviar-email`
 
 ## Pontos de atenção
 - `input_module/engine.py:449-450` e blocos irmãos — praticamente todo
@@ -776,17 +793,25 @@ Na visualização hierárquica (`NotesTable` com `agruparGavetinhas=true`):
 - **Cadastro Direto de Nota Filha (`Manage` / `HierarquiaCard`):** Permite inserir novas notas diretamente como filhas de uma Nota Mãe existente, herdando metadados (Conjunto, Circuito, Local de Instalação, Mês) e ajustando a medida da mãe no banco de dados para evitar esquecimentos.
 - **Detetive de Notas (`varrerVinculos`):** Realiza varredura inteligente no campo `Observacao` e `Status_Obra`, identificando vínculos mãe-filha diretos e bidirecionais (inclusive para notas com medida planejada maior que zero).
 
-## Notificações Diárias aos Engenheiros por Regional
+## Notificações Diárias aos Engenheiros por Regional (EDP-Helios)
 
 - **Serviço de Notificações (`notificacoes_service.py`):** Consolida eventos diários (`log_alteracoes` + `notas`) agrupando alterações em notas por `Regional` e `Engenheiro Responsável`.
-  - Categoriza eventos em: **✏️ Edições de Campo**, **🔗 Vínculos de Hierarquia**, **🗑️ Exclusões** e **➕ Criações**.
-  - Filtra e gera e-mails apenas quando houver alterações nas regionais do engenheiro (*caso necessário*).
-- **Geração via Outlook (`win32com.client`):** Monta e-mail HTML corporativo EDP com tabela detalhada, destinatário preenchido (`To: email_engenheiro`, `CC: usuario/gestor`) e abre o rascunho no Outlook.
+  - **Múltiplos Engenheiros por Regional:** Permite mapear mais de um engenheiro para a mesma regional/conjunto (separados por vírgula, barra ou ponto e vírgula, ex: `Fabricio, Danilo`). Ambos os engenheiros recebem a notificação consolidada de suas áreas compartilhadas.
+  - **Relatório Excel Anexo (`.xlsx`):** Gera automaticamente uma planilha Excel formatada (`EDP-Helios_Alteracoes_{engenheiro}_{data}.xlsx`) contendo:
+    - Aba *"Notas Modificadas"*: tabela detalhada com todas as notas alteradas no dia, com colunas estilizadas e largura ajustada.
+    - Aba *"Resumo Executivo"*: estatísticas consolidadas e contagem por categoria de evento.
+  - **Corpo de E-mail Executivo no Outlook (`win32com.client`):** Em vez de tabelas gigantes no corpo do e-mail que poluíam a visualização quando há muitas notas modificadas, o e-mail agora possui formato executivo limpo:
+    - Cards com KPIs sintéticos (Notas Modificadas, Total de Alterações, Regionais).
+    - Tabela de resumo com contagem por categoria (Status, Prioridade, Mês, Hierarquia, etc.).
+    - Amostra rápida (preview das primeiras alterações).
+    - Aviso de anexo do arquivo Excel completo.
+    - Botão e link direto para acesso ao **EDP-Helios** (`http://localhost:6328`).
 - **Endpoints de API:**
   - `GET /api/input/notificacoes/resumo-diario`: resumo das alterações do dia por engenheiro e regional.
-  - `POST /api/input/notificacoes/enviar-email`: dispara a criação de rascunhos no Outlook (individual ou para todos com alterações).
+  - `POST /api/input/notificacoes/enviar-email`: dispara a criação de rascunhos no Outlook com anexo Excel (individual ou para todos com alterações).
   - `GET/PUT /api/input/responsaveis/emails`: gerenciamento dos endereços de e-mail dos engenheiros responsáveis.
-- **Frontend (`NotificacaoModal`):** Modal acessível no cabeçalho de **Logs** e **Gerenciar**, com preview das alterações, status por engenheiro e botão de disparo com 1 clique.
+- **Frontend (`NotificacaoModal` & `Settings`):** Modal acessível no cabeçalho de **Logs** e **Gerenciar**, com preview das alterações, status por engenheiro, instrução de múltiplos responsáveis e botão de disparo com 1 clique.
+
 
 
 

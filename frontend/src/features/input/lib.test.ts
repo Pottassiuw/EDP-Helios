@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { varrerVinculos } from './lib';
+import { varrerVinculos, ehNotaOculta, buscarNotasOcultas } from './lib';
+import { filtrarRegistros } from './overview';
 import type { NotaInput } from './types';
 
 describe('varrerVinculos (Detetive de Notas)', () => {
@@ -86,14 +87,15 @@ describe('varrerVinculos (Detetive de Notas)', () => {
   it('faz parse de colagem TSV incluindo coluna Nota_Mae e ignora cabecalhos', async () => {
     const { parseColagemTsv } = await import('./lib');
     const { COLUNAS_COLAGEM } = await import('./columns');
-    const tsv = '16958288\t14118256\t00 Pendente\tProgramável\t1.5\tPOSTES\tGUA-01\t045RL00000001\tjul-2026\t14/08/2026\tObservacao teste\t-';
+    const tsv = '16958288\t14118256\tObservacao teste\t00 Pendente\tProgramável\t1.5\tPOSTES\tGUA-01\t045RL00000001\tjul-2026\t14/08/2026\t-';
     const resultado = parseColagemTsv(tsv, COLUNAS_COLAGEM);
     expect(resultado).toHaveLength(1);
     expect(resultado[0].Numero_Nota).toBe(16958288);
     expect(resultado[0].Nota_Mae).toBe('14118256');
+    expect(resultado[0].Observacao).toBe('Observacao teste');
     expect(resultado[0].Planejado_DDPM).toBe(1.5);
 
-    const tsvComCabecalho = 'Numero_Nota\tNota_Mae\tStatus_Nota\n16958288\t14118256\t00 Pendente';
+    const tsvComCabecalho = 'Numero_Nota\tNota_Mae\tObservacao\tStatus_Nota\n16958288\t14118256\tObservacao teste\t00 Pendente';
     const resComCabecalho = parseColagemTsv(tsvComCabecalho, COLUNAS_COLAGEM);
     expect(resComCabecalho).toHaveLength(1);
     expect(resComCabecalho[0].Numero_Nota).toBe(16958288);
@@ -101,8 +103,7 @@ describe('varrerVinculos (Detetive de Notas)', () => {
 });
 
 describe('Ocultação de Notas (ehNotaOculta, buscarNotasOcultas, filtrarRegistros)', () => {
-  it('ehNotaOculta identifica notas marcadas como ocultas no Check ou Observacao', async () => {
-    const { ehNotaOculta } = await import('./lib');
+  it('ehNotaOculta identifica notas marcadas como ocultas no Check ou Observacao', () => {
     expect(ehNotaOculta({ Check: 'Oculta' })).toBe(true);
     expect(ehNotaOculta({ Check: 'OCULTA' })).toBe(true);
     expect(ehNotaOculta({ Check: 'oculto' })).toBe(true);
@@ -115,8 +116,7 @@ describe('Ocultação de Notas (ehNotaOculta, buscarNotasOcultas, filtrarRegistr
     expect(ehNotaOculta({})).toBe(false);
   });
 
-  it('buscarNotasOcultas encontra notas ocultas por número ou busca de texto', async () => {
-    const { buscarNotasOcultas } = await import('./lib');
+  it('buscarNotasOcultas encontra notas ocultas por número ou busca de texto', () => {
     const registros: NotaInput[] = [
       { Numero_Nota: 1001, Check: 'Oculta', Conjunto: 'POA', Observacao: 'Nota teste 1' },
       { Numero_Nota: 1002, Check: '-', Conjunto: 'POA', Observacao: 'Nota ativa 2' },
@@ -132,8 +132,7 @@ describe('Ocultação de Notas (ehNotaOculta, buscarNotasOcultas, filtrarRegistr
     expect(buscarNotasOcultas(registros, 'especial')[0].Numero_Nota).toBe(1003);
   });
 
-  it('filtrarRegistros oculta notas por padrão e as exibe quando mostrarOcultas é true', async () => {
-    const { filtrarRegistros } = await import('./overview');
+  it('filtrarRegistros oculta notas por padrão e as exibe quando mostrarOcultas é true', () => {
     const registros: NotaInput[] = [
       { Numero_Nota: 1001, Check: 'Oculta', Conjunto: 'POA', Mes_Execucao_Planejado: 'jul-2026' },
       { Numero_Nota: 1002, Check: '-', Conjunto: 'POA', Mes_Execucao_Planejado: 'jul-2026' },
@@ -159,8 +158,7 @@ describe('Ocultação de Notas (ehNotaOculta, buscarNotasOcultas, filtrarRegistr
     expect(filtradosComOcultas).toHaveLength(2);
   });
 
-  it('filtrarRegistros encontra notas por busca parcial de prefixo numérico (ex: 9999 encontra 9999001, 9999010...) ', async () => {
-    const { filtrarRegistros } = await import('./overview');
+  it('filtrarRegistros encontra notas por busca parcial de prefixo numérico (ex: 9999 encontra 9999001, 9999010...) ', () => {
     const registros: NotaInput[] = [
       { Numero_Nota: 9999001, Nota_Mae: '-', Check: '-', Mes_Execucao_Planejado: 'mar-2026' },
       { Numero_Nota: 9999002, Nota_Mae: '9999001', Check: '-', Mes_Execucao_Planejado: 'mar-2026' },

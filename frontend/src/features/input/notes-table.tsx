@@ -7,7 +7,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, ChevronUp, CornerDownRight, Folder, FolderOpen, Lock, EyeOff } from "lucide-react";
+import { ChevronDown, ChevronUp, CornerDownRight, Folder, Lock, EyeOff } from "lucide-react";
 import { Input } from "@/components/ui/input";
 
 const ALTURA_LINHA = 32;
@@ -61,7 +61,7 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
     registros,
     todosOsRegistros,
     colunas,
-    altura = 520,
+    altura = 580,
     selecionados,
     onToggleSelecionado,
     edicoes,
@@ -81,6 +81,8 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
   } | null>(null);
   const [editando, setEditando] = React.useState<CelulaEditando | null>(null);
   const [expandidos, setExpandidos] = React.useState<Set<number>>(new Set());
+  const [indiceFocado, setIndiceFocado] = React.useState<number | null>(null);
+  const containerRef = React.useRef<HTMLDivElement>(null);
 
   const MESES_OPCOES = React.useMemo(() => {
     const meses = ['jan', 'fev', 'mar', 'abr', 'maio', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
@@ -138,12 +140,23 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
     const fonteBase = todosOsRegistros ?? ordenados;
     const filhasPorMae = new Map<number, NotaInput[]>();
     const idsNotasFilhas = new Set<number>();
+    const mapaRegistros = new Map<number, NotaInput>();
+    for (const r of fonteBase) {
+      mapaRegistros.set(r.Numero_Nota, r);
+    }
 
     for (const r of fonteBase) {
       const maeStr = String(r.Nota_Mae ?? "").trim();
       if (maeStr && maeStr !== "-" && maeStr !== "None" && maeStr !== "null") {
         const maeId = Number(maeStr);
         if (Number.isFinite(maeId) && maeId !== r.Numero_Nota && setMaesNaBusca.has(maeId)) {
+          // Proteção contra vínculo circular mútuo (ex: A aponta para B e B aponta para A)
+          const maeReg = mapaRegistros.get(maeId);
+          const maeMaeId = maeReg ? Number(maeReg.Nota_Mae) : null;
+          if (maeMaeId === r.Numero_Nota && r.Numero_Nota < maeId) {
+            // Em caso de ciclo direto mútuo, a nota de menor ID permanece como raiz/mãe
+            continue;
+          }
           idsNotasFilhas.add(r.Numero_Nota);
           const list = filhasPorMae.get(maeId) ?? [];
           list.push(r);
@@ -181,6 +194,156 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
     return { linhasProcessadas: resultado, totalMaesComFilhas: filhasPorMae.size };
   }, [ordenados, agruparGavetinhas, expandidos, todosOsRegistros]);
 
+  const garantirVisivel = React.useCallback(
+    (index: number) => {
+      const container = containerRef.current;
+      if (!container) return;
+
+      const headerHeight = 36;
+      const margemSeguranca = 40; // Margem para garantir que a linha e a borda inferior fiquem 100% visíveis
+      const itemTop = index * ALTURA_LINHA;
+      const itemBottom = itemTop + ALTURA_LINHA;
+
+      const currentScrollTop = container.scrollTop;
+      const clientHeight = container.clientHeight || altura;
+
+      // Se a linha está acima da área visível (ou coberta pelo TableHeader sticky)
+      if (itemTop < currentScrollTop + headerHeight) {
+        container.scrollTop = Math.max(0, itemTop - headerHeight - margemSeguranca);
+      }
+      // Se a linha está abaixo da área visível (ou cortada pela borda inferior / scrollbar)
+      else if (itemBottom > currentScrollTop + clientHeight - margemSeguranca) {
+        container.scrollTop = itemBottom - clientHeight + margemSeguranca;
+      }
+    },
+    [altura]
+  );
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (editando !== null) return;
+    const targetTag = (e.target as HTMLElement).tagName;
+    if (targetTag === 'INPUT' && (e.target as HTMLInputElement).type !== 'checkbox') return;
+    if (targetTag === 'SELECT' || targetTag === 'TEXTAREA') return;
+
+    const totalLinhas = linhasProcessadas.length;
+    if (totalLinhas === 0) return;
+
+    const container = containerRef.current;
+    const headerHeight = 36;
+    const scrollAtual = container ? container.scrollTop : 0;
+    const clientHeight = container?.clientHeight || altura;
+
+    // Linhas que estão atualmente 100% visíveis dentro da janela de rolagem
+    const primeiraLinhaVisivel = Math.ceil((scrollAtual + headerHeight) / ALTURA_LINHA);
+    const ultimaLinhaVisivel = Math.max(0, Math.floor((scrollAtual + clientHeight - 40) / ALTURA_LINHA));
+
+    const foraDeVisao =
+      indiceFocado === null ||
+      indiceFocado < primeiraLinhaVisivel ||
+      indiceFocado > ultimaLinhaVisivel;
+
+    const atual = indiceFocado ?? primeiraLinhaVisivel;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const proximo = foraDeVisao
+        ? Math.min(totalLinhas - 1, primeiraLinhaVisivel)
+        : Math.min(totalLinhas - 1, atual + 1);
+      setIndiceFocado(proximo);
+      garantirVisivel(proximo);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const anterior = foraDeVisao
+        ? Math.max(0, ultimaLinhaVisivel)
+        : Math.max(0, atual - 1);
+      setIndiceFocado(anterior);
+      garantirVisivel(anterior);
+    } else if (e.key === 'PageDown') {
+      e.preventDefault();
+      const salto = Math.max(1, Math.floor(clientHeight / ALTURA_LINHA) - 3);
+      const proximo = Math.min(totalLinhas - 1, atual + salto);
+      setIndiceFocado(proximo);
+      garantirVisivel(proximo);
+    } else if (e.key === 'PageUp') {
+      e.preventDefault();
+      const salto = Math.max(1, Math.floor(clientHeight / ALTURA_LINHA) - 3);
+      const anterior = Math.max(0, atual - salto);
+      setIndiceFocado(anterior);
+      garantirVisivel(anterior);
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      setIndiceFocado(0);
+      garantirVisivel(0);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      const ultimo = totalLinhas - 1;
+      setIndiceFocado(ultimo);
+      garantirVisivel(ultimo);
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      if (indiceFocado !== null && indiceFocado < totalLinhas) {
+        const item = linhasProcessadas[indiceFocado];
+        if (item.temFilhas && !expandidos.has(item.registro.Numero_Nota)) {
+          setExpandidos((prev) => new Set(prev).add(item.registro.Numero_Nota));
+        } else if (atual + 1 < totalLinhas) {
+          setIndiceFocado(atual + 1);
+          garantirVisivel(atual + 1);
+        }
+      }
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      if (indiceFocado !== null && indiceFocado < totalLinhas) {
+        const item = linhasProcessadas[indiceFocado];
+        if (item.temFilhas && expandidos.has(item.registro.Numero_Nota)) {
+          setExpandidos((prev) => {
+            const next = new Set(prev);
+            next.delete(item.registro.Numero_Nota);
+            return next;
+          });
+        } else if (item.nivel === 1) {
+          const maeId = Number(item.registro.Nota_Mae);
+          const idxMae = linhasProcessadas.findIndex((l) => l.registro.Numero_Nota === maeId);
+          if (idxMae !== -1) {
+            setIndiceFocado(idxMae);
+            garantirVisivel(idxMae);
+          }
+        }
+      }
+    } else if (e.key === 'Enter') {
+      if (indiceFocado !== null && indiceFocado < totalLinhas) {
+        const item = linhasProcessadas[indiceFocado];
+        if (onOpenDetails) {
+          e.preventDefault();
+          onOpenDetails(item.registro, e.currentTarget as unknown as HTMLButtonElement);
+        } else if (item.temFilhas) {
+          e.preventDefault();
+          setExpandidos((prev) => {
+            const next = new Set(prev);
+            if (next.has(item.registro.Numero_Nota)) next.delete(item.registro.Numero_Nota);
+            else next.add(item.registro.Numero_Nota);
+            return next;
+          });
+        }
+      }
+    } else if (e.key === ' ') {
+      if (indiceFocado !== null && indiceFocado < totalLinhas) {
+        const item = linhasProcessadas[indiceFocado];
+        if (onToggleSelecionado && selecionados) {
+          e.preventDefault();
+          onToggleSelecionado(item.registro.Numero_Nota);
+        } else if (item.temFilhas) {
+          e.preventDefault();
+          setExpandidos((prev) => {
+            const next = new Set(prev);
+            if (next.has(item.registro.Numero_Nota)) next.delete(item.registro.Numero_Nota);
+            else next.add(item.registro.Numero_Nota);
+            return next;
+          });
+        }
+      }
+    }
+  };
+
   const inicio = Math.max(0, Math.floor(scrollTop / ALTURA_LINHA) - 5);
   const qtdVisiveis = Math.ceil(altura / ALTURA_LINHA) + 10;
   const fatia = linhasProcessadas.slice(inicio, inicio + qtdVisiveis);
@@ -191,7 +354,6 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
   );
   const totalColunas = colunas.length + (selecionados ? 1 : 0);
 
-  /** Bloqueio ativo de OUTRO usuário (undefined se livre ou se é o meu próprio). */
   function bloqueioDeOutro(numero: number): Bloqueio | undefined {
     const b = bloqueios?.get(numero);
     if (!b || b.Usuario === usuarioAtual) return undefined;
@@ -287,9 +449,9 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
               autoFocus
               defaultValue={String(v ?? "")}
               aria-label={`Editar ${c.label}`}
-              className="w-full h-[28px] text-[12.5px] bg-surface text-foreground border border-line rounded px-1 cursor-pointer focus:outline-none focus:ring-1 focus:ring-accent"
-              onChange={(e) => confirmar(e.target.value)}
+              className="w-[100%] h-[28px] text-[12.5px] bg-surface text-foreground rounded border border-line focus:outline-none focus:ring-1 focus:ring-accent"
               onBlur={(e) => confirmar(e.target.value)}
+              onChange={(e) => confirmar(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Escape") setEditando(null);
               }}
@@ -318,7 +480,6 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
       );
     }
 
-    // Renderização especial da coluna ID (Numero_Nota) para exibir gavetinha / indetação
     if (c.key === "Numero_Nota") {
       const estaExpandido = expandidos.has(r.Numero_Nota);
       const bloqueio = bloqueioDeOutro(r.Numero_Nota);
@@ -329,7 +490,7 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
         >
           <div className="flex items-center gap-2">
             {item.nivel === 1 && (
-              <span className="text-[var(--accent)]/80 pl-0.5 font-bold inline-flex items-center gap-1 shrink-0" title="Nota Filha">
+              <span className="text-[var(--accent)]/80 pl-0.5 font-medium inline-flex items-center gap-1 shrink-0" title="Nota Filha">
                 <CornerDownRight className="h-3.5 w-3.5 inline text-[var(--accent)] stroke-[2.5]" />
               </span>
             )}
@@ -337,19 +498,19 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
               <button
                 type="button"
                 onClick={(e) => onOpenDetails(r, e.currentTarget)}
-                className="font-semibold text-foreground tracking-tight hover:text-accent hover:underline cursor-pointer text-left"
+                className="font-medium text-foreground tracking-tight hover:text-accent hover:underline cursor-pointer text-left"
                 title="Abrir detalhes e enriquecimento desta nota"
               >
                 {formatarNumero(v, 0, false)}
               </button>
             ) : (
-              <span className="font-semibold text-foreground tracking-tight">
+              <span className="font-medium text-foreground tracking-tight">
                 {formatarNumero(v, 0, false)}
               </span>
             )}
             {ehNotaOculta(r) && (
               <span
-                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-sans font-semibold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 shrink-0"
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-sans font-medium bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 shrink-0"
                 title="Esta nota está marcada como Oculta"
               >
                 <EyeOff size={10} />
@@ -358,7 +519,7 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
             )}
             {bloqueio && (
               <span
-                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-sans font-semibold bg-amber/15 text-amber border border-amber/30 shrink-0"
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-sans font-medium bg-amber/15 text-amber border border-amber/30 shrink-0"
                 title={`Em edição por ${bloqueio.Usuario} desde ${formatarDataHora(bloqueio.Data_Hora)}`}
               >
                 <Lock size={10} />
@@ -371,8 +532,8 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
                 onClick={(e) => toggleExpandir(r.Numero_Nota, e)}
                 className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11.5px] font-sans transition-all cursor-pointer shadow-2xs ${
                   estaExpandido
-                    ? "bg-green text-white font-bold border border-green hover:brightness-110 shadow-xs"
-                    : "bg-green/12 dark:bg-green/20 text-green dark:text-green-2 font-bold border border-green/40 hover:bg-green/25 hover:border-green/60"
+                    ? "bg-green text-white font-medium border border-green hover:brightness-110 shadow-xs"
+                    : "bg-green/12 dark:bg-green/20 text-green dark:text-green-2 font-medium border border-green/40 hover:bg-green/25 hover:border-green/60"
                 }`}
                 title={estaExpandido ? "Recolher notas filhas" : "Expandir notas filhas (gavetinha)"}
               >
@@ -386,7 +547,6 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
       );
     }
 
-    // Demais colunas
     const estaExpandido = expandidos.has(r.Numero_Nota);
     const COLUNAS_SOMA_HIERARQUICA = new Set([
       "Planejado_DDPM",
@@ -429,21 +589,14 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
     return (
       <TableCell
         key={c.key}
-        title={
-          tooltipSoma ??
-          (editavel ? "Duplo clique para editar" : undefined)
-        }
+        title={tooltipSoma ?? (editavel ? "Duplo clique para editar" : undefined)}
         onDoubleClick={editavel ? tentarEditar : undefined}
-        className={`whitespace-nowrap overflow-hidden text-ellipsis max-w-[320px] h-[32px] text-[12.5px] border-b-[1px] border-b-line ${
-          editavel ? "hover:bg-accent/10 transition-colors select-none cursor-pointer" : ""
-        }`}
+        className={`whitespace-nowrap overflow-hidden text-ellipsis max-w-[200px] h-[32px] text-[12.5px] border-b-[1px] border-b-line ${
+          c.numeric ? "text-right font-mono" : ""
+        } ${editavel ? "hover:bg-accent/10 select-none cursor-pointer" : ""}`}
         style={{
           cursor: editavel ? "pointer" : "default",
-          color: alterada
-            ? "var(--accent)"
-            : deveSomarHierarquia
-              ? "var(--green)"
-              : undefined,
+          color: alterada ? "var(--accent)" : deveSomarHierarquia ? "var(--green)" : undefined,
           fontWeight: alterada || deveSomarHierarquia ? 600 : undefined,
         }}
       >
@@ -458,54 +611,58 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
             </span>
           </div>
         ) : c.numeric ? (
-          c.key === "ranking"
-            ? formatarNumero(valorExibicao, 0, false)
-            : formatarNumero(valorExibicao, 2)
+          formatarNumero(valorExibicao)
         ) : (
-          String(valorExibicao ?? "")
+            valorExibicao !== null && valorExibicao !== undefined && valorExibicao !== ""
+              ? String(valorExibicao)
+              : "-"
         )}
       </TableCell>
     );
   }
 
-  const todosNumeros = ordenados.map((r) => r.Numero_Nota);
+  const todosNumeros = React.useMemo(() => {
+    return ordenados.map((r) => r.Numero_Nota);
+  }, [ordenados]);
 
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col gap-[6px]">
       {agruparGavetinhas && totalMaesComFilhas > 0 && (
-        <div className="flex items-center justify-between px-3.5 py-2 bg-surface border border-line rounded-t-[8px] text-xs text-foreground shadow-xs">
-          <span className="flex items-center gap-2 font-medium">
-            <FolderOpen className="h-4 w-4 text-green" />
-            <span>
-              <strong className="text-green font-bold">{totalMaesComFilhas}</strong> nota(s) mãe(s) com filhas agrupadas em gavetinhas.
+        <div className="flex items-center justify-between px-[4px] py-[2px] text-[11px] text-text-mute font-sans">
+          <span>
+            {totalMaesComFilhas} Nota(s) Mãe com vínculo ({expandidos.size} expandida(s))
+            <span className="ml-2 text-text-dim text-[10.5px]">
+              • Use <kbd className="px-1 py-0.5 bg-bg-2 border border-line-2 rounded text-[10px]">↑</kbd> <kbd className="px-1 py-0.5 bg-bg-2 border border-line-2 rounded text-[10px]">↓</kbd> para navegar e <kbd className="px-1 py-0.5 bg-bg-2 border border-line-2 rounded text-[10px]">←</kbd> <kbd className="px-1 py-0.5 bg-bg-2 border border-line-2 rounded text-[10px]">→</kbd> para abrir/fechar gavetas
             </span>
           </span>
-          <div className="flex items-center gap-2">
+          <div className="flex gap-[6px]">
             <Button
-              variant="outline"
-              size="sm"
+              variant="ghost"
+              size="xs"
               onClick={expandirTodas}
-              className="h-7 px-2.5 text-[11px] font-semibold gap-1 text-foreground bg-surface hover:bg-green/15 hover:text-green border-line cursor-pointer"
+              className="h-[22px] px-[8px] text-[11px] text-primary hover:bg-accent-tint cursor-pointer"
             >
-              <FolderOpen size={12} className="text-green" />
-              Expandir Todas
+              Expandir todas
             </Button>
+            <span>•</span>
             <Button
-              variant="outline"
-              size="sm"
+              variant="ghost"
+              size="xs"
               onClick={recolherTodas}
-              className="h-7 px-2.5 text-[11px] font-semibold gap-1 text-text-mute hover:text-foreground bg-surface hover:bg-surface-2 border-line cursor-pointer"
+              className="h-[22px] px-[8px] text-[11px] text-text-mute hover:text-text cursor-pointer"
             >
-              <Folder size={12} />
-              Recolher Todas
+              Recolher todas
             </Button>
           </div>
         </div>
       )}
 
       <div
+        ref={containerRef}
+        tabIndex={0}
+        onKeyDown={handleKeyDown}
         onScroll={(e) => setScrollTop((e.target as HTMLDivElement).scrollTop)}
-        className="overflow-auto border border-line rounded-[8px]"
+        className="overflow-auto border border-line rounded-[8px] outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
         style={{ height: altura }}
       >
         <Table className="border-collapse">
@@ -534,33 +691,45 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
                 <td colSpan={totalColunas} className="p-[0px] border-0" />
               </tr>
             )}
-            {fatia.map((item) => {
+            {fatia.map((item, idx) => {
               const r = item.registro;
+              const indiceAbsoluto = inicio + idx;
+              const isPar = indiceAbsoluto % 2 === 0;
               const ehFilha = item.nivel === 1;
               const travadaPorOutro = Boolean(bloqueioDeOutro(r.Numero_Nota));
+              const selecionado = selecionados?.has(r.Numero_Nota);
+              const estaFocado = indiceAbsoluto === indiceFocado;
+
+              let bgClasse = isPar ? "bg-surface hover:bg-surface-2" : "bg-[var(--zebra)] hover:bg-surface-2";
+              if (selecionado) {
+                bgClasse = "bg-accent-tint hover:bg-accent-tint/90";
+              } else if (estaFocado) {
+                bgClasse = "bg-primary/10 border-l-[4px] border-l-primary hover:bg-primary/15";
+              } else if (travadaPorOutro) {
+                bgClasse = "border-l-[3px] border-l-amber bg-amber/5 hover:bg-amber/10";
+              } else if (ehFilha) {
+                bgClasse = "border-l-[3px] border-l-blue-400 bg-surface-2 hover:bg-surface-2/80 font-medium";
+              } else if (item.temFilhas) {
+                bgClasse = "border-l-[3px] border-l-green bg-green/5 hover:bg-green/12 font-semibold";
+              }
+
               return (
                 <TableRow
                   key={r.Numero_Nota}
-                  style={{
-                    background: selecionados?.has(r.Numero_Nota)
-                      ? "var(--accent-tint)"
-                      : undefined,
+                  onClick={() => {
+                    setIndiceFocado(indiceAbsoluto);
+                    garantirVisivel(indiceAbsoluto);
                   }}
-                  className={
-                    travadaPorOutro
-                      ? "border-l-4 border-l-amber bg-amber/5 hover:bg-amber/10 transition-colors"
-                      : ehFilha
-                        ? "border-l-4 border-l-blue-400 bg-surface-2/90 font-medium hover:bg-surface-2 transition-colors"
-                        : item.temFilhas
-                          ? "border-l-4 border-l-green font-semibold bg-green/5 hover:bg-green/12 transition-colors"
-                          : undefined
-                  }
+                  style={{
+                    background: selecionado ? "var(--accent-tint)" : undefined,
+                  }}
+                  className={`${bgClasse} transition-none cursor-default`}
                 >
                   {selecionados && (
                     <TableCell className="text-center h-[32px] border-b-[1px] border-b-line">
                       <input
                         type="checkbox"
-                        checked={selecionados.has(r.Numero_Nota)}
+                        checked={selecionado}
                         onChange={() => onToggleSelecionado?.(r.Numero_Nota)}
                       />
                     </TableCell>

@@ -8,7 +8,11 @@ import re as _re
 import tempfile
 import threading
 from typing import Optional
-from input_module.status10_service import obter_resumo_status10, gerar_email_outlook_status10
+from input_module.status10_service import (
+    obter_resumo_status10,
+    gerar_email_outlook_status10,
+    extrair_sap_status10,
+)
 from input_module.notificacoes_service import (
     obter_resumo_alteracoes_diarias,
     gerar_email_outlook_engenheiro,
@@ -380,6 +384,7 @@ def _importar_base_para_sqlite(nome_arquivo: str, caminho: str,
         "Indicador base conjunto - Limite Aneel.xlsx": "base_indicador_continuidade",
         "Gerada_base_IW28.XLSX": "base_iw28",
         "Gerada_custo_ord_IW38.XLSX": "base_iw38",
+        "Gerada_ord_IW38.XLSX": "base_iw38",
         "Gerada_medidas_IW66.XLSX": "base_iw66",
         "Clientes_Conjunto.xlsx": "base_clientes",
     }
@@ -747,11 +752,20 @@ def rateio_executar(
         raise HTTPException(500, f"Erro ao executar robô SAP: {e}")
 
 
-# ── Status 10 Relatório e E-mail ──────────────────────────────────────────────
+# ── Status 10 Relatório, Extração SAP e E-mail ────────────────────────────────
 @router.get("/status10/resumo")
 def status10_resumo():
     garantir_banco()
     return obter_resumo_status10()
+
+
+@router.post("/status10/extrair-sap")
+def status10_extrair_sap():
+    garantir_banco()
+    resultado = extrair_sap_status10()
+    if not resultado.get("ok", False):
+        raise HTTPException(500, detail=resultado.get("mensagem", "Erro na extração SAP"))
+    return resultado
 
 
 @router.post("/status10/enviar-email")

@@ -528,7 +528,7 @@ def carregar_dados(conn: sqlite3.Connection | None = None) -> pd.DataFrame:
         # Limpeza de valores Nulos e texto "None"
         colunas_forcar_texto = [
             "Observacao", "Check", "Status_Obra", "Conjunto", "Circuito",
-            "Local_Instalacao", "Regional", "Centro_Responsavel", "Prioridade_Nota"
+            "Local_Instalacao", "Regional", "Centro_Responsavel", "Prioridade_Nota", "Nota_Mae"
         ]
 
         for col in df.columns:
@@ -540,6 +540,18 @@ def carregar_dados(conn: sqlite3.Connection | None = None) -> pd.DataFrame:
                 # Garante que a Observação e o Check também não fiquem com o traço "-" padrão
                 if col in ["Observacao", "Check"]:
                     df[col] = df[col].apply(lambda x: "" if str(x).strip() == "-" else x)
+
+        if "Nota_Mae" in df.columns:
+            def _limpar_mae(v):
+                if pd.isna(v):
+                    return "-"
+                s = str(v).strip()
+                if s.lower() in ["", "-", "none", "nan", "null", "<na>", "0", "0.0", "."]:
+                    return "-"
+                if s.endswith(".0"):
+                    s = s[:-2]
+                return s
+            df["Nota_Mae"] = df["Nota_Mae"].apply(_limpar_mae)
 
         # Normaliza acentuação de prioridades comuns vindas do banco
         if 'Prioridade_Nota' in df.columns:
@@ -1311,14 +1323,38 @@ def salvar_base_dataframe(nome_tabela: str, df: pd.DataFrame) -> None:
 
 
 def carregar_base_dataframe(nome_tabela: str) -> pd.DataFrame | None:
-    """Carrega um DataFrame completo a partir de uma tabela SQLite."""
+    """Carrega um DataFrame a partir da tabela SQLite ou com fallback para a planilha Excel de apoio."""
     conn = get_db_connection()
     try:
-        return pd.read_sql(f"SELECT * FROM {nome_tabela}", conn)
+        df = pd.read_sql(f"SELECT * FROM {nome_tabela}", conn)
+        if df is not None and not df.empty:
+            return df
     except Exception:
-        return None
+        pass
     finally:
         conn.close()
+
+    # Fallback robusto: se a tabela ainda não foi criada no SQLite, lê direto da planilha de apoio correspondente
+    try:
+        if nome_tabela == "base_custo_modular":
+            if os.path.exists(config.CAMINHO_CUSTO_MODULAR):
+                return pd.read_excel(config.CAMINHO_CUSTO_MODULAR, sheet_name='Modulares')
+        elif nome_tabela == "base_sazonal":
+            if os.path.exists(config.CAMINHO_CUSTO_MODULAR):
+                return pd.read_excel(config.CAMINHO_CUSTO_MODULAR, sheet_name='Modulares', skiprows=1, nrows=4)
+        elif nome_tabela == "base_clientes":
+            if os.path.exists(config.CAMINHO_CLIENTES_CONJUNTO):
+                return pd.read_excel(config.CAMINHO_CLIENTES_CONJUNTO)
+        elif nome_tabela == "base_indicador_continuidade":
+            if os.path.exists(config.CAMINHO_INDICADOR_CONTINUIDADE):
+                return pd.read_excel(config.CAMINHO_INDICADOR_CONTINUIDADE)
+        elif nome_tabela == "base_ganhos":
+            if os.path.exists(config.CAMINHO_GANHOS):
+                return pd.read_excel(config.CAMINHO_GANHOS, sheet_name='Ganhos')
+    except Exception as e:
+        print(f"Aviso: Fallback para leitura do Excel ({nome_tabela}) falhou: {e}")
+
+    return None
 
 
 

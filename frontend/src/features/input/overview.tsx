@@ -29,7 +29,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useBloqueios } from './use-bloqueios';
 import { CadastroModal } from './cadastro-modal';
 import { ColagemPlanilha, type AjusteMaeColagem } from './colagem-planilha';
-import { Rateio } from './rateio';
 import { NotificacaoModal } from './notificacao-modal';
 import { ExclusaoModal } from './exclusao-modal';
 import { OcultacaoModal } from './ocultacao-modal';
@@ -45,7 +44,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Eyebrow, StatNumber, SegTabs, type SegTab } from '@/components/branded/section';
 
 export type ModoNotas = 'visao' | 'rapida' | 'lote' | 'colagem';
@@ -137,6 +135,7 @@ interface OverviewProps {
   estado: FiltersState;
   onSetEstadoFiltros?: (e: FiltersState) => void;
   onIrParaSincronizacao?: () => void;
+  onIrParaRateio?: () => void;
 }
 
 export function Overview({
@@ -144,6 +143,7 @@ export function Overview({
   estado,
   onSetEstadoFiltros,
   onIrParaSincronizacao = () => {},
+  onIrParaRateio,
 }: OverviewProps): React.JSX.Element {
   const qc = useQueryClient();
   const recarregar = useRecarregarInput();
@@ -154,7 +154,6 @@ export function Overview({
 
   // Estados de Modais
   const [modalCadastro, setModalCadastro] = React.useState(false);
-  const [modalRateio, setModalRateio] = React.useState(false);
   const [modalNotificacao, setModalNotificacao] = React.useState(false);
   const [modalExclusao, setModalExclusao] = React.useState(false);
   const [modalOcultacao, setModalOcultacao] = React.useState(false);
@@ -591,16 +590,6 @@ export function Overview({
         onCancelar={() => setModalOcultacao(false)}
       />
 
-      <Dialog open={modalRateio} onOpenChange={(open) => { if (!open) setModalRateio(false); }}>
-        <DialogContent className="max-w-5xl max-h-[92vh] overflow-y-auto p-6">
-          <DialogHeader>
-            <Eyebrow>Rateio de Medidas</Eyebrow>
-            <DialogTitle>Distribuição e Rateio Proporcional entre Notas</DialogTitle>
-          </DialogHeader>
-          <Rateio dados={dados} estadoFiltros={estado} recarregar={recarregar} />
-        </DialogContent>
-      </Dialog>
-
       {/* Barra de Navegação de Modos e Ações do Cabeçalho */}
       <div className="flex items-center justify-between gap-4 flex-wrap bg-surface p-4 rounded-lg border border-line shadow-sm">
         <div className="flex items-center gap-3 flex-wrap">
@@ -610,7 +599,7 @@ export function Overview({
         <div className="flex items-center gap-2 flex-wrap">
           <Button
             size="sm"
-            className="h-9 px-3 text-xs font-semibold gap-1.5"
+            className="h-9 px-3 text-xs font-medium gap-1.5"
             onClick={() => setModalCadastro(true)}
             title="Cadastrar uma nova nota unitária com vínculo à Nota Mãe opcional"
           >
@@ -621,40 +610,42 @@ export function Overview({
           <Button
             variant="outline"
             size="sm"
-            className="h-9 px-3 text-xs font-semibold gap-1.5 border-line hover:border-accent hover:text-accent"
+            className="h-9 px-3 text-xs font-medium gap-1.5 border-line hover:bg-surface-2 hover:text-text hover:border-line-2"
             onClick={() => setModo('colagem')}
             title="Inserir lote de notas em massa colando planilha Excel / TSV"
           >
-            <FileSpreadsheet className="h-3.5 w-3.5 text-accent" />
+            <FileSpreadsheet className="h-3.5 w-3.5 text-text-dim" />
             Inserir em Massa
           </Button>
 
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-9 px-3 text-xs font-semibold gap-1.5 border-line"
-            onClick={() => setModalRateio(true)}
-            title="Rateio automático de medidas entre filhas"
-          >
-            <PieChart className="h-3.5 w-3.5 text-text-mute" />
-            Rateio
-          </Button>
+          {onIrParaRateio && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 px-3 text-xs font-medium gap-1.5 border-line hover:bg-surface-2 hover:text-text hover:border-line-2"
+              onClick={onIrParaRateio}
+              title="Acessar subaba de Rateio de Medidas"
+            >
+              <PieChart className="h-3.5 w-3.5 text-text-mute" />
+              Rateio
+            </Button>
+          )}
 
           <Button
             variant="outline"
             size="sm"
-            className="h-9 px-3 text-xs font-semibold gap-1.5 border-line hover:border-accent hover:text-accent"
+            className="h-9 px-3 text-xs font-medium gap-1.5 border-line hover:bg-surface-2 hover:text-text hover:border-line-2"
             onClick={() => setModalNotificacao(true)}
             title="Consolidar resumo do dia e gerar e-mails via Outlook"
           >
-            <Mail className="h-3.5 w-3.5 text-accent" />
+            <Mail className="h-3.5 w-3.5 text-text-dim" />
             Notificar
           </Button>
 
           <Button
             variant="outline"
             size="sm"
-            className="h-9 px-3 text-xs"
+            className="h-9 px-3 text-xs font-medium gap-1.5 border-line hover:bg-surface-2 hover:text-text hover:border-line-2"
             disabled={salvando}
             onClick={desfazer}
             title="Reverte a última alteração realizada pelo seu usuário"
@@ -666,7 +657,7 @@ export function Overview({
           <Button
             variant="outline"
             size="sm"
-            className="h-9 px-3 text-xs"
+            className="h-9 px-3 text-xs font-medium gap-1.5 border-line hover:bg-surface-2 hover:text-text hover:border-line-2"
             disabled={exportando || filtrados.length === 0}
             onClick={() => { void exportar(); }}
             title="Baixar planilha Excel com os registros e filtros aplicados"
@@ -760,6 +751,7 @@ export function Overview({
                 registros={filtrados}
                 todosOsRegistros={dados.registros}
                 colunas={COLUNAS}
+                altura={580}
                 agruparGavetinhas={true}
                 onOpenDetails={abrirDetalhes}
               />
@@ -796,6 +788,7 @@ export function Overview({
               registros={filtrados}
               todosOsRegistros={dados.registros}
               colunas={COLUNAS}
+              altura={580}
               edicoes={edicoes}
               onEditar={onEditar}
               statusOpcoes={dados.meta.status_opcoes}
@@ -940,6 +933,7 @@ export function Overview({
               registros={filtrados}
               todosOsRegistros={dados.registros}
               colunas={COLUNAS}
+              altura={580}
               selecionados={selecionados}
               onToggleSelecionado={toggleSelecionado}
               onToggleTodos={toggleTodos}

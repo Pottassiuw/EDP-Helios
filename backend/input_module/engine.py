@@ -209,7 +209,8 @@ def avaliar_prazo_sap(row):
 
         # --- NOVA REGRA 2: NOTAS NÃO ENCERRADAS (AVALIAÇÃO DE ATRASO) ---
         if not is_99:
-            if (ano_planejado < hoje.year) or (ano_planejado == hoje.year and mes_planejado < hoje.month):
+            desvio_hoje = (hoje.year - ano_planejado) * 12 + (hoje.month - mes_planejado)
+            if desvio_hoje > 1:
                 return "🔴 Com Atraso"
             else:
                 return "⚪ Em Andamento (No Prazo)"
@@ -227,9 +228,12 @@ def avaliar_prazo_sap(row):
         ano_real = dt_real.year
 
         # 3. COMPARAÇÃO MATEMÁTICA DO DESVIO
-        if ano_real < ano_planejado or (ano_real == ano_planejado and mes_real < mes_planejado):
+        # Notas adiantadas sempre marcadas como Adiantado.
+        # Notas com atraso de até 1 mês são consideradas No Prazo (tolerância).
+        desvio_meses = (ano_real - ano_planejado) * 12 + (mes_real - mes_planejado)
+        if desvio_meses < 0:
             return "🟢 Adiantado"
-        elif ano_real == ano_planejado and mes_real == mes_planejado:
+        elif desvio_meses <= 1:
             return "🔵 No Prazo"
         else:
             return "🔴 Com Atraso"

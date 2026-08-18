@@ -148,11 +148,11 @@ export function Logs(): React.JSX.Element {
           <Button
             variant="outline"
             size="sm"
-            className="h-9 text-xs font-semibold gap-1.5 border-line hover:border-accent hover:text-accent"
+            className="h-9 text-xs font-medium gap-1.5 border-line hover:bg-surface-2 hover:text-text hover:border-line-2"
             onClick={() => setModalNotificacao(true)}
             title="Consolidar e enviar notificações diárias aos engenheiros por regional"
           >
-            <Mail className="h-3.5 w-3.5 text-accent" />
+            <Mail className="h-3.5 w-3.5 text-text-dim" />
             Notificar Engenheiros
           </Button>
         </div>
