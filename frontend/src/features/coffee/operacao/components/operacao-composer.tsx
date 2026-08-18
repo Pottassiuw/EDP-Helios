@@ -7,7 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 export interface ParsedIds {
   ids: number[];
   invalidos: string[];
-  repetidos: number;
+  repetidos: number[];
 }
 
 export function parseCoffeeIds(value: string): ParsedIds {
@@ -16,13 +16,17 @@ export function parseCoffeeIds(value: string): ParsedIds {
     .filter((token) => /^\d+$/.test(token) && Number(token) > 0)
     .map(Number);
   const ids = [...new Set(validos)];
+  const ocorrencias = new Map<number, number>();
+  validos.forEach((id) => ocorrencias.set(id, (ocorrencias.get(id) ?? 0) + 1));
 
   return {
     ids,
     invalidos: tokens.filter(
       (token) => !/^\d+$/.test(token) || Number(token) <= 0,
     ),
-    repetidos: validos.length - ids.length,
+    repetidos: [...ocorrencias.entries()]
+      .filter(([, vezes]) => vezes > 1)
+      .map(([id]) => id),
   };
 }
 

@@ -7,10 +7,10 @@ describe('parseCoffeeIds', () => {
     expect(parseCoffeeIds('1 2,3;4\n5').ids).toEqual([1, 2, 3, 4, 5]);
   });
 
-  it('deduplica e conta repetidos separadamente dos válidos', () => {
-    const parsed = parseCoffeeIds('10 10 20 20 20');
-    expect(parsed.ids).toEqual([10, 20]);
-    expect(parsed.repetidos).toBe(3);
+  it('deduplica e lista os IDs repetidos separadamente dos válidos', () => {
+    const parsed = parseCoffeeIds('10 10 20 20 20 30');
+    expect(parsed.ids).toEqual([10, 20, 30]);
+    expect(parsed.repetidos).toEqual([10, 20]);
   });
 
   it('separa tokens inválidos (não numéricos, zero, negativos) dos válidos', () => {
@@ -20,8 +20,8 @@ describe('parseCoffeeIds', () => {
   });
 
   it('valor vazio ou só separadores não gera IDs nem inválidos', () => {
-    expect(parseCoffeeIds('')).toEqual({ ids: [], invalidos: [], repetidos: 0 });
-    expect(parseCoffeeIds('   ,;  \n ')).toEqual({ ids: [], invalidos: [], repetidos: 0 });
+    expect(parseCoffeeIds('')).toEqual({ ids: [], invalidos: [], repetidos: [] });
+    expect(parseCoffeeIds('   ,;  \n ')).toEqual({ ids: [], invalidos: [], repetidos: [] });
   });
 
   it('ignora espaços nas bordas de cada token', () => {
