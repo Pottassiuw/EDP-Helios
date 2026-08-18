@@ -3,7 +3,7 @@ import { Loader2, Download, RefreshCw, CheckCircle2, GitMerge } from 'lucide-rea
 import type { InputDataset, NotaInput } from './types';
 import { InputApi, baixarBlob } from './api';
 import { toast } from 'sonner';
-import { aplicarFiltros, parseBuscaGlobal } from './lib';
+import { aplicarFiltros, buscarPorTextoGlobal } from './lib';
 import { COLUNAS } from './columns';
 import { type FiltersState } from './filters';
 import { NotesTable } from './notes-table';
@@ -20,26 +20,7 @@ const VISUALIZACOES: { id: Visualizacao; rotulo: string }[] = [
 ];
 
 export function filtrarRegistros(registros: NotaInput[], estado: FiltersState): NotaInput[] {
-  let resultado = registros;
-
-  const buscaStr = estado.busca.trim();
-  if (buscaStr !== '') {
-    const numeros = parseBuscaGlobal(buscaStr);
-    if (numeros.length > 0) {
-      const setNums = new Set(numeros);
-      const setNumsStr = new Set(numeros.map(String));
-      resultado = resultado.filter((r) => {
-        const idNota = r.Numero_Nota;
-        const maeStr = String(r.Nota_Mae ?? '').trim();
-        return setNums.has(idNota) || setNumsStr.has(maeStr);
-      });
-    } else {
-      const query = buscaStr.toLowerCase();
-      resultado = resultado.filter((r) =>
-        Object.values(r).some((v) => String(v ?? '').toLowerCase().includes(query))
-      );
-    }
-  }
+  let resultado = buscarPorTextoGlobal(registros, estado.busca);
 
   if (estado.somente2026) {
     const anoAtual = String(new Date().getFullYear());
