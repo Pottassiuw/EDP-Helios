@@ -142,7 +142,7 @@ export function Logs(): React.JSX.Element {
                     <span className="text-text-mute font-mono text-[11px]">Usuário: {r.Usuario}</span>
                   </div>
                   <div className="text-xs text-foreground mt-1">
-                    Alterou <strong className="text-accent">{r.Campo_Alterado}</strong> de <code className="bg-bg-2 px-1.5 py-0.5 rounded text-text-mute font-mono">{r.Valor_Antigo || '—'}</code> para <code className="bg-green/10 text-green px-1.5 py-0.5 rounded font-mono font-semibold">{r.Valor_Novo || '—'}</code>
+                    Alterou <strong className="text-accent">{r.Campo_Alterado}</strong> de <code className="bg-bg-2 px-1.5 py-0.5 rounded text-text-mute font-mono">{r.Valor_Antigo || '—'}</code[...]
                   </div>
                 </CardContent>
               </Card>
