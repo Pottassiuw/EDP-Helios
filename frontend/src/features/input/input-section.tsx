@@ -50,7 +50,7 @@ export function InputSection({
     }
     return FILTROS_INICIAIS;
   });
-  const { estado: estadoRede, tentarNovamente } = useInputSync(dados?.meta.versao);
+  const { estado: estadoRede, tentarNovamente } = useInputSync(dados?.meta.versao, dados?.meta.sap?.estado);
 
   React.useEffect(() => {
     try {

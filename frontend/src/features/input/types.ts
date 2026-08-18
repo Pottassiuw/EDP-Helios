@@ -22,6 +22,13 @@ export interface InputMeta {
   colunas: string[];
   versao: string;
   sincronizando?: boolean;
+  sap?: SapSyncState;
+}
+
+export interface SapSyncState {
+  estado: 'ocioso' | 'executando' | 'concluido' | 'falhou';
+  ultima_atualizacao: string | null;
+  erro: string | null;
 }
 
 export interface InputDataset {
