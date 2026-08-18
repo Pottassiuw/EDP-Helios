@@ -969,6 +969,137 @@ def test_service_criar_notas_duplicata_no_lote(banco_temporario):
         service.criar_notas([n, n], usuario="teste")
 
 
+def test_criar_notas_concorrente_tem_apenas_um_vencedor(banco_temporario,
+                                                        monkeypatch):
+    """Duas criações simultâneas do mesmo número: uma grava, a outra recebe 409."""
+    from input_module import db, service
+
+    get_connection_original = db.get_db_connection
+    conexoes_prontas = threading.Barrier(2)
+    alinhamento = threading.local()
+    inseridas = []
+    conflitos = []
+    erros = []
+
+    def get_connection_sincronizada():
+        conexao = get_connection_original()
+        if not getattr(alinhamento, "ja_alinhou", False):
+            alinhamento.ja_alinhou = True
+            conexoes_prontas.wait(timeout=5)
+        return conexao
+
+    def criar(observacao):
+        nota = service.NovaNota(
+            Numero_Nota=556000, Status_Nota="00 Pendente",
+            Prioridade_Nota="Programável", Observacao=observacao,
+        )
+        try:
+            inseridas.append(
+                (observacao, service.criar_notas([nota], usuario=observacao)))
+        except service.NotasDuplicadasErro as erro:
+            conflitos.append(str(erro))
+        except Exception as erro:
+            erros.append(erro)
+
+    monkeypatch.setattr(db, "get_db_connection", get_connection_sincronizada)
+    threads = [threading.Thread(target=criar, args=(texto,))
+               for texto in ("ana", "bob")]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=15)
+    monkeypatch.setattr(db, "get_db_connection", get_connection_original)
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert erros == []
+    assert len(inseridas) == 1 and inseridas[0][1] == 1
+    assert len(conflitos) == 1 and "556000" in conflitos[0]
+
+    df = db.carregar_dados()
+    linhas = df[df["Numero_Nota"] == 556000]
+    assert len(linhas) == 1
+    assert linhas.iloc[0]["Observacao"] == inseridas[0][0]
+
+    logs = db.carregar_logs()
+    criacoes = logs[(logs["Numero_Nota"] == 556000)
+                    & (logs["Campo_Alterado"] == "CRIAÇÃO DE NOTA")]
+    assert len(criacoes) == 1
+
+
+def test_inserir_notas_novas_nao_sobrescreve_existente(banco_temporario):
+    """A perdedora não vira UPDATE silencioso: nenhum campo da nota muda."""
+    from input_module import db
+
+    db.inserir_notas_novas(pd.DataFrame([
+        _nota(4300, Observacao="original", Conjunto="POA")]))
+
+    with pytest.raises(db.NotasDuplicadasErro):
+        db.inserir_notas_novas(pd.DataFrame([
+            _nota(4300, Observacao="sobrescrita", Conjunto="SUZANO")]))
+
+    df = db.carregar_dados()
+    linhas = df[df["Numero_Nota"] == 4300]
+    assert len(linhas) == 1
+    assert linhas.iloc[0]["Observacao"] == "original"
+    assert linhas.iloc[0]["Conjunto"] == "POA"
+
+
+def test_inserir_notas_novas_concorrente_grava_uma_vez(banco_temporario,
+                                                       monkeypatch):
+    """Corrida no caminho de persistência: apenas um INSERT sobrevive."""
+    from input_module import db
+
+    get_connection_original = db.get_db_connection
+    conexoes_prontas = threading.Barrier(2)
+    resultados = []
+    conflitos = []
+    erros = []
+
+    def get_connection_sincronizada():
+        conexao = get_connection_original()
+        conexoes_prontas.wait(timeout=5)
+        return conexao
+
+    def inserir(conjunto):
+        try:
+            resultados.append(db.inserir_notas_novas(
+                pd.DataFrame([_nota(4301, Conjunto=conjunto)])))
+        except db.NotasDuplicadasErro as erro:
+            conflitos.append(str(erro))
+        except Exception as erro:
+            erros.append(erro)
+
+    monkeypatch.setattr(db, "get_db_connection", get_connection_sincronizada)
+    threads = [threading.Thread(target=inserir, args=(conjunto,))
+               for conjunto in ("POA", "SUZANO")]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=15)
+    monkeypatch.setattr(db, "get_db_connection", get_connection_original)
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert erros == []
+    assert resultados == [1]
+    assert len(conflitos) == 1
+
+    df = db.carregar_dados()
+    assert len(df[df["Numero_Nota"] == 4301]) == 1
+
+
+def test_inserir_notas_novas_lote_conflitante_nao_grava_nenhuma(banco_temporario):
+    """Lote all-or-nothing: uma nota já existente aborta o lote inteiro."""
+    from input_module import db
+
+    db.inserir_notas_novas(pd.DataFrame([_nota(4302)]))
+
+    with pytest.raises(db.NotasDuplicadasErro):
+        db.inserir_notas_novas(pd.DataFrame([_nota(4302), _nota(4303)]))
+
+    df = db.carregar_dados()
+    assert df[df["Numero_Nota"] == 4303].empty
+
+
 def test_service_criar_nota_filha_diretamente(banco_temporario):
     from input_module import db, service
     mae = service.NovaNota(
@@ -995,7 +1126,7 @@ def test_versao_dataset_muda_com_escritas(banco_temporario):
     import datetime
     v0 = db.obter_versao_dataset()
     nota = service.NovaNota(Numero_Nota=777001, Status_Nota="00 Pendente", Prioridade_Nota="Programável")
-    service.criar_notas([nota], usuario="teste")           # criação não loga: pega pelo COUNT(notas)
+    service.criar_notas([nota], usuario="teste")
     v1 = db.obter_versao_dataset()
     assert v1 != v0
     db.aplicar_edicoes([{"Numero_Nota": 777001, "Observacao": "editada"}], usuario="teste")

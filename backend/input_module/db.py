@@ -37,6 +37,14 @@ class GravacaoNaoIniciadaErro(RuntimeError):
     """
 
 
+class NotasDuplicadasErro(Exception):
+    """Numero_Nota repetido no lote ou já existente no banco.
+
+    Mora aqui porque quem decide a duplicidade é a transação de escrita:
+    `service` reexporta o tipo para as rotas traduzirem em HTTP 409.
+    """
+
+
 def obter_caminho_banco() -> str:
     return config.caminho_banco_notas()
 
@@ -573,11 +581,16 @@ def carregar_dados(conn: sqlite3.Connection | None = None) -> pd.DataFrame:
     return df
 
 
-def proximo_id_cronologia(df: pd.DataFrame) -> int:
-    """Retorna o próximo ID_Cronologia disponível com base no DataFrame de notas."""
-    if df.empty or "ID_Cronologia" not in df.columns or not df["ID_Cronologia"].notna().any():
-        return 1
-    return int(pd.to_numeric(df["ID_Cronologia"], errors="coerce").max()) + 1
+def _proximo_id_cronologia(cursor: sqlite3.Cursor) -> int:
+    """Próximo ID_Cronologia livre, lido dentro da transação que vai gravar.
+
+    Ler de um DataFrame carregado antes da escrita devolve o mesmo número para
+    duas criações concorrentes; aqui o valor é apurado com o lock de escrita já
+    tomado.
+    """
+    maximo = cursor.execute(
+        "SELECT MAX(CAST(ID_Cronologia AS INTEGER)) FROM notas").fetchone()[0]
+    return int(maximo) + 1 if maximo is not None else 1
 
 
 def carregar_logs() -> pd.DataFrame:
@@ -653,60 +666,72 @@ def status_para_int(val):
     return 0
 
 
+# Colunas do plano gravadas por qualquer caminho de escrita de notas.
+_COLUNAS_NOTAS = [
+    "ID_Cronologia",
+    "Numero_Nota", "Status_Obra", "Conjunto", "Circuito", "Local_Instalacao",
+    "Regional", "Planejado_DDPM", "Mes_Execucao_Planejado", "Data_Envio_Projeto",
+    "Status_Nota", "Prioridade_Nota", "Observacao", "Check", "Status_Anterior",
+    "Centro_Responsavel", "origem", "Nota_Mae",
+]
+
+_RENOMES_NOTAS = {
+    "Data Envio Projeto-DDPM": "Data_Envio_Projeto",
+    "Data Envio Projeto": "Data_Envio_Projeto",
+    "Data_Envio_Projeto-DDPM": "Data_Envio_Projeto",
+    "Data Envio Projeto DDPM": "Data_Envio_Projeto",
+    "Mês de Execução  Planejado - DDPM": "Mes_Execucao_Planejado",
+    "Planejado-DDPM": "Planejado_DDPM",
+}
+
+
+def _normalizar_notas(df: pd.DataFrame) -> pd.DataFrame:
+    """Padroniza nomes de coluna, tipos e defaults antes de gravar em `notas`."""
+    df_salvar = df.copy().rename(columns=_RENOMES_NOTAS)
+
+    df_salvar["Status_Nota"] = df_salvar["Status_Nota"].apply(status_para_int)
+
+    if "Status_Anterior" not in df_salvar.columns:
+        df_salvar["Status_Anterior"] = "-"
+    df_salvar["Status_Anterior"] = df_salvar["Status_Anterior"].apply(status_para_int)
+
+    if "Mes_Execucao_Planejado" in df_salvar.columns:
+        df_salvar["Mes_Execucao_Planejado"] = (
+            df_salvar["Mes_Execucao_Planejado"].apply(converter_para_iso_data))
+
+    if "Check" not in df_salvar.columns:
+        df_salvar["Check"] = "-"
+    if "Centro_Responsavel" not in df_salvar.columns:
+        df_salvar["Centro_Responsavel"] = "-"
+
+    for coluna in _COLUNAS_NOTAS:
+        if coluna not in df_salvar.columns:
+            df_salvar[coluna] = "-"
+    return df_salvar
+
+
+def _colunas_gravaveis(cursor: sqlite3.Cursor) -> list[str]:
+    """Interseção entre as colunas conhecidas e as existentes no banco ativo."""
+    colunas_no_banco = {c[1] for c in cursor.execute("PRAGMA table_info(notas)")}
+    return [coluna for coluna in _COLUNAS_NOTAS if coluna in colunas_no_banco]
+
+
 def salvar_em_massa(df: pd.DataFrame) -> None:
+    """UPSERT do plano: usado por cargas e sincronizações que devem atualizar
+    notas já existentes. Criação de nota nova vai por `inserir_notas_novas`,
+    que recusa o conflito em vez de sobrescrever."""
     realizar_backup()
-    df_salvar = df.copy()
-
-    # Normalização de nomes de colunas conhecidas
-    renames = {
-        "Data Envio Projeto-DDPM": "Data_Envio_Projeto",
-        "Data Envio Projeto": "Data_Envio_Projeto",
-        "Data_Envio_Projeto-DDPM": "Data_Envio_Projeto",
-        "Data Envio Projeto DDPM": "Data_Envio_Projeto",
-        "Mês de Execução  Planejado - DDPM": "Mes_Execucao_Planejado",
-        "Planejado-DDPM": "Planejado_DDPM",
-    }
-    df_salvar = df_salvar.rename(columns=renames)
-
-    df_salvar['Status_Nota'] = df_salvar['Status_Nota'].apply(status_para_int)
-
-    if 'Status_Anterior' not in df_salvar.columns:
-        df_salvar['Status_Anterior'] = "-"
-    # Garante que a conversão seja aplicada em todos os casos
-    df_salvar['Status_Anterior'] = df_salvar['Status_Anterior'].apply(status_para_int)
-
-    if 'Mes_Execucao_Planejado' in df_salvar.columns:
-        df_salvar['Mes_Execucao_Planejado'] = df_salvar['Mes_Execucao_Planejado'].apply(converter_para_iso_data)
-
-    if 'Check' not in df_salvar.columns:
-        df_salvar['Check'] = "-"
-    if 'Centro_Responsavel' not in df_salvar.columns:
-        df_salvar['Centro_Responsavel'] = "-"
-
-    # UPSERT: colunas para inserir ou atualizar
-    colunas_upsert = [
-        "ID_Cronologia",
-        "Numero_Nota", "Status_Obra", "Conjunto", "Circuito", "Local_Instalacao",
-        "Regional", "Planejado_DDPM", "Mes_Execucao_Planejado", "Data_Envio_Projeto",
-        "Status_Nota", "Prioridade_Nota", "Observacao", "Check", "Status_Anterior",
-        "Centro_Responsavel", "origem", "Nota_Mae"
-    ]
-
-    # Garante que todas as colunas necessárias existam antes de criar os registros
-    for col in colunas_upsert:
-        if col not in df_salvar.columns:
-            df_salvar[col] = "-"  # Valor padrão para colunas ausentes
+    df_salvar = _normalizar_notas(df)
 
     conn = get_db_connection()
     cursor = conn.cursor()
 
     try:
-        colunas_no_banco = {c[1] for c in cursor.execute("PRAGMA table_info(notas)")}
-        colunas_upsert = [c for c in colunas_upsert if c in colunas_no_banco]
-        registros = df_salvar[colunas_upsert].to_records(index=False).tolist()
+        colunas = _colunas_gravaveis(cursor)
+        registros = df_salvar[colunas].to_records(index=False).tolist()
 
         assignments = []
-        for col in colunas_upsert:
+        for col in colunas:
             if col == "Numero_Nota":
                 continue
             if col == "Nota_Mae":
@@ -719,8 +744,8 @@ def salvar_em_massa(df: pd.DataFrame) -> None:
         update_assignments = ',\n'.join(assignments)
 
         sql_upsert = f'''
-            INSERT INTO notas ({', '.join(f'"{c}"' for c in colunas_upsert)})
-            VALUES ({', '.join(['?'] * len(colunas_upsert))})
+            INSERT INTO notas ({', '.join(f'"{c}"' for c in colunas)})
+            VALUES ({', '.join(['?'] * len(colunas))})
             ON CONFLICT(Numero_Nota) DO UPDATE SET
                 {update_assignments};
         '''
@@ -730,6 +755,59 @@ def salvar_em_massa(df: pd.DataFrame) -> None:
     except Exception as e:
         print(f"Erro no banco: {e}")
         raise e
+    finally:
+        conn.close()
+
+
+def inserir_notas_novas(df: pd.DataFrame) -> int:
+    """Insere notas inéditas: decide a duplicidade e grava no mesmo
+    `BEGIN IMMEDIATE`.
+
+    Sem o limite transacional único, duas criações simultâneas do mesmo
+    `Numero_Nota` liam o banco antes de gravar, passavam as duas na validação e
+    a segunda virava um UPDATE silencioso por cima da primeira. Aqui a perdedora
+    recebe `NotasDuplicadasErro` (HTTP 409 nas rotas) e não grava nada.
+    """
+    if df.empty:
+        return 0
+
+    realizar_backup()
+    df_salvar = _normalizar_notas(df)
+    numeros = [int(numero) for numero in df_salvar["Numero_Nota"].tolist()]
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("BEGIN IMMEDIATE")
+        marcadores = ",".join("?" * len(numeros))
+        existentes = sorted(
+            str(linha[0]) for linha in cursor.execute(
+                f"SELECT Numero_Nota FROM notas WHERE Numero_Nota IN ({marcadores})",
+                numeros,
+            ).fetchall()
+        )
+        if existentes:
+            conn.rollback()
+            raise NotasDuplicadasErro(
+                "Notas já existentes no banco: " + ", ".join(existentes))
+
+        primeiro_id = _proximo_id_cronologia(cursor)
+        df_salvar["ID_Cronologia"] = range(primeiro_id, primeiro_id + len(df_salvar))
+
+        colunas = _colunas_gravaveis(cursor)
+        registros = df_salvar[colunas].to_records(index=False).tolist()
+        nomes = ", ".join(f'"{coluna}"' for coluna in colunas)
+        valores = ", ".join(["?"] * len(colunas))
+        cursor.executemany(
+            f"INSERT INTO notas ({nomes}) VALUES ({valores})", registros)
+        conn.commit()
+        return len(registros)
+    except sqlite3.IntegrityError as erro:
+        conn.rollback()
+        raise NotasDuplicadasErro(
+            "Notas já existentes no banco: "
+            + ", ".join(str(numero) for numero in numeros)) from erro
     finally:
         conn.close()
 

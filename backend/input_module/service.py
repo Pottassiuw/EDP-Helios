@@ -73,28 +73,25 @@ class NovaNota(BaseModel):
     Check: str = "-"
 
 
-class NotasDuplicadasErro(Exception):
-    """Numero_Nota repetido no lote ou já existente no banco."""
+# Conflito de criação: o tipo mora em db.py porque quem decide a duplicidade é
+# a transação de escrita. Reexportado aqui pelo contrato já usado pelas rotas.
+NotasDuplicadasErro = db.NotasDuplicadasErro
 
 
-def _preparar_novas(notas: list[NovaNota], df_banco: pd.DataFrame,
-                    origem: str) -> pd.DataFrame:
-    """Valida duplicatas e completa Regional/ID_Cronologia (Input/app.py:640-728)."""
+def _preparar_novas(notas: list[NovaNota], origem: str) -> pd.DataFrame:
+    """Valida duplicidade dentro do lote e completa Regional/origem.
+
+    A duplicidade contra o banco fica com `db.inserir_notas_novas`: decidir por
+    um snapshot lido antes da escrita não impede uma criação concorrente.
+    """
     numeros = [n.Numero_Nota for n in notas]
     repetidas_lote = {str(n) for n in numeros if numeros.count(n) > 1}
     if repetidas_lote:
         raise NotasDuplicadasErro(
             "Notas duplicadas no próprio lote: " + ", ".join(sorted(repetidas_lote)))
-    existentes = set(df_banco["Numero_Nota"].tolist()) if not df_banco.empty else set()
-    repetidas_banco = sorted(str(n) for n in numeros if n in existentes)
-    if repetidas_banco:
-        raise NotasDuplicadasErro(
-            "Notas já existentes no banco: " + ", ".join(repetidas_banco))
-    base_id = db.proximo_id_cronologia(df_banco)
     linhas = []
-    for i, nota in enumerate(notas):
+    for nota in notas:
         registro = nota.model_dump()
-        registro["ID_Cronologia"] = base_id + i
         registro["Regional"] = config.DE_PARA_REGIONAL.get(str(nota.Local_Instalacao)[:3], "-")
         registro["Centro_Responsavel"] = "-"
         registro["Status_Anterior"] = "-"
@@ -105,8 +102,8 @@ def _preparar_novas(notas: list[NovaNota], df_banco: pd.DataFrame,
 
 def criar_notas(notas: list[NovaNota], usuario: str, origem: str = "manual") -> int:
     """Insere notas novas no plano e registra no log de auditoria; levanta NotasDuplicadasErro em conflito."""
-    df_novas = _preparar_novas(notas, db.carregar_dados(), origem)
-    db.salvar_em_massa(df_novas)
+    df_novas = _preparar_novas(notas, origem)
+    inseridas = db.inserir_notas_novas(df_novas)
 
     agora = datetime.datetime.now()
     usuario_log = (usuario or "sistema").strip()
@@ -124,7 +121,7 @@ def criar_notas(notas: list[NovaNota], usuario: str, origem: str = "manual") -> 
             detalhes,
         ))
     db.salvar_log_alteracoes(logs_criacao)
-    return len(df_novas)
+    return inseridas
 
 
 def atualizar_medidas_excel_local(lista_correcao: list[dict], relatorio_sap: list[dict]) -> None:

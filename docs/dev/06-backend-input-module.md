@@ -48,9 +48,10 @@ perfil de produção existe para eliminar. Por isso há uma conexão só
 `db.inicializar_banco()` chama apenas `_conferir_esquema_compartilhado()`, que
 *inspeciona* e registra o que falta. Nenhum `CREATE TABLE`/`ALTER TABLE` é
 aplicado no arquivo do setor — alterar o esquema de todo mundo não pode ser
-efeito colateral de um restart. Como consequência, `salvar_em_massa()` filtra
-as colunas do upsert pelo `PRAGMA table_info(notas)` real: colunas que este app
-usa mas que porventura não existam lá simplesmente não são gravadas.
+efeito colateral de um restart. Como consequência, os caminhos de escrita de
+notas (`salvar_em_massa()` e `inserir_notas_novas()`) filtram as colunas pelo
+`PRAGMA table_info(notas)` real (`_colunas_gravaveis`): colunas que este app usa
+mas que porventura não existam lá simplesmente não são gravadas.
 
 **Undo é por usuário.** Com o banco compartilhado, `reverter_ultima_alteracao`
 recebe o usuário e filtra o log por ele — sem isso o botão "Reverter Última
@@ -103,6 +104,14 @@ no schema real do banco da rede (legado, nunca portada por falta de uso) —
   o app tente migrar o arquivo compartilhado. Se a mesma nota aparecer mais de
   uma vez no payload, as linhas são consolidadas e o último valor enviado para
   cada campo prevalece, com uma única contagem de nota alterada.
+- `db.inserir_notas_novas` (caminho de criação, usado por `service.criar_notas`)
+  decide a duplicidade e grava dentro do mesmo `BEGIN IMMEDIATE`, com `INSERT`
+  puro em vez de UPSERT. Duas criações simultâneas do mesmo `Numero_Nota`
+  produzem exatamente uma vencedora: a perdedora recebe `NotasDuplicadasErro`
+  (HTTP 409) e não grava nem sobrescreve campo algum. O `ID_Cronologia` também
+  é apurado dentro dessa transação — lido de um snapshot anterior à escrita,
+  ele devolveria o mesmo número para as duas criações. O lote é
+  all-or-nothing: uma nota já existente aborta o lote inteiro.
 - Escopo desta fase: só a tabela `notas` (Gerenciar → Geral → Edição
   Rápida/Lote/Exclusão). `notas_ramal` não trava — não há evidência de que o
   Numero_Nota colida entre as duas tabelas, mas a tabela `bloqueios` não tem
@@ -298,9 +307,10 @@ O que essa string cobre:
 - **Edição/exclusão/undo** — qualquer escrita que passa por
   `log_alteracoes` (`aplicar_edicoes`, `deletar_notas`,
   `reverter_ultima_alteracao`) muda `max_alt`/`qtd_alt`.
-- **Criação de nota** — `service.criar_notas` não grava em
-  `log_alteracoes` (é um INSERT puro via `salvar_em_massa`), então é
-  pega pelo `COUNT(*)` de `notas` (`qtd_notas`), não pelos logs.
+- **Criação de nota** — `service.criar_notas` insere via
+  `db.inserir_notas_novas` e registra `"CRIAÇÃO DE NOTA"` em
+  `log_alteracoes`, então muda tanto o `COUNT(*)` de `notas`
+  (`qtd_notas`) quanto `max_alt`/`qtd_alt`.
 - **Importação de base** (upload manual em `POST /bases/{nome}` e a
   sincronização SAP noturna, `_rotina_sap_background` em
   `routes.py`) — ambas chamam `db.salvar_log_arquivo(...)`, o que muda
@@ -383,11 +393,13 @@ importar internals de rotas:
 - `NovaNota` (Pydantic) — schema de uma nota nova, mesmos campos/defaults
   usados pelos endpoints `POST /notas` e `POST /notas/bulk`.
 - `criar_notas(notas: list[NovaNota], usuario: str, origem: str = "manual")
-  -> int` — valida duplicatas (no lote e contra o banco), completa
-  `Regional` (derivado de `Local_Instalacao[:3]` via
-  `config.DE_PARA_REGIONAL`), `ID_Cronologia` e `origem`, grava via
-  `db.salvar_em_massa()` e retorna a quantidade inserida. Levanta
-  `NotasDuplicadasErro` em conflito.
+  -> int` — valida duplicidade dentro do lote, completa `Regional` (derivado de
+  `Local_Instalacao[:3]` via `config.DE_PARA_REGIONAL`) e `origem`, grava via
+  `db.inserir_notas_novas()` e retorna a quantidade inserida. A duplicidade
+  contra o banco e a numeração de `ID_Cronologia` ficam com a transação de
+  escrita (ver "Bloqueios por nota"), não com um snapshot lido antes dela.
+  Levanta `NotasDuplicadasErro` em conflito — o tipo é definido em `db.py` e
+  reexportado por `service.py`, que é por onde rotas e módulos o importam.
 
 `routes.py` apenas delega para essas funções e traduz
 `NotasDuplicadasErro` em `HTTPException(409, ...)`.
@@ -401,8 +413,8 @@ no plano: `"manual"` (rotas `POST /notas` e `/notas/bulk`, default de
 Notas legadas (anteriores à coluna) ficam `NULL`. Migração aditiva
 idempotente em `inicializar_banco` (checa `PRAGMA table_info(notas)`
 antes do `ALTER TABLE ... ADD COLUMN`), no mesmo padrão de `Check`/
-`Status_Anterior`/`Nota_Mae`. `salvar_em_massa` inclui `origem` na lista
-`colunas_upsert`.
+`Status_Anterior`/`Nota_Mae`. `origem` faz parte de `_COLUNAS_NOTAS`, a lista
+usada pelos dois caminhos de escrita de notas.
 
 ## routes.py
 
@@ -657,12 +669,13 @@ Endpoints associados:
   mudar e revalida); `_CACHE_TTL_SEGUNDOS = 600` continua como
   fallback só para as escritas fora do alcance dessa versão (ver
   "Limitação conhecida" na seção de versão do dataset acima).
-- `input_module/db.py:298-302` (`proximo_id_cronologia`) —
-  `pd.to_numeric(df["ID_Cronologia"], errors="coerce").max()` ignora em
-  silêncio qualquer valor não numérico na coluna (vira `NaN`, excluído
-  do `max()`); se essa linha ignorada tiver, na verdade, o maior
-  `ID_Cronologia` do banco, o próximo ID calculado fica menor do que
-  deveria e pode colidir com um `ID_Cronologia` já em uso.
+- `input_module/db.py` (`_proximo_id_cronologia`) — o próximo
+  `ID_Cronologia` sai de `MAX(CAST(ID_Cronologia AS INTEGER))` lido dentro
+  da transação de criação, o que resolve a colisão entre criações
+  concorrentes. Resta a coerção do `CAST`: um valor não numérico gravado
+  por fora do app vira `0` no `MAX()` em vez de falhar, e a coluna não tem
+  índice único que barre uma colisão vinda de outro escritor do banco
+  compartilhado.
 
 ## Metas — sync do Controle Plano de Recomposição
 

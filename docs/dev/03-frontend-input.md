@@ -305,10 +305,11 @@ Tarefa 13) com o valor conhecido (`dados?.meta.versao`, passado por
 usuário e invalida `INPUT_DADOS_KEY` (`qc.invalidateQueries`) — a
 tabela é revalidada em segundo plano automaticamente, sem exigir
 clique. A Tarefa 15 trocou a comparação de `ultima_alteracao` para
-`versao`: como `service.criar_notas` não passa por `log_alteracoes`
-(ver `06-backend-input-module.md`), criações de nota não mudavam
-`ultima_alteracao` e não eram detectadas pelo polling; `versao` cobre
-também o `COUNT(*)` de notas, então criações agora disparam o aviso.
+`versao`: na época `service.criar_notas` não passava por
+`log_alteracoes`, então criações de nota não mudavam `ultima_alteracao`
+e não eram detectadas pelo polling; `versao` cobre também o `COUNT(*)`
+de notas, então criações passaram a disparar o aviso (hoje a criação
+também grava auditoria — ver `06-backend-input-module.md`).
 Isso substituiu o antigo `useAvisoSincronizacao`, que só marcava um
 flag `desatualizado` e dependia de um banner com botão "Recarregar
 dados" (`useRecarregarInput`) para o usuário buscar os dados novos
