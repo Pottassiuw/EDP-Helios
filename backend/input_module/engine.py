@@ -13,6 +13,7 @@ Diferenças relevantes em relação ao porte original:
   com seu próprio TTL e lock; e ``gerar_copia_excel_rede`` (que nunca derruba
   a request: corpo inteiro em try/except).
 """
+import concurrent.futures
 import datetime
 import os
 import re
@@ -208,7 +209,8 @@ def avaliar_prazo_sap(row):
 
         # --- NOVA REGRA 2: NOTAS NÃO ENCERRADAS (AVALIAÇÃO DE ATRASO) ---
         if not is_99:
-            if (ano_planejado < hoje.year) or (ano_planejado == hoje.year and mes_planejado < hoje.month):
+            desvio_hoje = (hoje.year - ano_planejado) * 12 + (hoje.month - mes_planejado)
+            if desvio_hoje > 1:
                 return "🔴 Com Atraso"
             else:
                 return "⚪ Em Andamento (No Prazo)"
@@ -218,7 +220,7 @@ def avaliar_prazo_sap(row):
         if pd.isna(val_real) or str(val_real).strip() in ["", "-", "None", "nan"]:
             return "⏳Sem Data SAP"
 
-        dt_real = pd.to_datetime(val_real, errors='coerce')
+        dt_real = pd.to_datetime(val_real, dayfirst=True, errors='coerce')
         if pd.isna(dt_real):
             return "⚠️ Data SAP Inválida"
 
@@ -226,9 +228,12 @@ def avaliar_prazo_sap(row):
         ano_real = dt_real.year
 
         # 3. COMPARAÇÃO MATEMÁTICA DO DESVIO
-        if ano_real < ano_planejado or (ano_real == ano_planejado and mes_real < mes_planejado):
+        # Notas adiantadas sempre marcadas como Adiantado.
+        # Notas com atraso de até 1 mês são consideradas No Prazo (tolerância).
+        desvio_meses = (ano_real - ano_planejado) * 12 + (mes_real - mes_planejado)
+        if desvio_meses < 0:
             return "🟢 Adiantado"
-        elif ano_real == ano_planejado and mes_real == mes_planejado:
+        elif desvio_meses <= 1:
             return "🔵 No Prazo"
         else:
             return "🔴 Com Atraso"
@@ -330,13 +335,16 @@ def enriquecer_dados():
             def _fmt_dt_sap(val):
                 if pd.isna(val) or str(val).strip().lower() in ["none", "nan", "-", "", "<na>"]:
                     return "-"
+                v_str = str(val).strip()
+                if len(v_str) >= 10 and v_str[2] == "/" and v_str[5] == "/":
+                    return v_str[:10]
+                if len(v_str) >= 10 and v_str[4] == "-" and v_str[7] == "-":
+                    p = v_str[:10].split("-")
+                    return f"{p[2]}/{p[1]}/{p[0]}"
                 try:
-                    return pd.to_datetime(val, dayfirst=True, format="mixed").strftime("%d/%m/%Y")
+                    return pd.to_datetime(val, dayfirst=True).strftime("%d/%m/%Y")
                 except Exception:
-                    try:
-                        return pd.to_datetime(val).strftime("%d/%m/%Y")
-                    except Exception:
-                        return str(val).strip()
+                    return v_str
 
             if 'Data da nota' in df_sap.columns:
                 dicionario_data_nota = dict(zip(df_sap['Nota'], df_sap['Data da nota']))
@@ -756,23 +764,64 @@ _status_bases_cache = {"quando": 0.0, "valor": None}
 _status_bases_lock = threading.Lock()
 
 
+def _checar_base_com_timeout(item):
+    nome, caminho = item
+    try:
+        if not caminho:
+            return {"nome": nome, "arquivo": "", "encontrada": False, "modificada": None}
+        existe = os.path.exists(caminho)
+        mtime = datetime.datetime.fromtimestamp(os.path.getmtime(caminho)).isoformat() if existe else None
+        return {
+            "nome": nome,
+            "arquivo": os.path.basename(caminho),
+            "encontrada": existe,
+            "modificada": mtime,
+        }
+    except Exception:
+        return {
+            "nome": nome,
+            "arquivo": os.path.basename(caminho) if caminho else "",
+            "encontrada": False,
+            "modificada": None,
+        }
+
+
 def status_bases() -> list:
-    """Stats dos 7 caminhos SMB, cacheados 60s — fora do hot path de GET /notas."""
+    """Stats dos 7 caminhos SMB, cacheados 60s com checagem paralela e timeout."""
     with _status_bases_lock:
         agora = time.time()
         if (_status_bases_cache["valor"] is not None
                 and agora - _status_bases_cache["quando"] < _STATUS_BASES_TTL_SEGUNDOS):
             return _status_bases_cache["valor"]
+
+        bases_map = {}
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(config.BASES_REDE) or 1)) as executor:
+                futuros = {
+                    executor.submit(_checar_base_com_timeout, item): item[0]
+                    for item in config.BASES_REDE.items()
+                }
+                for f in concurrent.futures.as_completed(futuros, timeout=1.5):
+                    try:
+                        res = f.result(timeout=0.1)
+                        bases_map[res["nome"]] = res
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
         bases = []
         for nome, caminho in config.BASES_REDE.items():
-            existe = os.path.exists(caminho)
-            bases.append({
-                "nome": nome,
-                "arquivo": os.path.basename(caminho),
-                "encontrada": existe,
-                "modificada": datetime.datetime.fromtimestamp(
-                    os.path.getmtime(caminho)).isoformat() if existe else None,
-            })
+            if nome in bases_map:
+                bases.append(bases_map[nome])
+            else:
+                bases.append({
+                    "nome": nome,
+                    "arquivo": os.path.basename(caminho) if caminho else "",
+                    "encontrada": False,
+                    "modificada": None,
+                })
+
         _status_bases_cache["quando"] = agora
         _status_bases_cache["valor"] = bases
         return bases

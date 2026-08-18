@@ -34,6 +34,6 @@ export function useRamalData() {
 export function useRecarregarRamal(): () => Promise<void> {
   const qc = useQueryClient();
   return React.useCallback(async () => {
-    await qc.invalidateQueries({ queryKey: RAMAL_KEY });
+    await qc.refetchQueries({ queryKey: RAMAL_KEY, type: 'active' });
   }, [qc]);
 }

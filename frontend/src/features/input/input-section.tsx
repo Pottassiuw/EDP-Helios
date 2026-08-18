@@ -6,7 +6,7 @@ import { useInputData, useRecarregarInput } from './use-input-data';
 import { useInputSync } from './use-input-sync';
 import { RefreshCw, AlertTriangle } from 'lucide-react';
 import { Overview } from './overview';
-import { Manage } from './manage';
+import { Rateio } from './rateio';
 import { Ramal } from './ramal';
 import { Reports } from './reports';
 import { Logs } from './logs';
@@ -92,7 +92,7 @@ export function InputSection({
         />
       </div>
 
-      {dados && (sub === 'visao' || sub === 'gerenciar' || sub === 'ramal' || sub === 'relatorios') && (
+      {dados && (sub === 'visao' || sub === 'gerenciar' || sub === 'rateio' || sub === 'ramal' || sub === 'relatorios') && (
         <div className="shrink-0 bg-surface border-b border-line px-6 py-3">
           <Filters registros={dados.registros} estado={estadoFiltros} setEstado={setEstadoFiltros} />
         </div>
@@ -154,16 +154,23 @@ export function InputSection({
       )}
 
       <div className="flex-1 min-h-0 overflow-auto">
-        {dados && sub === 'visao' && (
+        {dados && (sub === 'visao' || sub === 'gerenciar') && (
           <Overview
             dados={dados}
             estado={estadoFiltros}
+            onSetEstadoFiltros={setEstadoFiltros}
             onIrParaSincronizacao={onIrParaSincronizacao}
-            onClearFilters={clearFilters}
+            onIrParaRateio={() => setSub('rateio')}
           />
         )}
-        {dados && sub === 'gerenciar' && <Manage dados={dados} estadoFiltros={estadoFiltros} onClearFilters={clearFilters} />}
-        {dados && sub === 'ramal' && <Ramal dadosPrincipais={dados} estadoFiltros={estadoFiltros} onClearFilters={clearFilters} />}
+        {dados && sub === 'rateio' && (
+          <div className="p-6 max-w-7xl mx-auto w-full">
+            <Rateio dados={dados} estadoFiltros={estadoFiltros} recarregar={recarregar} />
+          </div>
+        )}
+        {dados && sub === 'ramal' && (
+          <Ramal dadosPrincipais={dados} estadoFiltros={estadoFiltros} onClearFilters={clearFilters} />
+        )}
         {dados && sub === 'relatorios' && <Reports dados={dados} estadoFiltros={estadoFiltros} />}
         {dados && sub === 'logs' && <Logs />}
         {dados && sub === 'config' && <Settings dados={dados} />}

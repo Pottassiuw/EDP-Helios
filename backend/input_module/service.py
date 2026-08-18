@@ -63,6 +63,7 @@ class NovaNota(BaseModel):
     Prioridade_Nota: str
     Planejado_DDPM: float = 0.0
     Status_Obra: str = "-"
+    Nota_Mae: str = "-"
     Conjunto: str = "-"
     Circuito: str = "-"
     Local_Instalacao: str = "-"
@@ -103,9 +104,26 @@ def _preparar_novas(notas: list[NovaNota], df_banco: pd.DataFrame,
 
 
 def criar_notas(notas: list[NovaNota], usuario: str, origem: str = "manual") -> int:
-    """Insere notas novas no plano; levanta NotasDuplicadasErro em conflito."""
+    """Insere notas novas no plano e registra no log de auditoria; levanta NotasDuplicadasErro em conflito."""
     df_novas = _preparar_novas(notas, db.carregar_dados(), origem)
     db.salvar_em_massa(df_novas)
+
+    agora = datetime.datetime.now()
+    usuario_log = (usuario or "sistema").strip()
+    logs_criacao = []
+    for n in notas:
+        detalhes = f"Origem: {origem} | Status: {n.Status_Nota or '-'} | Conjunto: {n.Conjunto or '-'}"
+        if n.Nota_Mae and n.Nota_Mae not in ("-", "None", "null"):
+            detalhes += f" | Mãe: {n.Nota_Mae}"
+        logs_criacao.append((
+            int(n.Numero_Nota),
+            usuario_log,
+            agora,
+            "CRIAÇÃO DE NOTA",
+            "-",
+            detalhes,
+        ))
+    db.salvar_log_alteracoes(logs_criacao)
     return len(df_novas)
 
 

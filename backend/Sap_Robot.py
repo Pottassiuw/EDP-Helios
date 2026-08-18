@@ -577,18 +577,57 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                         session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-ERLZEIT[17,1]").text = hora_conclusao
 
                         # Encerra a segunda medida
-                        session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2").getAbsoluteRow(1).Selected = True
-                        session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-QSMNUM[0,1]").setFocus()
-                        session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/btnFC_ERLEDIGT").press()
-                        time.sleep(0.5)
+                        try:
+                            tbl = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2")
+                            tbl.getAbsoluteRow(1).Selected = True
+                            session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-QSMNUM[0,1]").setFocus()
+                            session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/btnFC_ERLEDIGT").press()
+                            time.sleep(0.5)
+                        except Exception as e_enc:
+                            log_debug(f"Nota {nota} - Aviso ao encerrar medida: {e_enc}")
 
                     # 6. Exclui a primeira medida original (linha 0)
-                    session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2").getAbsoluteRow(0).Selected = True
-                    session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-QSMNUM[0,0]").setFocus()
-                    session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/btnLOESCHEN").press()
+                    tbl = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2")
+                    try:
+                        tbl.verticalScrollbar.position = 0
+                    except:
+                        pass
+                    time.sleep(0.2)
+
+                    try:
+                        tbl.getAbsoluteRow(0).Selected = True
+                    except:
+                        pass
+
+                    try:
+                        session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-QSMNUM[0,0]").setFocus()
+                    except:
+                        pass
+
+                    try:
+                        session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/btnLOESCHEN").press()
+                    except Exception as btn_err:
+                        log_debug(f"Nota {nota} - btnLOESCHEN falhou: {btn_err}. Tentando tecla de atalho Shift+F2...")
+                        try:
+                            session.findById("wnd[0]").sendVKey(14)
+                        except Exception as vkey_err:
+                            log_debug(f"Nota {nota} - sendVKey(14) falhou: {vkey_err}")
+
                     time.sleep(0.5)
-                    session.findById("wnd[1]/usr/btnSPOP-OPTION1").press()
-                    time.sleep(0.5)
+
+                    if session.Children.Count > 1:
+                        try:
+                            wnd1 = session.findById("wnd[1]")
+                            try:
+                                wnd1.findById("usr/btnSPOP-OPTION1").press()
+                            except:
+                                try:
+                                    wnd1.findById("usr/btnBUTTON_1").press()
+                                except:
+                                    wnd1.sendVKey(0)
+                            time.sleep(0.5)
+                        except Exception as pop_err:
+                            log_debug(f"Nota {nota} - Aviso popup exclusao: {pop_err}")
 
                 log_debug(f"Nota {nota} - Valor alterado com sucesso para '{str_qtd}'")
             except Exception as e:

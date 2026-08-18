@@ -97,8 +97,10 @@ export const MESES_ABREV_PT = ['jan', 'fev', 'mar', 'abr', 'maio', 'jun',
 
 /** Filtro por mês de execução planejado (ex.: mes=7, ano=2026 -> "jul-2026"). */
 export function filtroPorMes(mes: number, ano: number): Filtro {
-  return { campo: 'Mes_Execucao_Planejado', tipo: 'multi',
-    valores: [`${MESES_ABREV_PT[mes - 1]}-${ano}`] };
+  return {
+    campo: 'Mes_Execucao_Planejado', tipo: 'multi',
+    valores: [`${MESES_ABREV_PT[mes - 1]}-${ano}`]
+  };
 }
 
 /** Filtro por Conjunto (plano), opcionalmente combinado com Regional_CSD. */
@@ -138,7 +140,7 @@ export function aplicarFiltros(registros: NotaInput[], filtros: Filtro[]): NotaI
   }));
 }
 
-export function valoresUnicos(registros: NotaInput[], campo: string): string[] {
+export function valoresUnicos<T extends Record<string, any>>(registros: T[], campo: string): string[] {
   const valores = new Set<string>();
   for (const r of registros) {
     const v = r[campo];
@@ -148,16 +150,37 @@ export function valoresUnicos(registros: NotaInput[], campo: string): string[] {
     campo === 'Mes_Execucao_Planejado' ? compararDatas(a, b) : a.localeCompare(b, 'pt-BR'));
 }
 
-/** Cola TSV do Excel em registros na ordem fixa de colunas. */
+/** Cola TSV do Excel em registros na ordem fixa de colunas, ignorando cabeçalhos e convertendo tipos. */
 export function parseColagemTsv(texto: string, colunas: string[]): Partial<NotaInput>[] {
-  return texto.split(/\r?\n/)
-    .filter((l) => l.trim() !== '')
+  const linhas = texto.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  if (linhas.length === 0) return [];
+
+  const primeiraLinha = linhas[0];
+  const primeiraCelula = (primeiraLinha.split('\t')[0] ?? '').trim();
+  const ehCabecalho = !/^\d+$/.test(primeiraCelula);
+  const linhasDados = ehCabecalho ? linhas.slice(1) : linhas;
+
+  return linhasDados
     .map((linha) => {
       const celulas = linha.split('\t');
       const registro: Partial<NotaInput> = {};
-      colunas.forEach((c, i) => { registro[c] = (celulas[i] ?? '').trim(); });
+      colunas.forEach((c, i) => {
+        const val = (celulas[i] ?? '').trim();
+        if (c === 'Numero_Nota') {
+          const num = Number(val);
+          if (Number.isFinite(num) && num > 0) {
+            registro[c] = num;
+          }
+        } else if (c === 'Planejado_DDPM') {
+          const num = Number(val.replace(',', '.'));
+          registro[c] = Number.isFinite(num) ? num : 0;
+        } else {
+          registro[c] = val || (c === 'Nota_Mae' || c === 'Check' ? '-' : '');
+        }
+      });
       return registro;
-    });
+    })
+    .filter((r) => r.Numero_Nota !== undefined && Number.isFinite(Number(r.Numero_Nota)));
 }
 
 export function formatarDataHora(v: string | number | null): string {
@@ -193,30 +216,69 @@ const PALAVRAS_PROIBIDAS = ['SUBSTITUIDA', 'SUBSTITUÍDA', 'SUBST.', 'SUBST ', '
 
 export function varrerVinculos(registros: NotaInput[]): SugestaoDetetive[] {
   const dictConj: Record<string, string> = {};
+  const todasNotas = new Set<string>();
+
   for (const r of registros) {
-    dictConj[String(r.Numero_Nota)] = String(r['Conjunto'] ?? '').trim().toUpperCase();
+    const nStr = String(r.Numero_Nota);
+    todasNotas.add(nStr);
+    dictConj[nStr] = String(r['Conjunto'] ?? '').trim().toUpperCase();
   }
-  const orfas = registros.filter((r) => {
+
+  const ehOrfa = (r: NotaInput): boolean => {
     const mae = String(r['Nota_Mae'] ?? '-').trim();
-    return (mae === '-' || mae === '' || mae === 'None') && Number(r['Planejado_DDPM']) === 0;
-  });
+    return mae === '-' || mae === '' || mae === 'None' || mae === 'null';
+  };
+
   const seen = new Set<number>();
   const sugestoes: SugestaoDetetive[] = [];
-  for (const row of orfas) {
-    const texto = `${String(row['Status_Obra'] ?? '')} ${String(row['Observacao'] ?? '')}`.toUpperCase();
+
+  // 1. Varredura Direta: Notas órfãs que citam a nota mãe ou referência no texto
+  for (const row of registros) {
+    if (!ehOrfa(row)) continue;
+    const obs = String(row['Observacao'] ?? '');
+    const statusObra = String(row['Status_Obra'] ?? '');
+    const texto = `${statusObra} ${obs}`.toUpperCase();
     if (PALAVRAS_PROIBIDAS.some((p) => texto.includes(p))) continue;
+
+    // Se o texto diz "FILHAS:" no plural listando notas filhas, este registro é mãe (tratado no passo 2)
+    if (/\bFILHAS\s*[:\s]/i.test(texto)) continue;
+
     const nums = [...texto.matchAll(/\b\d{6,9}\b/g)].map((m) => m[0]);
     const conjOrfa = String(row['Conjunto'] ?? '').trim().toUpperCase();
+
     for (const num of nums) {
-      if (num in dictConj && num !== String(row.Numero_Nota) && dictConj[num] === conjOrfa) {
-        if (!seen.has(row.Numero_Nota)) {
+      if (todasNotas.has(num) && num !== String(row.Numero_Nota)) {
+        const conjMae = dictConj[num] ?? '';
+        const mesmoConjunto = !conjOrfa || !conjMae || conjOrfa === '-' || conjMae === '-' || conjOrfa === conjMae;
+        if (mesmoConjunto && !seen.has(row.Numero_Nota)) {
           seen.add(row.Numero_Nota);
           sugestoes.push({ Nota_Filha_Orfa: row.Numero_Nota, Possivel_Nota_Mae: num });
+          break;
         }
-        break;
       }
     }
   }
+
+  // 2. Varredura Inversa: Uma Nota Mãe que lista suas filhas em Observacao (ex: "Filhas vinculadas: 16000001 e 16000002")
+  for (const row of registros) {
+    if (seen.has(row.Numero_Nota)) continue;
+    const obsMae = String(row['Observacao'] ?? '').toUpperCase();
+    if (!obsMae || PALAVRAS_PROIBIDAS.some((p) => obsMae.includes(p))) continue;
+    if (!/\bFILHA/i.test(obsMae)) continue;
+
+    const numsCitados = [...obsMae.matchAll(/\b\d{6,9}\b/g)].map((m) => Number(m[0]));
+    const maeIdStr = String(row.Numero_Nota);
+
+    for (const numFilha of numsCitados) {
+      if (numFilha === row.Numero_Nota || seen.has(numFilha)) continue;
+      const filhaRow = registros.find((r) => r.Numero_Nota === numFilha);
+      if (filhaRow && ehOrfa(filhaRow)) {
+        seen.add(numFilha);
+        sugestoes.push({ Nota_Filha_Orfa: numFilha, Possivel_Nota_Mae: maeIdStr });
+      }
+    }
+  }
+
   return sugestoes;
 }
 
@@ -242,4 +304,37 @@ export function calcularSelecao(
   if (nums.length === 0) return { soma: 0, media: 0, contagem: 0 };
   const soma = nums.reduce((a, b) => a + b, 0);
   return { soma, media: soma / nums.length, contagem: nums.length };
+}
+
+/** Verifica se a nota está marcada como oculta (Check = 'Oculta', 'oculto', '[oculta]' ou Observação com '[OCULTA]'). */
+export function ehNotaOculta(nota: Partial<NotaInput>): boolean {
+  const check = String(nota.Check ?? '').trim().toLowerCase();
+  if (check === 'oculta' || check === 'ocultar' || check === 'oculto' || check === '[oculta]') return true;
+  const obs = String(nota.Observacao ?? '').toUpperCase();
+  if (obs.includes('[OCULTA]') || obs.includes('[OCULTO]')) return true;
+  return false;
+}
+
+/** Encontra notas ocultas que atendem aos critérios de busca por texto ou número de nota. */
+export function buscarNotasOcultas(registros: NotaInput[], buscaStr: string): NotaInput[] {
+  const query = buscaStr.trim();
+  if (!query) return [];
+  const qLower = query.toLowerCase();
+  const termos = query.split(/[ ,;]+/).map((s) => s.trim()).filter(Boolean);
+  const numeros = termos.filter((s) => /^\d+$/.test(s)).map(Number);
+  const setNums = new Set(numeros);
+
+  return registros.filter((r) => {
+    if (!ehNotaOculta(r)) return false;
+    const idNota = r.Numero_Nota;
+    const idStr = String(idNota);
+    const maeStr = String(r.Nota_Mae ?? '').trim();
+
+    if (setNums.has(idNota) || setNums.has(Number(maeStr))) return true;
+    if (idStr.includes(query) || maeStr.includes(query)) return true;
+
+    return Object.values(r).some((v) =>
+      v !== null && v !== undefined && String(v).toLowerCase().includes(qLower)
+    );
+  });
 }

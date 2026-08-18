@@ -14,9 +14,8 @@ enquanto o usuário está com a tela aberta.
 
 | Arquivo | Responsabilidade |
 |---|---|
-| `frontend/src/features/input/input-section.tsx` | Casca da feature: cabeçalho, `SegTabs` das sub-abas (`INPUT_SUBS`), banners de aviso (dados desatualizados, importação inicial pendente, bases ausentes), roteamento condicional para o componente de cada sub-aba e renderização do bloco unificado de filtros avançados no topo para as sub-abas de Visão Geral e Gerenciar. |
-| `frontend/src/features/input/overview.tsx` | Sub-aba "Visão Geral": mantém a DataGrid somente-leitura e abre `InputNotaInspector` por ação acessível; também reúne os botões "Sincronizar SAP" e "Exportar Excel", o status de vínculos automáticos (`useAutoVinculos`) e o `HierarquiaCard`. |
-| `frontend/src/features/input/manage.tsx` | Sub-aba "Gerenciar": cinco modos (Edição Rápida, Edição em Lote, Exclusão, Cadastrar Nota, Colar Planilha) sobre a base principal, cada um operando via `NotesTable`. |
+| `frontend/src/features/input/input-section.tsx` | Casca da feature: cabeçalho, `SegTabs` das sub-abas (`INPUT_SUBS`), banners de aviso (dados desatualizados, importação inicial pendente, bases ausentes), roteamento condicional para o componente de cada sub-aba e renderização do bloco unificado de filtros avançados no topo. |
+| `frontend/src/features/input/overview.tsx` | Sub-aba "Visão Geral": absorveu a antiga sub-aba "Gerenciar" (`manage.tsx`, removida) como o modo interno `modo` (`visao`/`rapida`/`lote`/`colagem`) sobre `NotesTable`/`DataGrid`; abre `InputNotaInspector` por ação acessível e reúne os botões "Sincronizar SAP", "Inserir em Massa" e "Exportar Excel". Cadastro, notificação, exclusão e ocultação de notas viraram modais dedicados (`cadastro-modal.tsx`, `notificacao-modal.tsx`, `exclusao-modal.tsx`, `ocultacao-modal.tsx`) — não documentados em detalhe aqui ainda. |
 | `frontend/src/features/input/ramal.tsx` | Equivalente a `manage.tsx` para a base "Ramal" (dataset separado, `useRamalData`), com um modo "Visão Geral" a mais (via `DataGrid`). |
 | `frontend/src/features/input/filters.tsx` | Componente `Filters`: busca global por número de nota, switch rápido para o ano de 2026 e filtros avançados por campo (texto, faixa numérica, multi-seleção), unificado no nível de `input-section.tsx` e compartilhado entre as abas. |
 | `frontend/src/features/input/empty-state.tsx` | Contrato compartilhado de estados vazios para base sem registros ou resultado sem correspondências após filtros, incluindo ação opcional de limpar filtros. |
@@ -26,8 +25,9 @@ enquanto o usuário está com a tela aberta.
 | `frontend/src/features/input/rateio-lib.ts` | Regras puras testáveis do rateio: identifica notas ativas, valida/normaliza notas-mãe e extrai quantidade/unidade de medidas SAP. |
 | `frontend/src/features/input/logs.tsx` | Sub-aba "Logs": três sub-abas (Alterações nas Notas, Bases de Apoio, Linha do Tempo), cada uma consumindo um endpoint próprio via `useQuery`. |
 | `frontend/src/features/input/settings.tsx` | Sub-aba "Configurações": nome do usuário (log de auditoria), responsáveis por conjunto, status/substituição das bases de apoio, lista de backups locais para download. |
-| `frontend/src/features/input/notes-table.tsx` | Tabela windowed (virtualização manual por `scrollTop`, `ALTURA_LINHA = 40`) usada nos modos editáveis/selecionáveis de `manage.tsx`/`ramal.tsx`: seleção por checkbox, edição inline por duplo clique, ordenação por coluna. Se recebe `bloqueios`/`onIniciarEdicao`, mostra um badge de cadeado na linha travada por outro usuário e intercepta o clique de edição para travar a nota antes de abrir a célula. O indicador de gavetinha (Nota Mãe → Filhas) é um botão de 18×18px com chevron + contador mono (`×N`) na linha-mãe; as filhas recebem uma linha-guia de árvore (traço vertical + conector horizontal) em vez de um ícone por linha. |
+| `frontend/src/features/input/notes-table.tsx` | Tabela windowed (virtualização manual por `scrollTop`, `ALTURA_LINHA = 40`) usada dentro de `overview.tsx`/`ramal.tsx`: seleção por checkbox, edição inline por duplo clique, ordenação por coluna, suporte à navegação por teclado (Setas Cima/Baixo para focar linha, Esquerda/Direita para recolher/expandir gavetinhas e Enter para inspecionar) e proteção contra ciclos circulares na árvore de hierarquia mãe/filha. Se recebe `bloqueios`/`onIniciarEdicao`, mostra um badge de cadeado na linha travada por outro usuário e intercepta o clique de edição para travar a nota antes de abrir a célula. O indicador de gavetinha (Nota Mãe → Filhas) é um botão de 18×18px com chevron + contador mono (`×N`) na linha-mãe; as filhas recebem uma linha-guia de árvore (traço vertical + conector horizontal) em vez de um ícone por linha. |
 | `frontend/src/features/input/notes-table-skeleton.tsx` | `NotesTableSkeleton`: linhas-fantasma (`animate-pulse`) na largura aproximada das colunas reais, usada como estado de carregamento em `input-section.tsx` e `ramal.tsx` no lugar de um spinner genérico. |
+| `frontend/src/features/input/rateio.tsx` | Sub-aba "Rateio de Medidas": módulo dedicado para visualização e distribuição balanceada de medidas físicas (km / un) entre grupos hierárquicos de Notas Mães e Filhas com divergência, ações rápidas (Ratear Proporcionalmente, Concentrar na Mãe, Restaurar Original), conferência matemática de saldos e gravação direta no SAP via robô SAP. |
 | `frontend/src/features/input/use-bloqueios.ts` | `useBloqueios`: polling React Query de `GET /bloqueios` a cada 60s em repouso e 15s enquanto há edição com lock ativo. Sem cache em disco; devolve um `Map<Numero_Nota, Bloqueio>` e `recarregar` para invalidar imediatamente após travar/destravar. |
 | `frontend/src/features/input/hierarquia-card.tsx` | Card de vínculo manual de hierarquia (nota-mãe/notas-filhas): busca a hierarquia de uma nota, lista candidatas órfãs do mesmo conjunto e aplica o vínculo (`InputApi.vincularHierarquia`). |
 | `frontend/src/features/input/data-grid.tsx` | Grid somente-leitura estilo Excel sobre `react-datasheet-grid`: ordenação, redimensionamento/autofit de colunas por arraste, barra de status com soma/média/contagem da seleção e a ação de detalhes fixa criada por `stickyRightColumn`, fora de `COLUNAS` e da exportação. |
@@ -64,11 +64,11 @@ falhas de carregamento/backend e `Banner tipo="err"` usam `role="alert"`;
 
 ## Fluxo: Overview e sub-navegação
 
-As seis sub-abas do módulo vivem em `INPUT_SUBS`
+As sub-abas do módulo vivem em `INPUT_SUBS`
 (`features/input/subs.ts`, módulo leve que o `app-sidebar.tsx` importa
-sem puxar a feature pro bundle inicial): Visão Geral, Gerenciar, Ramal,
+sem puxar a feature pro bundle inicial): Notas Gerais, Rateio de Medidas, Ramal,
 Relatórios, Logs e Configurações, renderizadas pelo `SegTabs`
-(`input-section.tsx:51`). O estado da aba ativa (`sub`/`setSub`) chega
+(`input-section.tsx:86`). O estado da aba ativa (`sub`/`setSub`) chega
 via props — quem decide e persiste a aba ativa é o componente pai, o
 mesmo padrão do hub COFFEE documentado em `02-frontend-coffee.md`.
 `InputSection` em si só busca os dados (`useInputData`,
@@ -263,6 +263,28 @@ query já cacheada com `staleTime` de 60s) — **nunca** do
 `InputApi.sincronizarMetas()` dentro de um `toast.promise` e, no
 sucesso, invalida `['relatorios-dashboard']` via `useQueryClient` —
 o dashboard de Relatórios (se montado) refaz o fetch automaticamente.
+
+## Relatórios Executivos (reports.tsx)
+
+O painel de Relatórios (`reports.tsx`) oferece 3 visões consolidadas:
+
+1. **Aderência ao Plano (`prazos`)**:
+   - Consolidação unificada de auditoria de datas de encerramento SAP com índice de aderência ao plano/cronograma.
+   - **Regra de Tolerância (+1 mês)**: notas com encerramento até 1 mês após o planejado são contabilizadas como **No Prazo**. Notas concluídas antes são sempre **Adiantadas**, e com 2+ meses são **Com Atraso**.
+   - **Atraso Acumulado**: Exibe a métrica total somada de todos os meses em atraso real (inclusive o 1º mês) para gestão transparente de dívida temporal.
+   - **Guia de Flags**: Banner informativo integrado explicando as regras de cada status e tolerâncias.
+   - KPIs consolidados: Total Auditadas, Índice de Aderência (%), Atraso Acumulado (meses), Média de Desvio Real, Adiantadas, No Prazo (+1m), Com Atraso (≥2m), Pendentes Atrasadas e Passíveis de Encerramento.
+   - Gráfico de rosca de status geral lado a lado com barras de progresso de distribuição de desvios em meses.
+   - Filtros avançados combinados (Filtro Rápido, Ano de Encerramento, Mês Planejado, Resultado da Auditoria, Status SLA e Regional).
+   - Tabela e exportação Excel unificadas (`Aderencia_ao_Plano_{data}.xlsx`).
+2. **Visão Financeira (`financas`)**:
+   - Diferencia explicitamente **volume físico** (`Planejado_DDPM` em unidades/postes) de **valores monetários em R$** (`Total_planejado_modular`, `Total_planejado_ordem` e `Total_real_ordem`).
+   - Apresenta KPIs e barras de progresso por Regional e por Status em R$ Modular e unidades físicas.
+   - Tabela analítica completa com custos unitários modulares e ordens SAP.
+3. **Em Planejamento - Status 10 (`planejamento`)**:
+   - Integração com automação SAP: botão **"Extrair do SAP (Status 10)"** dispara a extração em lote no SAP GUI (`POST /api/input/status10/extrair-sap`) cruzando IW28 (status 10) e IW38 (custos de ordem).
+   - Botão **"Disparar E-mail Status 10"** abre rascunho formatado no Outlook para envio aos engenheiros.
+   - Tabela analítica detalhada com colunas enriquecidas (`Ordem`, `Status_Usuario`, `PEP`, `Custo_Plan`, `Modular`, `Modular_Obra`, `Criado_Por`, `Data_Nota`, etc.).
 
 ## Sincronização SAP
 

@@ -13,7 +13,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Search, X, ChevronDown, ChevronRight, Filter, Check } from "lucide-react";
+import { Eye, EyeOff, Search, X, ChevronDown, ChevronRight, Filter, Check } from "lucide-react";
+import { ehNotaOculta } from "./lib";
 import {
   Select,
   SelectContent,
@@ -27,6 +28,7 @@ export interface FiltersState {
   filtros: Filtro[];
   somente2026: boolean;
   somenteNotasMaes: boolean;
+  mostrarOcultas?: boolean;
 }
 
 export const FILTROS_INICIAIS: FiltersState = {
@@ -34,6 +36,7 @@ export const FILTROS_INICIAIS: FiltersState = {
   filtros: [],
   somente2026: true,
   somenteNotasMaes: false,
+  mostrarOcultas: false,
 };
 
 interface FiltersProps {
@@ -197,7 +200,7 @@ export function MultiSelect({
         onClick={() => setOpen(!open)}
         className="flex h-[32px] w-full items-center justify-between gap-[8px] rounded-[6px] border border-line-2 bg-bg-2 px-[10px] text-[12px] text-text hover:bg-surface-3 transition-colors outline-none focus-visible:border-primary"
       >
-        <span className="truncate max-w-[90%] font-mono">
+        <span className={`truncate max-w-[90%] font-sans ${selected.length === 0 ? 'text-text-mute' : 'text-text font-medium'}`}>
           {selected.length === 0
             ? placeholder
             : `${selected.length} selecionado(s)`}
@@ -454,6 +457,22 @@ export function Filters({
           </Label>
         </div>
 
+        {/* Seletor On/Off para Exibir Notas Ocultas */}
+        {registros.some(ehNotaOculta) && (
+          <div className="flex items-center gap-[8px] bg-bg-2 border border-line-2 px-[12px] h-[34px] rounded-sm select-none">
+            <Switch
+              id="switch-ocultas"
+              checked={Boolean(estado.mostrarOcultas)}
+              onCheckedChange={(checked) => setEstado({ ...estado, mostrarOcultas: checked })}
+              size="sm"
+            />
+            <Label htmlFor="switch-ocultas" className="text-[12.5px] font-medium text-text-dim cursor-pointer flex items-center gap-1.5">
+              {estado.mostrarOcultas ? <Eye size={13} className="text-amber-500" /> : <EyeOff size={13} className="text-text-mute" />}
+              <span>Mostrar Ocultas ({registros.filter(ehNotaOculta).length})</span>
+            </Label>
+          </div>
+        )}
+
         {/* Botão de Filtros Avançados */}
         <Button
           variant="outline"
@@ -494,7 +513,10 @@ export function Filters({
         <div className="border border-line rounded-md p-[14px] bg-bg-2/30 flex flex-col gap-[10px] animate-in fade-in slide-in-from-top-1 duration-200">
           <div className="flex items-center gap-[10px] w-full sm:w-[320px]">
             <Select
+              key={estado.filtros.map((f) => f.campo).join(',')}
+              value=""
               onValueChange={(v) => {
+                if (!v) return;
                 setEstado({
                   ...estado,
                   filtros: [
@@ -504,7 +526,7 @@ export function Filters({
                 });
               }}
             >
-              <SelectTrigger aria-label="Adicionar campo de filtro" className="h-[32px] bg-surface border-line-2">
+              <SelectTrigger aria-label="Adicionar campo de filtro" className="h-[32px] bg-surface border-line-2 font-sans text-xs">
                 <SelectValue placeholder="+ Adicionar filtro avançado..." />
               </SelectTrigger>
               <SelectContent>
@@ -526,7 +548,7 @@ export function Filters({
                   className="flex flex-col gap-[6px] p-[10px] bg-surface border border-line-2 rounded-[8px] w-full sm:w-[240px] shadow-sm relative group/card hover:border-line-2/80 transition-colors"
                 >
                   <div className="flex justify-between items-center">
-                    <span className="text-[11px] font-semibold text-text-mute uppercase tracking-wider font-sans">
+                    <span className="text-[11px] font-medium text-text-mute uppercase tracking-wider font-sans">
                       {ROTULOS[f.campo] ?? f.campo}
                     </span>
                     <button

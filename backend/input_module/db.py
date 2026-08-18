@@ -431,6 +431,10 @@ def _caminho_responsaveis() -> str:
     return str(config.data_dir() / "config_responsaveis.json")
 
 
+def _caminho_emails_responsaveis() -> str:
+    return str(config.data_dir() / "config_emails_responsaveis.json")
+
+
 def carregar_responsaveis() -> dict:
     caminho = _caminho_responsaveis()
     if os.path.exists(caminho):
@@ -442,6 +446,20 @@ def carregar_responsaveis() -> dict:
 def salvar_responsaveis(novo: dict) -> None:
     config.data_dir().mkdir(parents=True, exist_ok=True)
     with open(_caminho_responsaveis(), "w", encoding="utf-8") as f:
+        json.dump(novo, f, ensure_ascii=False, indent=4)
+
+
+def carregar_emails_responsaveis() -> dict:
+    caminho = _caminho_emails_responsaveis()
+    if os.path.exists(caminho):
+        with open(caminho, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return dict(config.EMAILS_RESPONSAVEIS_PADRAO)
+
+
+def salvar_emails_responsaveis(novo: dict) -> None:
+    config.data_dir().mkdir(parents=True, exist_ok=True)
+    with open(_caminho_emails_responsaveis(), "w", encoding="utf-8") as f:
         json.dump(novo, f, ensure_ascii=False, indent=4)
 
 
@@ -510,7 +528,7 @@ def carregar_dados(conn: sqlite3.Connection | None = None) -> pd.DataFrame:
         # Limpeza de valores Nulos e texto "None"
         colunas_forcar_texto = [
             "Observacao", "Check", "Status_Obra", "Conjunto", "Circuito",
-            "Local_Instalacao", "Regional", "Centro_Responsavel", "Prioridade_Nota"
+            "Local_Instalacao", "Regional", "Centro_Responsavel", "Prioridade_Nota", "Nota_Mae"
         ]
 
         for col in df.columns:
@@ -522,6 +540,18 @@ def carregar_dados(conn: sqlite3.Connection | None = None) -> pd.DataFrame:
                 # Garante que a Observação e o Check também não fiquem com o traço "-" padrão
                 if col in ["Observacao", "Check"]:
                     df[col] = df[col].apply(lambda x: "" if str(x).strip() == "-" else x)
+
+        if "Nota_Mae" in df.columns:
+            def _limpar_mae(v):
+                if pd.isna(v):
+                    return "-"
+                s = str(v).strip()
+                if s.lower() in ["", "-", "none", "nan", "null", "<na>", "0", "0.0", "."]:
+                    return "-"
+                if s.endswith(".0"):
+                    s = s[:-2]
+                return s
+            df["Nota_Mae"] = df["Nota_Mae"].apply(_limpar_mae)
 
         # Normaliza acentuação de prioridades comuns vindas do banco
         if 'Prioridade_Nota' in df.columns:
@@ -659,7 +689,7 @@ def salvar_em_massa(df: pd.DataFrame) -> None:
         "Numero_Nota", "Status_Obra", "Conjunto", "Circuito", "Local_Instalacao",
         "Regional", "Planejado_DDPM", "Mes_Execucao_Planejado", "Data_Envio_Projeto",
         "Status_Nota", "Prioridade_Nota", "Observacao", "Check", "Status_Anterior",
-        "Centro_Responsavel", "origem"
+        "Centro_Responsavel", "origem", "Nota_Mae"
     ]
 
     # Garante que todas as colunas necessárias existam antes de criar os registros
@@ -671,16 +701,22 @@ def salvar_em_massa(df: pd.DataFrame) -> None:
     cursor = conn.cursor()
 
     try:
-        # O banco compartilhado do setor não tem todas as colunas que este app
-        # usa (ex.: `origem`) e não é nosso para alterar — grava-se só o que
-        # existe lá.
         colunas_no_banco = {c[1] for c in cursor.execute("PRAGMA table_info(notas)")}
         colunas_upsert = [c for c in colunas_upsert if c in colunas_no_banco]
         registros = df_salvar[colunas_upsert].to_records(index=False).tolist()
 
-        update_assignments = ',\n'.join([
-            f'"{col}" = excluded."{col}"' for col in colunas_upsert if col != "Numero_Nota"
-        ])
+        assignments = []
+        for col in colunas_upsert:
+            if col == "Numero_Nota":
+                continue
+            if col == "Nota_Mae":
+                assignments.append(
+                    '"Nota_Mae" = CASE WHEN excluded."Nota_Mae" NOT IN (\'-\', \'\', \'None\', \'null\') AND excluded."Nota_Mae" IS NOT NULL '
+                    'THEN excluded."Nota_Mae" ELSE notas."Nota_Mae" END'
+                )
+            else:
+                assignments.append(f'"{col}" = excluded."{col}"')
+        update_assignments = ',\n'.join(assignments)
 
         sql_upsert = f'''
             INSERT INTO notas ({', '.join(f'"{c}"' for c in colunas_upsert)})
@@ -722,7 +758,7 @@ def salvar_log_alteracoes(logs: list) -> None:
         conn.close()
 
 
-def deletar_notas(lista_numeros_nota: list, usuario: str = "sistema") -> int:
+def deletar_notas(lista_numeros_nota: list, usuario: str = "sistema", motivo: str | None = None) -> int:
     """Exclui notas do banco e registra a exclusão no log de auditoria.
 
     Pula notas travadas por OUTRO usuário — quem está no meio de uma edição
@@ -787,9 +823,10 @@ def deletar_notas(lista_numeros_nota: list, usuario: str = "sistema") -> int:
             return 0
 
         data_hora_log = datetime.datetime.now()
+        desc_motivo = f"Registro Apagado (Motivo: {motivo.strip()})" if motivo and motivo.strip() else "Registro Apagado"
         logs_exclusao = [
             (nota, usuario, data_hora_log,
-             "EXCLUSÃO DE NOTA", "Registro Existente", "Registro Apagado")
+             "EXCLUSÃO DE NOTA", "Registro Existente", desc_motivo)
             for nota in permitidos
         ]
         cursor.executemany('''
@@ -1296,14 +1333,38 @@ def salvar_base_dataframe(nome_tabela: str, df: pd.DataFrame) -> None:
 
 
 def carregar_base_dataframe(nome_tabela: str) -> pd.DataFrame | None:
-    """Carrega um DataFrame completo a partir de uma tabela SQLite."""
+    """Carrega um DataFrame a partir da tabela SQLite ou com fallback para a planilha Excel de apoio."""
     conn = get_db_connection()
     try:
-        return pd.read_sql(f"SELECT * FROM {nome_tabela}", conn)
+        df = pd.read_sql(f"SELECT * FROM {nome_tabela}", conn)
+        if df is not None and not df.empty:
+            return df
     except Exception:
-        return None
+        pass
     finally:
         conn.close()
+
+    # Fallback robusto: se a tabela ainda não foi criada no SQLite, lê direto da planilha de apoio correspondente
+    try:
+        if nome_tabela == "base_custo_modular":
+            if os.path.exists(config.CAMINHO_CUSTO_MODULAR):
+                return pd.read_excel(config.CAMINHO_CUSTO_MODULAR, sheet_name='Modulares')
+        elif nome_tabela == "base_sazonal":
+            if os.path.exists(config.CAMINHO_CUSTO_MODULAR):
+                return pd.read_excel(config.CAMINHO_CUSTO_MODULAR, sheet_name='Modulares', skiprows=1, nrows=4)
+        elif nome_tabela == "base_clientes":
+            if os.path.exists(config.CAMINHO_CLIENTES_CONJUNTO):
+                return pd.read_excel(config.CAMINHO_CLIENTES_CONJUNTO)
+        elif nome_tabela == "base_indicador_continuidade":
+            if os.path.exists(config.CAMINHO_INDICADOR_CONTINUIDADE):
+                return pd.read_excel(config.CAMINHO_INDICADOR_CONTINUIDADE)
+        elif nome_tabela == "base_ganhos":
+            if os.path.exists(config.CAMINHO_GANHOS):
+                return pd.read_excel(config.CAMINHO_GANHOS, sheet_name='Ganhos')
+    except Exception as e:
+        print(f"Aviso: Fallback para leitura do Excel ({nome_tabela}) falhou: {e}")
+
+    return None
 
 
 
@@ -1312,7 +1373,7 @@ def carregar_base_dataframe(nome_tabela: str) -> pd.DataFrame | None:
 # ==============================================================================
 # Campos que o usuário pode editar pela UI (Input/app.py:540)
 CAMPOS_EDITAVEIS = [
-    "Status_Nota", "Prioridade_Nota", "Planejado_DDPM", "Observacao",
+    "Status_Nota", "Status_Obra", "Prioridade_Nota", "Planejado_DDPM", "Observacao",
     "Conjunto", "Circuito", "Local_Instalacao",
     "Mes_Execucao_Planejado", "Data_Envio_Projeto", "Check",
 ]

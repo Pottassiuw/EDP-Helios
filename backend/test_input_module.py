@@ -804,7 +804,7 @@ def test_backup_nao_recria_origem_removida_antes_da_abertura(
 
     db.realizar_backup(limite=20, intervalo_horas=0)
 
-    assert not caminho_origem.exists()
+    assert not existe_original(str(caminho_origem))
     assert list(pasta.glob("notas_departamento_*.db")) == []
 
 
@@ -934,9 +934,9 @@ def config_backups_dir():
 def test_responsaveis_roundtrip(banco_temporario):
     from input_module import db
     padrao = db.carregar_responsaveis()
-    assert padrao["Poa"] == "Danilo"
-    db.salvar_responsaveis({"Poa": "Maria"})
-    assert db.carregar_responsaveis() == {"Poa": "Maria"}
+    assert padrao["Mogi das Cruzes"] == "Fabricio"
+    db.salvar_responsaveis({"Mogi das Cruzes": "Maria"})
+    assert db.carregar_responsaveis() == {"Mogi das Cruzes": "Maria"}
 
 
 # ── Task 2 (integração Coffee↔Input): service.py — caminho canônico ──────
@@ -951,6 +951,13 @@ def test_service_criar_notas(banco_temporario):
     linha = df[df["Numero_Nota"] == 555001].iloc[0]
     assert linha["Regional"] == "Guarulhos"          # derivada de Local_Instalacao[:3]
     assert linha["ID_Cronologia"] == 1
+
+    logs = db.carregar_logs()
+    assert (logs["Numero_Nota"] == 555001).any()
+    log_criacao = logs[logs["Numero_Nota"] == 555001].iloc[0]
+    assert log_criacao["Usuario"] == "teste"
+    assert log_criacao["Campo_Alterado"] == "CRIAÇÃO DE NOTA"
+
     with pytest.raises(service.NotasDuplicadasErro):
         service.criar_notas([nota], usuario="teste")
 
@@ -960,6 +967,26 @@ def test_service_criar_notas_duplicata_no_lote(banco_temporario):
     n = service.NovaNota(Numero_Nota=7, Status_Nota="00 Pendente", Prioridade_Nota="Programável")
     with pytest.raises(service.NotasDuplicadasErro):
         service.criar_notas([n, n], usuario="teste")
+
+
+def test_service_criar_nota_filha_diretamente(banco_temporario):
+    from input_module import db, service
+    mae = service.NovaNota(
+        Numero_Nota=555100, Status_Nota="00 Pendente",
+        Prioridade_Nota="Programável", Planejado_DDPM=5.0,
+    )
+    filha = service.NovaNota(
+        Numero_Nota=555101, Status_Nota="00 Pendente",
+        Prioridade_Nota="Programável", Planejado_DDPM=1.0,
+        Nota_Mae="555100",
+    )
+    assert service.criar_notas([mae, filha], usuario="teste") == 2
+    df = db.carregar_dados()
+    linha_filha = df[df["Numero_Nota"] == 555101].iloc[0]
+    assert str(linha_filha["Nota_Mae"]) == "555100"
+    logs = db.carregar_logs()
+    log_filha = logs[logs["Numero_Nota"] == 555101].iloc[0]
+    assert "Mãe: 555100" in log_filha["Valor_Novo"]
 
 
 # ── Task 13: versão do dataset (cache/ETag de GET /notas) ────────────────
@@ -1469,11 +1496,11 @@ def test_export_gera_xlsx(cliente):
 # ── Tarefa 7: endpoints de configuração (responsáveis, bases, backups, migração) ──
 def test_responsaveis_api(cliente):
     r = cliente.get("/api/input/responsaveis")
-    assert r.json()["Poa"] == "Danilo"
+    assert r.json()["Mogi das Cruzes"] == "Fabricio"
     r = cliente.put("/api/input/responsaveis", headers=CABECALHO_USER,
-                    json={"Poa": "Maria"})
+                    json={"Mogi das Cruzes": "Maria"})
     assert r.status_code == 200
-    assert cliente.get("/api/input/responsaveis").json() == {"Poa": "Maria"}
+    assert cliente.get("/api/input/responsaveis").json() == {"Mogi das Cruzes": "Maria"}
 
 
 def test_bases_lista_download_upload(cliente, monkeypatch, tmp_path):
@@ -2899,3 +2926,127 @@ def test_ramal_nota_nova_continua_a_numeracao(banco_temporario):
     df = db.carregar_dados_ramal()
     cronologias = sorted(int(x) for x in df["ID_Cronologia"])
     assert cronologias == [1, 2, 3]
+
+
+# ── Notificações Diárias aos Engenheiros ───────────────────────────────────────
+def test_notificacoes_resumo_diario_por_regional_e_engenheiro(banco_temporario):
+    from input_module import db, service, notificacoes_service
+    import datetime
+
+    hoje = datetime.date.today().isoformat()
+    # 1. Cria notas em diferentes regionais (Guarulhos -> James, Suzano -> Danilo)
+    n1 = service.NovaNota(Numero_Nota=9001, Regional="Guarulhos", Status_Nota="00 Pendente", Prioridade_Nota="Programável", Local_Instalacao="045RL00000001")
+    n2 = service.NovaNota(Numero_Nota=9002, Regional="Suzano", Status_Nota="00 Pendente", Prioridade_Nota="Programável", Local_Instalacao="050RL00000001")
+    service.criar_notas([n1, n2], usuario="felip")
+
+    # 2. Aplica edição em 9001
+    db.aplicar_edicoes([{"Numero_Nota": 9001, "Planejado_DDPM": 3.5}], usuario="felip")
+
+    # 3. Consulta resumo diário
+    resumo = notificacoes_service.obter_resumo_alteracoes_diarias(data_referencia=hoje)
+    assert resumo["total_alteracoes"] >= 3  # criações + edição
+    assert "James" in resumo["engenheiros"]
+    assert "Danilo" in resumo["engenheiros"]
+
+    james_data = resumo["engenheiros"]["James"]
+    assert james_data["total_alteracoes"] >= 2  # criação + edição da nota de Guarulhos
+    assert 9001 in james_data["notas_afetadas"]
+
+
+def test_notificacoes_api_e_emails_responsaveis(cliente):
+    # Teste de endpoints de e-mails dos responsáveis
+    r_get = cliente.get("/api/input/responsaveis/emails")
+    assert r_get.status_code == 200
+    emails_iniciais = r_get.json()
+    assert "James" in emails_iniciais
+
+    r_put = cliente.put(
+        "/api/input/responsaveis/emails",
+        json={"James": "james.novo@edp.com", "Danilo": "danilo.novo@edp.com"},
+        headers=CABECALHO_USER,
+    )
+    assert r_put.status_code == 200
+    assert cliente.get("/api/input/responsaveis/emails").json()["James"] == "james.novo@edp.com"
+
+    # Teste de endpoint de resumo diário
+    r_resumo = cliente.get("/api/input/notificacoes/resumo-diario")
+    assert r_resumo.status_code == 200
+    assert "engenheiros" in r_resumo.json()
+
+
+def test_notificacoes_multiplos_engenheiros_mesma_regional(banco_temporario):
+    from input_module import db, service, notificacoes_service
+    import datetime
+
+    hoje = datetime.date.today().isoformat()
+    # Atribui dois engenheiros para Mogi das Cruzes
+    db.salvar_responsaveis({"Mogi das Cruzes": "Fabricio, Danilo", "Guarulhos": "James"})
+    db.salvar_emails_responsaveis({
+        "Fabricio": "fabricio@edp.com",
+        "Danilo": "danilo@edp.com",
+        "James": "james@edp.com",
+    })
+
+    # Cria nota em Mogi das Cruzes (prefixo BIR)
+    n = service.NovaNota(
+        Numero_Nota=9550,
+        Conjunto="MOGI DAS CRUZES",
+        Status_Nota="00 Pendente",
+        Prioridade_Nota="Programável",
+        Local_Instalacao="BIRRL00000001",
+    )
+    service.criar_notas([n], usuario="teste_user")
+    db.aplicar_edicoes([{"Numero_Nota": 9550, "Status_Nota": "10 Concluída"}], usuario="teste_user")
+
+    resumo = notificacoes_service.obter_resumo_alteracoes_diarias(data_referencia=hoje)
+    assert "Fabricio" in resumo["engenheiros"]
+    assert "Danilo" in resumo["engenheiros"]
+
+    fab_dados = resumo["engenheiros"]["Fabricio"]
+    dan_dados = resumo["engenheiros"]["Danilo"]
+
+    # Ambos os engenheiros recebem as alterações da regional compartilhada
+    assert 9550 in fab_dados["notas_afetadas"]
+    assert 9550 in dan_dados["notas_afetadas"]
+    assert fab_dados["total_alteracoes"] >= 2
+    assert dan_dados["total_alteracoes"] >= 2
+
+
+def test_gerar_planilha_alteracoes_anexo():
+    import os
+    import openpyxl
+    from input_module import notificacoes_service
+
+    alteracoes = [
+        {
+            "Numero_Nota": 123456,
+            "Regional": "Mogi das Cruzes",
+            "Conjunto": "SUZANO",
+            "Circuito": "MOG-01",
+            "Tipo_Evento": "Edição de Campo",
+            "Campo_Alterado": "Status_Nota",
+            "Valor_Antigo": "00 Pendente",
+            "Valor_Novo": "10 Concluída",
+            "Detalhe": "Status_Nota: '00 Pendente' ➔ '10 Concluída'",
+            "Usuario": "felip",
+            "Data_Hora": "2026-08-18 11:00:00",
+        },
+    ]
+
+    caminho_xlsx = notificacoes_service.gerar_planilha_alteracoes_anexo("Fabricio", alteracoes, "2026-08-18")
+    assert os.path.exists(caminho_xlsx)
+    assert caminho_xlsx.endswith(".xlsx")
+
+    wb = openpyxl.load_workbook(caminho_xlsx)
+    assert "Notas Modificadas" in wb.sheetnames
+    assert "Resumo Executivo" in wb.sheetnames
+
+    ws_det = wb["Notas Modificadas"]
+    assert ws_det.cell(row=2, column=1).value == 123456
+    assert ws_det.cell(row=2, column=2).value == "Mogi das Cruzes"
+
+    wb.close()
+    try:
+        os.remove(caminho_xlsx)
+    except Exception:
+        pass
