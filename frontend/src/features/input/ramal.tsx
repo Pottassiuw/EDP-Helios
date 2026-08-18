@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/select';
 import { SegTabs, Banner, Eyebrow, StatNumber } from '@/components/branded/section';
 import { ConfirmModal } from '../coffee/confirm-modal';
+import { getInputEmptyState, InputEmptyState } from './empty-state';
 
 type ModoRamal = 'visao' | 'rapida' | 'lote' | 'exclusao' | 'cadastro' | 'colagem';
 
@@ -46,9 +47,11 @@ interface Mensagem { tipo: 'ok' | 'erro'; texto: string; }
 export function Ramal({
   dadosPrincipais,
   estadoFiltros,
+  onClearFilters,
 }: {
   dadosPrincipais: InputDataset;
   estadoFiltros?: FiltersState;
+  onClearFilters?: () => void;
 }): React.JSX.Element {
   const { data: dadosRamal, isLoading, error, dataUpdatedAt } = useRamalData();
   const recarregar = useRecarregarRamal();
@@ -69,6 +72,7 @@ export function Ramal({
     if (!estadoFiltros) return raw;
     return filtrarRegistros(raw, estadoFiltros);
   }, [registros, estadoFiltros]);
+  const emptyState = getInputEmptyState(registros.length, registrosComoNotaInput.length);
 
   const previewColagem = React.useMemo(
     () => parseColagemTsv(textoColagem, COLUNAS_COLAGEM_RAMAL),
@@ -192,18 +196,14 @@ export function Ramal({
         <SegTabs tabs={MODOS} value={modo} onChange={trocarModo} ariaLabel="Modo do ramal" />
       </div>
 
-      {isLoading && (
-        <div className="p-6">
-          <NotesTableSkeleton />
-        </div>
-      )}
+      {isLoading && <div role="status" className="p-8 text-center text-text-dim text-sm">Carregando notas ramal...</div>}
       {error != null && !dadosRamal && (
-        <div className="p-4 rounded-md bg-red/10 border border-red/20 text-red text-sm">
+        <div role="alert" className="p-4 rounded-md bg-red/10 border border-red/20 text-red text-sm">
           Erro ao carregar ramal: {String((error as Error).message)}
         </div>
       )}
       {error != null && dadosRamal && (
-        <div className="px-3 py-1.5 rounded-md bg-amber/10 border border-amber/20 text-amber text-xs">
+        <div role="alert" className="px-3 py-1.5 rounded-md bg-amber/10 border border-amber/20 text-amber text-xs">
           {`Backend indisponível — mostrando dados salvos${dataUpdatedAt ? ` de ${new Date(dataUpdatedAt).toLocaleString('pt-BR')}` : ''}.`}
         </div>
       )}
@@ -218,7 +218,11 @@ export function Ramal({
             <Eyebrow className="text-xs tracking-wider">notas cadastradas no ramal</Eyebrow>
           </div>
           <div className="rounded-lg border border-line bg-surface overflow-hidden shadow-sm">
-            <DataGrid registros={registrosComoNotaInput} colunas={COLUNAS_RAMAL} />
+            {emptyState ? (
+              emptyState === 'filter'
+                ? <InputEmptyState state="filter" onClearFilters={onClearFilters} />
+                : <InputEmptyState state="dataset" />
+            ) : <DataGrid registros={registrosComoNotaInput} colunas={COLUNAS_RAMAL} />}
           </div>
         </React.Fragment>
       )}
@@ -242,13 +246,17 @@ export function Ramal({
           </Card>
           <Card>
             <CardContent className="pt-6">
-              <NotesTable
+              {emptyState ? (
+                emptyState === 'filter'
+                  ? <InputEmptyState state="filter" onClearFilters={onClearFilters} />
+                  : <InputEmptyState state="dataset" />
+              ) : <NotesTable
                 registros={registrosComoNotaInput}
                 colunas={COLUNAS_RAMAL}
                 edicoes={edicoes as unknown as Map<number, Partial<NotaInput>>}
                 onEditar={onEditar}
                 statusOpcoes={dadosPrincipais.meta.status_opcoes}
-                prioridadeOpcoes={dadosPrincipais.meta.prioridade_opcoes} />
+                prioridadeOpcoes={dadosPrincipais.meta.prioridade_opcoes} />}
             </CardContent>
           </Card>
         </React.Fragment>
@@ -308,14 +316,18 @@ export function Ramal({
           )}
           <Card>
             <CardContent className="pt-6">
-              <NotesTable
+              {emptyState ? (
+                emptyState === 'filter'
+                  ? <InputEmptyState state="filter" onClearFilters={onClearFilters} />
+                  : <InputEmptyState state="dataset" />
+              ) : <NotesTable
                 registros={registrosComoNotaInput}
                 colunas={COLUNAS_RAMAL}
                 selecionados={selecionados}
                 onToggleSelecionado={toggleSelecionado}
                 onToggleTodos={toggleTodos}
                 statusOpcoes={dadosPrincipais.meta.status_opcoes}
-                prioridadeOpcoes={dadosPrincipais.meta.prioridade_opcoes} />
+                prioridadeOpcoes={dadosPrincipais.meta.prioridade_opcoes} />}
             </CardContent>
           </Card>
         </React.Fragment>
