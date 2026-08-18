@@ -25,7 +25,8 @@ enquanto o usuário está com a tela aberta.
 | `frontend/src/features/input/rateio-lib.ts` | Regras puras testáveis do rateio: identifica notas ativas, valida/normaliza notas-mãe e extrai quantidade/unidade de medidas SAP. |
 | `frontend/src/features/input/logs.tsx` | Sub-aba "Logs": três sub-abas (Alterações nas Notas, Bases de Apoio, Linha do Tempo), cada uma consumindo um endpoint próprio via `useQuery`. |
 | `frontend/src/features/input/settings.tsx` | Sub-aba "Configurações": nome do usuário (log de auditoria), responsáveis por conjunto, status/substituição das bases de apoio, lista de backups locais para download. |
-| `frontend/src/features/input/notes-table.tsx` | Tabela windowed (virtualização manual por `scrollTop`) usada nos modos editáveis/selecionáveis de `manage.tsx`/`ramal.tsx`: seleção por checkbox, edição inline por duplo clique, ordenação por coluna. Se recebe `bloqueios`/`onIniciarEdicao`, mostra um badge de cadeado na linha travada por outro usuário e intercepta o clique de edição para travar a nota antes de abrir a célula. |
+| `frontend/src/features/input/notes-table.tsx` | Tabela windowed (virtualização manual por `scrollTop`, `ALTURA_LINHA = 40`) usada nos modos editáveis/selecionáveis de `manage.tsx`/`ramal.tsx`: seleção por checkbox, edição inline por duplo clique, ordenação por coluna. Se recebe `bloqueios`/`onIniciarEdicao`, mostra um badge de cadeado na linha travada por outro usuário e intercepta o clique de edição para travar a nota antes de abrir a célula. O indicador de gavetinha (Nota Mãe → Filhas) é um botão de 18×18px com chevron + contador mono (`×N`) na linha-mãe; as filhas recebem uma linha-guia de árvore (traço vertical + conector horizontal) em vez de um ícone por linha. |
+| `frontend/src/features/input/notes-table-skeleton.tsx` | `NotesTableSkeleton`: linhas-fantasma (`animate-pulse`) na largura aproximada das colunas reais, usada como estado de carregamento em `input-section.tsx` e `ramal.tsx` no lugar de um spinner genérico. |
 | `frontend/src/features/input/use-bloqueios.ts` | `useBloqueios`: polling React Query de `GET /bloqueios` a cada 60s em repouso e 15s enquanto há edição com lock ativo. Sem cache em disco; devolve um `Map<Numero_Nota, Bloqueio>` e `recarregar` para invalidar imediatamente após travar/destravar. |
 | `frontend/src/features/input/hierarquia-card.tsx` | Card de vínculo manual de hierarquia (nota-mãe/notas-filhas): busca a hierarquia de uma nota, lista candidatas órfãs do mesmo conjunto e aplica o vínculo (`InputApi.vincularHierarquia`). |
 | `frontend/src/features/input/data-grid.tsx` | Grid somente-leitura estilo Excel sobre `react-datasheet-grid`: ordenação, redimensionamento/autofit de colunas por arraste, barra de status com soma/média/contagem da seleção e a ação de detalhes fixa criada por `stickyRightColumn`, fora de `COLUNAS` e da exportação. |
@@ -34,8 +35,7 @@ enquanto o usuário está com a tela aberta.
 | `frontend/src/features/input/use-input-sync.ts` | Fonte única de polling de `GET /sync` por aba Input montada: 60s em repouso e 3s somente quando `sincronizando=true`; detecta mudança de versão, invalida o dataset, expõe erro/retry ao cabeçalho e mantém o aviso de fechamento durante operação ativa. |
 | `frontend/src/features/input/network-sync-status.tsx` | Card apresentacional do cabeçalho para os quatro estados da rede: verificando, sincronizando, sincronizada e indisponível. |
 | `frontend/src/features/input/cache.ts` | Snapshots do dataset em IndexedDB via Dexie (tabela `snapshots`, uma linha por dataset: `input-dados`, `ramal-dados`). Best-effort: falha de IndexedDB equivale a cache vazio. |
-| `frontend/src/features/input/ui.ts` | Constantes de estilo compartilhadas: `CLASSE_SELECT_MONO` para `SelectContent` mono-styling, usada por `filters.tsx`, `manage.tsx` e `ramal.tsx`. Nota: `MesExecucaoPicker` (agora em `components/branded/`) declara sua própria instância internamente. |
-| `frontend/src/components/branded/mes-execucao-picker.tsx` | `MesExecucaoPicker`: dropdown do campo "Mês de Execução Planejado", movido para `components/branded/` para reutilização entre features (Input e futura integração COFFEE). |
+| `frontend/src/components/branded/mes-execucao-picker.tsx` | `MesExecucaoPicker`: dropdown do campo "Mês de Execução Planejado", movido para `components/branded/` para reutilização entre features (Input e futura integração COFFEE). Continua declarando sua própria fonte mono internamente (`CLASSE_SELECT_MONO` local) — não foi alterado pela revisão de consistência abaixo, por ser compartilhado com COFFEE/Carteira. |
 | `frontend/src/features/input/colagem-planilha.tsx` | `ColagemPlanilha`: bloco presentacional do modo "Colar Planilha" (cabeçalho de colunas + textarea + preview), reaproveitado por `manage.tsx` e `ramal.tsx`. |
 
 ## Fluxo: Overview e sub-navegação
@@ -327,25 +327,13 @@ o Input em si não guarda essa informação.
   de edição em lote precisa lembrar de repetir esse mapeamento
   manualmente, não há um wrapper compartilhado que resolva isso uma
   vez.
-- `manage.tsx:124,132` — a exclusão em lote e o "desfazer" usam
-  `window.confirm` nativo, diferente do `ConfirmModal` (`AlertDialog`)
-  usado no módulo COFFEE pela Operação e por Concluídas (documentado em
-  `02-frontend-coffee.md`) para o mesmo tipo de ação destrutiva —
-  inconsistência de padrão de UI entre módulos, sem campo de
-  justificativa nem estilo consistente com o resto do app.
-- `overview.tsx:58-66` — o botão "Sincronizar SAP" não guarda estado de
-  "em andamento": nada impede múltiplos cliques disparando várias
-  sincronizações em paralelo no backend, diferente do botão "Exportar
-  Excel" logo ao lado, que usa `exportando` para se desabilitar
-  (`overview.tsx:25,67-70`).
-- `app.css` (bloco `.input-scope`) — os cards do módulo Input usam a
-  borda `--line` (hairline discreto) em vez de `--line-2` (usada em
-  todo o resto do app), e os `Select` internos renderizam em
-  `var(--font-mono)`. Escopado via classe `input-scope` na raiz de
-  `input-section.tsx` para não vazar para Coffee/Verificar. O mono nos
-  `Select` é um desvio deliberado do `DESIGN.md` (que reserva mono
-  para código) — decisão explícita para casar com a estética "grade de
-  dados" do Input. `MesExecucaoPicker` (agora em `components/branded/`)
-  já declara `CLASSE_SELECT_MONO` internamente; qualquer outro novo
-  `SelectContent` do módulo precisa lembrar de aplicá-la manualmente,
-  pois o conteúdo é portalado para fora de `.input-scope`.
+- `app.css` (bloco `.input-scope`) — os cards do módulo Input usam
+  `border-color: var(--line-2)`, igual ao resto do app. O `Select`
+  interno voltou à fonte padrão (Inter) em `filters.tsx`, `manage.tsx`
+  e `ramal.tsx` — a fonte mono (`CLASSE_SELECT_MONO`, revisão de
+  consistência visual) saiu tanto do CSS quanto de `ui.ts` (arquivo
+  removido). `MesExecucaoPicker` (`components/branded/`) é a única
+  exceção: mantém sua própria mono internamente por ser compartilhado
+  com COFFEE/Carteira, então o campo "Mês de Execução Planejado" ainda
+  mostra o trigger em Inter com o popup em mono quando usado dentro do
+  Input.
