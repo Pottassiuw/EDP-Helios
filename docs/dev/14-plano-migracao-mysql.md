@@ -112,8 +112,9 @@ tinha. Isso é o ponto mais frágil da migração (§6.8).
 
 Somente leitura, aberto com URI `?mode=ro` + `PRAGMA query_only = ON`
 (`verificar_module/source.py:56-58`). Uma tabela: `ids_verificacao`,
-lida inteira via `pd.read_sql_query`. Caminho padrão:
-`//fscoc10/dep/DDPM/COFFEE/Gerador de Notas/Verificar.db`.
+lida inteira via `pd.read_sql_query`. O caminho padrão é um
+compartilhamento de rede definido em `CAMINHO_REDE_PADRAO`
+(`verificar_module/source.py:16`), sobrescritível por `VERIFICAR_DB_PATH`.
 
 **Este banco não é nosso e não deve ser migrado** — ver §4.2.
 
