@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { InputApi } from './api';
 import { INPUT_DADOS_KEY } from './use-input-data';
 import type { NetworkSyncState } from './network-sync-status';
+import type { SapSyncState } from './types';
 
 export const INPUT_SYNC_KEY = ['input', 'sync'] as const;
 export const SYNC_INTERVALO_REPOUSO_MS = 60_000;
@@ -13,12 +14,14 @@ export const SYNC_INTERVALO_ATIVO_MS = 3_000;
 interface RespostaSincronizacao {
   versao: string;
   sincronizando?: boolean;
+  sap?: SapSyncState;
 }
 
 export function intervaloPollingSincronizacao(
-  resposta: Pick<RespostaSincronizacao, 'sincronizando'> | undefined,
+  resposta: Pick<RespostaSincronizacao, 'sincronizando' | 'sap'> | undefined,
 ): number {
-  return resposta?.sincronizando ? SYNC_INTERVALO_ATIVO_MS : SYNC_INTERVALO_REPOUSO_MS;
+  const sapAtivo = resposta?.sap?.estado === 'executando';
+  return resposta?.sincronizando || sapAtivo ? SYNC_INTERVALO_ATIVO_MS : SYNC_INTERVALO_REPOUSO_MS;
 }
 
 export function aplicarRespostaSincronizacao(
@@ -39,9 +42,11 @@ interface UseInputSyncResultado {
 /** Fonte única do status e da detecção de mudanças do Input por aba montada. */
 export function useInputSync(
   versaoConhecida: string | undefined,
+  estadoSapConhecido?: SapSyncState['estado'],
 ): UseInputSyncResultado {
   const queryClient = useQueryClient();
   const ultimaVersaoNotificada = React.useRef<string>();
+  const ultimoSapNotificado = React.useRef(estadoSapConhecido);
   const consulta = useQuery({
     queryKey: INPUT_SYNC_KEY,
     queryFn: () => InputApi.sync(),
@@ -51,15 +56,22 @@ export function useInputSync(
 
   React.useEffect(() => {
     if (!consulta.data) return;
-    if (consulta.data.versao === ultimaVersaoNotificada.current) return;
-    const mudou = aplicarRespostaSincronizacao(queryClient, versaoConhecida, consulta.data);
-    if (mudou) {
-      ultimaVersaoNotificada.current = consulta.data.versao;
-      toast.info('Dados atualizados por outro usuário', {
-        description: 'A tabela foi recarregada em segundo plano.',
-      });
+    const sapAtual = consulta.data.sap?.estado;
+    const sapMudou = estadoSapConhecido !== undefined && sapAtual !== ultimoSapNotificado.current;
+    const versaoInvalidou = aplicarRespostaSincronizacao(queryClient, versaoConhecida, consulta.data);
+    if (!versaoInvalidou && !sapMudou) {
+      ultimoSapNotificado.current = sapAtual;
+      return;
     }
-  }, [consulta.data, queryClient, versaoConhecida]);
+    ultimaVersaoNotificada.current = consulta.data.versao;
+    ultimoSapNotificado.current = sapAtual;
+    if (sapMudou && !versaoInvalidou) {
+      void queryClient.invalidateQueries({ queryKey: INPUT_DADOS_KEY });
+    }
+    toast.info('Dados atualizados por outro usuário', {
+      description: 'A tabela foi recarregada em segundo plano.',
+    });
+  }, [consulta.data, queryClient, versaoConhecida, estadoSapConhecido]);
 
   React.useEffect(() => {
     if (!consulta.data?.sincronizando) return;

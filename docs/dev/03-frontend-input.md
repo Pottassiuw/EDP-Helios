@@ -243,6 +243,15 @@ Cada filtro adicionado renderiza um controle conforme o tipo (`tipoDoCampo`):
 
 O botão de limpar filtros zera a busca global, o seletor "Planejado 2026" e os filtros avançados ativos de uma só vez.
 
+A busca global mantém o texto do campo responsivo e propaga `estado.busca`
+após 300ms sem novas teclas, usando o helper tipado de
+`src/lib/debounce.ts`. `buscarPorTextoGlobal` (`lib.ts`) memoiza o índice pela
+identidade do array de registros: consultas numéricas continuam casando
+`Numero_Nota` ou `Nota_Mae`, enquanto consultas textuais verificam cada campo
+individualmente, sem criar correspondências artificiais entre campos vizinhos.
+Os filtros avançados, inclusive a negação `*termo*`, são aplicados depois da
+busca global e conservam a semântica anterior.
+
 ## Card de status das metas (settings.tsx)
 
 `Settings` mostra o card "Metas do Plano de Recomposição" acima dos
