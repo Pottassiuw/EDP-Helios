@@ -8,7 +8,6 @@ import {
   FILTROS_TEXTO,
   ROTULOS,
 } from "./columns";
-import { CLASSE_SELECT_MONO } from "./ui";
 import { criarFuncaoComDebounce } from "@/lib/debounce";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -508,7 +507,7 @@ export function Filters({
               <SelectTrigger aria-label="Adicionar campo de filtro" className="h-[32px] bg-surface border-line-2">
                 <SelectValue placeholder="+ Adicionar filtro avançado..." />
               </SelectTrigger>
-              <SelectContent className={CLASSE_SELECT_MONO}>
+              <SelectContent>
                 {camposDisponiveis.map((c) => (
                   <SelectItem key={c} value={c}>
                     {ROTULOS[c] ?? c}
