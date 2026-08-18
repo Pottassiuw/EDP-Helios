@@ -173,13 +173,9 @@ def obter_resumo_status10() -> dict:
     total_custo_ordem = float(df_st10["Custo_Plan"].sum())
 
     if "Regional" not in df_st10.columns:
-<<<<<<< HEAD
-        df_st10["Regional"] = "Não Mapeado"
-=======
         df_st10["Regional"] = "-"
     else:
         df_st10["Regional"] = df_st10["Regional"].fillna("-")
->>>>>>> origin/develop
     if "Conjunto" not in df_st10.columns:
         df_st10["Conjunto"] = "-"
     else:
@@ -196,44 +192,12 @@ def obter_resumo_status10() -> dict:
         .reset_index()
     )
 
-<<<<<<< HEAD
-    resumo_regional = agrupado.to_dict(orient="records")
-
-    # Mapeia colunas amigáveis para a lista de registros
-    registros_limpos = []
-    for reg in df_st10.to_dict(orient="records"):
-        registros_limpos.append({
-            "Numero_Nota": int(reg.get("Numero_Nota", 0) or reg.get("Nota", 0) or 0),
-            "Ordem": str(reg.get("Ordem", "-") or "-").replace(".0", ""),
-            "Status_Nota": str(reg.get("Status_Nota", "10 Em planejamento") or "10 Em planejamento"),
-            "Status_Usuario": str(reg.get("Status usuário", reg.get("Status_Usuario", reg.get("Status_Usuário_Ordem", "-"))) or "-"),
-            "Conjunto": str(reg.get("Conjunto", "-") or "-"),
-            "Denominacao_Conjunto": str(reg.get("Denominação do conjunto", reg.get("Denominacao_Conjunto", "-")) or "-"),
-            "Local_Instalacao": str(reg.get("Local_Instalacao", reg.get("Local de instalação", "-")) or "-"),
-            "Local_Instalacao_Afetado": str(reg.get("Local de instalação afetado", reg.get("Local_Instalacao_Afetado", "-")) or "-"),
-            "Planejado_DDPM": round(float(reg.get("Planejado_DDPM", 0.0) or 0.0), 2),
-            "Modular": round(float(reg.get("Modular", 0.0) or 0.0), 2),
-            "Modular_Obra": round(float(reg.get("Modular_Obra", 0.0) or 0.0), 2),
-            "Custo_Plan": round(float(reg.get("Custo_Plan", 0.0) or 0.0), 2),
-            "PEP": str(reg.get("PEP", reg.get("PEP CORRIGIDO", "-")) or "-"),
-            "Mes_Execucao_Planejado": str(reg.get("Mes_Execucao_Planejado", reg.get("Mês de Execução  Planejado - DDPM", "-")) or "-"),
-            "Prioridade_Nota": str(reg.get("Prioridade_Nota", reg.get("Prioridade", "-")) or "-"),
-            "Regional": str(reg.get("Regional", "-") or "-"),
-            "Centro_Responsavel": str(reg.get("Centro_Responsavel", reg.get("CenTrabalho princ.", "-")) or "-"),
-            "Cidade": str(reg.get("Cidade", "-") or "-"),
-            "Descricao": str(reg.get("Descricao", reg.get("Descrição", "-")) or "-"),
-            "Criado_Por": str(reg.get("Criado por", reg.get("Criado_Por", "-")) or "-"),
-            "Data_Nota": str(reg.get("Data da nota", reg.get("Data_Nota_SAP", "-")) or "-"),
-            "Observacao": str(reg.get("Observacao", "-") or "-"),
-        })
-=======
     resumo_regional = json.loads(
         agrupado.to_json(orient="records", force_ascii=False)
     )
     registros = json.loads(
         df_st10.to_json(orient="records", force_ascii=False)
     )
->>>>>>> origin/develop
 
     return {
         "total_notas": total_notas,
@@ -241,7 +205,7 @@ def obter_resumo_status10() -> dict:
         "total_modular_obra": round(total_modular_obra, 2),
         "total_custo_ordem": round(total_custo_ordem, 2),
         "resumo_regional": resumo_regional,
-        "registros": registros_limpos,
+        "registros": registros,
     }
 
 
@@ -498,14 +462,9 @@ def gerar_email_outlook_status10(usuario: str = "sistema") -> dict:
             "Regional": "Regional",
             "Conjunto": "Conjunto",
             "Qtd_Notas": "Qtd Notas",
-<<<<<<< HEAD
-            "Total_Fisico": "Físico (Postes)",
-            "Total_Modular": "Modular Obra (R$)",
+            "Total_Fisico": rotulos.get("Total_Planejado", "Físico (Postes)"),
+            "Total_Modular": rotulos.get("Total_Modular", "Modular Obra (R$)"),
             "Total_Custo_Ordem": "Custo Ordem SAP (R$)",
-=======
-            "Total_Planejado": rotulos["Total_Planejado"],
-            "Total_Modular": rotulos["Total_Modular"],
->>>>>>> origin/develop
         }
     )
 

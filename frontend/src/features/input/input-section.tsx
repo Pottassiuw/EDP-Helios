@@ -161,7 +161,6 @@ export function InputSection({
             onSetEstadoFiltros={setEstadoFiltros}
             onIrParaSincronizacao={onIrParaSincronizacao}
             onIrParaRateio={() => setSub('rateio')}
-            onClearFilters={clearFilters}
           />
         )}
         {dados && sub === 'rateio' && (

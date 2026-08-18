@@ -19,9 +19,10 @@ export function limparNotaMae(valor: string | number | null | undefined): string
   return Number.isNaN(numero) ? '' : String(Math.floor(numero));
 }
 
-export function extrairValorUnidadeMedida(medida: string | null | undefined): [number, 'km' | 'un' | null] {
-  if (!medida || medida === '-') return [0, null];
-  const normalizada = medida.toLowerCase().replace(',', '.');
+export function extrairValorUnidadeMedida(medida: string | number | null | undefined): [number, 'km' | 'un' | null] {
+  if (medida === null || medida === undefined) return [0, null];
+  const normalizada = String(medida).trim().toLowerCase().replace(',', '.');
+  if (!normalizada || normalizada === '-') return [0, null];
   const correspondencia = normalizada.match(/[\d.]+/);
   if (!correspondencia) return [0, null];
   const valor = Number.parseFloat(correspondencia[0]);
