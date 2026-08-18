@@ -793,7 +793,7 @@ def status_bases() -> list:
         if (_status_bases_cache["valor"] is not None
                 and agora - _status_bases_cache["quando"] < _STATUS_BASES_TTL_SEGUNDOS):
             return _status_bases_cache["valor"]
-        
+
         bases_map = {}
         try:
             with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(config.BASES_REDE) or 1)) as executor:

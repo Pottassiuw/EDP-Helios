@@ -180,4 +180,3 @@ export function InputNotaInspector({
     </React.Fragment>
   );
 }
-

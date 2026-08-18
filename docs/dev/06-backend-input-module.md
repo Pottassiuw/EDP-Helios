@@ -830,7 +830,3 @@ Na visualização hierárquica (`NotesTable` com `agruparGavetinhas=true`):
   - `POST /api/input/notificacoes/enviar-email`: dispara a criação de rascunhos no Outlook com anexo Excel (individual ou para todos com alterações).
   - `GET/PUT /api/input/responsaveis/emails`: gerenciamento dos endereços de e-mail dos engenheiros responsáveis.
 - **Frontend (`NotificacaoModal` & `Settings`):** Modal acessível no cabeçalho de **Logs** e **Gerenciar**, com preview das alterações, status por engenheiro, instrução de múltiplos responsáveis e botão de disparo com 1 clique.
-
-
-
-

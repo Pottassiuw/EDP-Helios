@@ -487,4 +487,3 @@ export function Logs(): React.JSX.Element {
     </div>
   );
 }
-

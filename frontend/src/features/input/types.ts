@@ -179,4 +179,3 @@ export interface ResumoNotificacoesDiarias {
 }
 
 export type AbaInput = 'visao' | 'gerenciar' | 'rateio' | 'ramal' | 'relatorios' | 'logs' | 'config';
-

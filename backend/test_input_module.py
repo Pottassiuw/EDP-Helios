@@ -3050,4 +3050,3 @@ def test_gerar_planilha_alteracoes_anexo():
         os.remove(caminho_xlsx)
     except Exception:
         pass
-

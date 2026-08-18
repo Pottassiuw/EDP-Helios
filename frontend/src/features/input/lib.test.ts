@@ -187,4 +187,3 @@ describe('Ocultação de Notas (ehNotaOculta, buscarNotasOcultas, filtrarRegistr
     expect(busca9999ComOcultas).toHaveLength(4);
   });
 });
-
