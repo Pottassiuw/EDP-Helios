@@ -120,6 +120,7 @@ export function OperacaoComposer({
           onChange={(event) => { setValue(event.target.value); setErro(null); }}
           onKeyDown={onKeyDown}
           placeholder="Cole IDs — espaço, vírgula ou linha"
+          aria-label="IDs COFFEE"
           rows={2}
           aria-invalid={erro !== null}
           className="min-h-[52px] flex-1 resize-none font-mono text-[12.5px]"
