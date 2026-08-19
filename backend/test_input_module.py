@@ -808,6 +808,13 @@ def test_backup_nao_recria_origem_removida_antes_da_abertura(
     assert list(pasta.glob("notas_departamento_*.db")) == []
 
 
+@pytest.mark.skipif(
+    os.name != "nt",
+    reason="Semântica de UNC é do Windows: em POSIX a barra invertida é parte "
+           "do nome do arquivo, não separador. O caminho de rede só existe no "
+           "perfil de produção, que roda em Windows (e é onde o CI executa "
+           "esta suíte).",
+)
 def test_conexao_backup_converte_unc_para_uri_sem_authority(monkeypatch):
     from input_module import db
 
@@ -831,6 +838,28 @@ def test_conexao_backup_converte_unc_para_uri_sem_authority(monkeypatch):
     uri_memoria = chamada["uri"].replace("mode=ro", "mode=memory")
     conexao = conectar_original(uri_memoria, uri=True)
     conexao.close()
+
+
+def test_conexao_backup_abre_caminho_local_somente_leitura(tmp_path, monkeypatch):
+    """Contraparte multiplataforma do teste de UNC: caminho comum vira URI ro."""
+    from input_module import db
+
+    origem = tmp_path / "notas departamento.db"
+    origem.write_bytes(b"")
+    chamada = {}
+
+    def capturar(database, **kwargs):
+        chamada["uri"] = database
+        chamada["kwargs"] = kwargs
+        return object()
+
+    monkeypatch.setattr(db.sqlite3, "connect", capturar)
+
+    db._conectar_origem_backup(str(origem))
+
+    assert chamada["uri"].startswith("file://")
+    assert chamada["uri"].endswith("notas%20departamento.db?mode=ro")
+    assert chamada["kwargs"] == {"uri": True, "timeout": 30}
 
 
 def test_backups_concorrentes_respeitam_limite_e_nao_deixam_parcial(
