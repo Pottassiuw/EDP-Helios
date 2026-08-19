@@ -769,6 +769,11 @@ def _checar_base_com_timeout(item):
     try:
         if not caminho:
             return {"nome": nome, "arquivo": "", "encontrada": False, "modificada": None}
+        if "IW38" in nome and not os.path.exists(caminho):
+            pasta = os.path.dirname(caminho)
+            alt = os.path.join(pasta, "Gerada_custo_ord_IW38.XLSX" if "Gerada_ord" in caminho else "Gerada_ord_IW38.XLSX")
+            if os.path.exists(alt):
+                caminho = alt
         existe = os.path.exists(caminho)
         mtime = datetime.datetime.fromtimestamp(os.path.getmtime(caminho)).isoformat() if existe else None
         return {
@@ -801,9 +806,10 @@ def status_bases() -> list:
                     executor.submit(_checar_base_com_timeout, item): item[0]
                     for item in config.BASES_REDE.items()
                 }
-                for f in concurrent.futures.as_completed(futuros, timeout=1.5):
+                concluidos, _ = concurrent.futures.wait(futuros.keys(), timeout=4.0)
+                for f in concluidos:
                     try:
-                        res = f.result(timeout=0.1)
+                        res = f.result()
                         bases_map[res["nome"]] = res
                     except Exception:
                         pass
