@@ -389,20 +389,6 @@ def limpar_ambiente():
         print("🧹 Instâncias do Excel fechadas.")
     except: pass
 
-    arquivos_limpar = [
-        CAMINHO_EXPORT_NOTAS,
-        CAMINHO_EXPORT_ORDEM,
-        CAMINHO_EXPORT_MEDIDAS
-    ]
-
-    for arq in arquivos_limpar:
-        try:
-            if os.path.exists(arq):
-                os.remove(arq)
-                print(f"🗑️ Arquivo antigo '{os.path.basename(arq)}' deletado.")
-        except Exception as e:
-            print(f"⚠️ Aviso: Não foi possível deletar '{os.path.basename(arq)}'. {e}")
-
 def obter_ou_criar_sessao_sap(login_sap=None, senha_sap=None):
     """
     Tenta se conectar a uma sessão ativa do SAP. Se encontrar uma conexão aberta mas não autenticada (tela de login),
@@ -854,11 +840,12 @@ if __name__ == "__main__":
         df_para_ordens = pd.read_excel(caminho_completo_iw28)
 
         if "Ordem" in df_para_ordens.columns:
-            orders = df_para_ordens["Ordem"].dropna().astype(int).astype(str).tolist()
-            if orders:
-                sap.execute_iw38(orders, LAYOUT_IW38, os.path.dirname(CAMINHO_EXPORT_ORDEM), ARQUIVO_NOME_IW38)
+            orders_unicas = sorted(list({str(int(o)) for o in df_para_ordens["Ordem"].dropna() if str(o).strip() not in ["", "0", "0.0", "nan", "None"]}))
+            if orders_unicas:
+                print(f"Auditando {len(orders_unicas)} ordens únicas na IW38...")
+                sap.execute_iw38(orders_unicas, LAYOUT_IW38, os.path.dirname(CAMINHO_EXPORT_ORDEM), ARQUIVO_NOME_IW38)
             else:
-                print("⚠️ Nenhuma ordem atrelada às notas foi encontrada.")
+                print("⚠️ Nenhuma ordem válida atrelada às notas foi encontrada.")
         else:
             print("⚠️ Coluna 'Ordem' não encontrada no arquivo gerado.")
     except Exception as e:
