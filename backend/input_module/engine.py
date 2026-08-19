@@ -354,19 +354,24 @@ def enriquecer_dados():
             # Filtra colunas se existirem
             col_validas = [c for c in colunas_esperadas if c in df_sap.columns]
             df_sap = df_sap[col_validas].copy()
-            df_sap['Nota'] = df_sap['Nota'].dropna().astype(int).astype(str).str.strip()
+            # Normaliza Nota do SAP como string numérica pura para cruzamento seguro
+            df_sap['Nota_str'] = pd.to_numeric(df_sap['Nota'], errors='coerce').dropna().astype(int).astype(str).str.strip()
+            df['Numero_Nota_str'] = pd.to_numeric(df['Numero_Nota'], errors='coerce').fillna(0).astype(int).astype(str).str.strip()
 
-            dicionario_status_sap = dict(zip(df_sap['Nota'], df_sap['Status usuário']))
-            df['Export_status'] = df['Numero_Nota'].astype(str).str.strip().map(dicionario_status_sap).fillna("Fora SAP")
+            dicionario_status_sap = dict(zip(df_sap['Nota_str'], df_sap['Status usuário']))
+            df['Export_status'] = df['Numero_Nota_str'].map(dicionario_status_sap).fillna("Fora SAP")
 
-            dicionario_centro_sap = dict(zip(df_sap['Nota'], df_sap['CenTrabalho princ.']))
-            df['Centro_SAP'] = df['Numero_Nota'].astype(str).str.strip().map(dicionario_centro_sap)
+            if 'CenTrabalho princ.' in df_sap.columns:
+                dicionario_centro_sap = dict(zip(df_sap['Nota_str'], df_sap['CenTrabalho princ.']))
+                df['Centro_SAP'] = df['Numero_Nota_str'].map(dicionario_centro_sap)
+            else:
+                df['Centro_SAP'] = None
 
             # Identifica a qual Ordem aquela Nota pertence para podermos cruzar com o financeiro (IW38)
-            df_sap['Ordem_Texto'] = pd.to_numeric(df_sap['Ordem'], errors='coerce').apply(lambda x: str(int(x)) if pd.notna(x) else "Fora SAP")
-
-            dicionario_ordem_sap = dict(zip(df_sap['Nota'], df_sap['Ordem_Texto']))
-            df['Ordem'] = df['Numero_Nota'].astype(str).str.strip().map(dicionario_ordem_sap).fillna("Fora SAP")
+            if 'Ordem' in df_sap.columns:
+                df_sap['Ordem_Texto'] = pd.to_numeric(df_sap['Ordem'], errors='coerce').apply(lambda x: str(int(x)) if pd.notna(x) else "Fora SAP")
+                dicionario_ordem_sap = dict(zip(df_sap['Nota_str'], df_sap['Ordem_Texto']))
+                df['Ordem'] = df['Numero_Nota_str'].map(dicionario_ordem_sap).fillna("Fora SAP")
 
             def _fmt_dt_sap(val):
                 if pd.isna(val) or str(val).strip().lower() in ["none", "nan", "-", "", "<na>"]:
@@ -383,35 +388,65 @@ def enriquecer_dados():
                     return v_str
 
             if 'Data da nota' in df_sap.columns:
-                dicionario_data_nota = dict(zip(df_sap['Nota'], df_sap['Data da nota']))
-                df['Data_Nota_SAP'] = df['Numero_Nota'].astype(str).str.strip().map(dicionario_data_nota).apply(_fmt_dt_sap)
+                dicionario_data_nota = dict(zip(df_sap['Nota_str'], df_sap['Data da nota']))
+                df['Data_Nota_SAP'] = df['Numero_Nota_str'].map(dicionario_data_nota).apply(_fmt_dt_sap)
+                df['Data da nota'] = df['Data_Nota_SAP']
             else:
                 df['Data_Nota_SAP'] = "-"
+                df['Data da nota'] = "-"
 
             if 'Encerram.por data' in df_sap.columns:
-                dicionario_encerram_data = dict(zip(df_sap['Nota'], df_sap['Encerram.por data']))
-                df['Encerram.por data'] = df['Numero_Nota'].astype(str).str.strip().map(dicionario_encerram_data).apply(_fmt_dt_sap)
+                dicionario_encerram_data = dict(zip(df_sap['Nota_str'], df_sap['Encerram.por data']))
+                df['Encerram.por data'] = df['Numero_Nota_str'].map(dicionario_encerram_data).apply(_fmt_dt_sap)
             else:
                 df['Encerram.por data'] = "-"
 
             # Integração do Descrição para extrair a data programada do SAP
             if 'Descrição' in df_sap.columns:
-                dicionario_desc_sap = dict(zip(df_sap['Nota'], df_sap['Descrição']))
-                df['Descricao_SAP'] = df['Numero_Nota'].astype(str).str.strip().map(dicionario_desc_sap)
+                dicionario_desc_sap = dict(zip(df_sap['Nota_str'], df_sap['Descrição']))
+                df['Descricao_SAP'] = df['Numero_Nota_str'].map(dicionario_desc_sap)
                 df['Data programada SAP'] = df['Descricao_SAP'].apply(extrair_data_sap)
             else:
                 df['Data programada SAP'] = "-"
+            df['Data_programada_SAP'] = df['Data programada SAP']
+
+            def parse_ano_mes(val):
+                if val is None or pd.isna(val):
+                    return None
+                s = str(val).strip().lower()
+                if s in ["-", "", "nan", "none", "<na>", "null"]:
+                    return None
+                m = re.match(r'^(\d{4})[-/](\d{1,2})', s)
+                if m:
+                    return int(m.group(1)), int(m.group(2))
+                meses_pt_rev = {
+                    'jan': 1, 'janeiro': 1, 'fev': 2, 'fevereiro': 2,
+                    'mar': 3, 'março': 3, 'marco': 3, 'abr': 4, 'abril': 4,
+                    'mai': 5, 'maio': 5, 'jun': 6, 'junho': 6,
+                    'jul': 7, 'julho': 7, 'ago': 8, 'agosto': 8,
+                    'set': 9, 'setembro': 9, 'out': 10, 'outubro': 10,
+                    'nov': 11, 'novembro': 11, 'dez': 12, 'dezembro': 12
+                }
+                m2 = re.search(r'([a-zç]+)[-/\s]+(\d{2,4})', s)
+                if m2:
+                    m_txt, y_txt = m2.group(1), int(m2.group(2))
+                    if y_txt < 100:
+                        y_txt += 2000
+                    if m_txt in meses_pt_rev:
+                        return y_txt, meses_pt_rev[m_txt]
+                return None
 
             def comparar_datas_sap(row):
-                dt_sap = str(row.get('Data programada SAP', '-')).strip()
-                dt_local = str(row.get('Mes_Execucao_Planejado', '-')).strip()
-                if dt_sap == "-" or dt_local in ["-", "", "nan", "None", "<NA>"]:
+                dt_sap = parse_ano_mes(row.get('Data programada SAP', row.get('Data_programada_SAP', '-')))
+                dt_local = parse_ano_mes(row.get('Mes_Execucao_Planejado', '-'))
+                if not dt_sap or not dt_local:
                     return "-"
-                if dt_sap.lower() == dt_local.lower():
+                if dt_sap == dt_local:
                     return "Igual"
                 return "Divergente"
 
             df['Comparação Data SAP'] = df.apply(comparar_datas_sap, axis=1)
+            df['Comparacao_Data_SAP'] = df['Comparação Data SAP']
 
             # Normalização do Status do SAP para atualizar o Status local
             df['Status_SAP_Norm'] = df['Export_status'].apply(normalizar_status_sap)
@@ -419,8 +454,8 @@ def enriquecer_dados():
 
             # Integração da Prioridade da Nota vinda do SAP
             if 'Prioridade' in df_sap.columns:
-                dicionario_prio_sap = dict(zip(df_sap['Nota'], df_sap['Prioridade']))
-                df['Prioridade_SAP'] = df['Numero_Nota'].astype(str).str.strip().map(dicionario_prio_sap)
+                dicionario_prio_sap = dict(zip(df_sap['Nota_str'], df_sap['Prioridade']))
+                df['Prioridade_SAP'] = df['Numero_Nota_str'].map(dicionario_prio_sap)
                 df['Prioridade_SAP_Norm'] = df['Prioridade_SAP'].apply(normalizar_prioridade_sap)
                 df['Prioridade_Nota'] = df['Prioridade_SAP_Norm'].fillna(df['Prioridade_Nota'])
 
@@ -430,19 +465,25 @@ def enriquecer_dados():
             df['Export_status'] = "Erro na leitura"
             df['Centro_Responsavel'] = df['Centro_Responsavel_Banco']
             df['Data_Nota_SAP'] = "-"
+            df['Data da nota'] = "-"
             df['Encerram.por data'] = "-"
             df['Data programada SAP'] = "-"
+            df['Data_programada_SAP'] = "-"
             df['Comparação Data SAP'] = "-"
+            df['Comparacao_Data_SAP'] = "-"
             print(f"Erro ao ler IW28: {e}")
     else:
         df['Export_status'] = "Pendente Extração SAP"
         df['Centro_Responsavel'] = df['Centro_Responsavel_Banco']
         df['Data_Nota_SAP'] = "-"
+        df['Data da nota'] = "-"
         df['Encerram.por data'] = "-"
         df['Data programada SAP'] = "-"
+        df['Data_programada_SAP'] = "-"
         df['Comparação Data SAP'] = "-"
+        df['Comparacao_Data_SAP'] = "-"
 
-    df = df.drop(columns=['Centro_Responsavel_Banco', 'Descricao_SAP', 'Status_SAP_Norm', 'Prioridade_SAP', 'Prioridade_SAP_Norm'], errors='ignore')
+    df = df.drop(columns=['Centro_Responsavel_Banco', 'Descricao_SAP', 'Status_SAP_Norm', 'Prioridade_SAP', 'Prioridade_SAP_Norm', 'Numero_Nota_str'], errors='ignore')
     if 'Centro_SAP' in df.columns:
         df = df.drop(columns=['Centro_SAP'], errors='ignore')
 

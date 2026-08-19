@@ -3111,3 +3111,33 @@ def test_endpoint_sincronizar_status_sap(cliente):
     if not linhas.empty:
         assert "51" in str(linhas.iloc[0]["Status_Nota"])
 
+
+def test_extrair_data_sap_e_comparacao(banco_temporario):
+    from input_module import db, engine
+    assert engine.extrair_data_sap("M08/2026-POSTE-GUR1302") == "ago-2026"
+    assert engine.extrair_data_sap("M04/24-REDE COMPACTA TRIF") == "abr-2024"
+    assert engine.extrair_data_sap("M00/0000-A PLANEJAR") == "-"
+    assert engine.extrair_data_sap(None) == "-"
+
+    # Testa enriquecimento do dataset completo
+    db.salvar_em_massa(pd.DataFrame([
+        _nota(9001, Mes_Execucao_Planejado="ago-2026"),
+        _nota(9002, Mes_Execucao_Planejado="2026-08-01"),
+        _nota(9003, Mes_Execucao_Planejado="jul-2026"),
+    ]))
+    db.salvar_base_dataframe("base_iw28", pd.DataFrame([
+        {"Nota": 9001, "Descrição": "M08/2026-POSTE-GUR1302", "Status usuário": "10 Aberto", "Data da nota": "2026-01-15"},
+        {"Nota": 9002, "Descrição": "M08/2026-POSTE-GUR1302", "Status usuário": "10 Aberto", "Data da nota": "2026-01-15"},
+        {"Nota": 9003, "Descrição": "M08/2026-POSTE-GUR1302", "Status usuário": "10 Aberto", "Data da nota": "2026-01-15"},
+    ]))
+
+    df = engine.get_dataset()
+    r9001 = df[df["Numero_Nota"] == 9001].iloc[0]
+    r9002 = df[df["Numero_Nota"] == 9002].iloc[0]
+    r9003 = df[df["Numero_Nota"] == 9003].iloc[0]
+
+    assert r9001["Data_programada_SAP"] == "ago-2026"
+    assert r9001["Comparacao_Data_SAP"] == "Igual"
+    assert r9002["Comparacao_Data_SAP"] == "Igual"
+    assert r9003["Comparacao_Data_SAP"] == "Divergente"
+
