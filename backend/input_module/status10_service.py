@@ -490,8 +490,173 @@ def extrair_sap_status10() -> Dict[str, Any]:
             pass
 
 
+def _formatar_moeda_br(val: Any) -> str:
+    if val is None or pd.isna(val) or str(val).strip() in ["", "-", "None", "nan"]:
+        return "R$ 0,00"
+    try:
+        f = float(val)
+        return f"R$ {f:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except Exception:
+        return str(val)
+
+
+def _formatar_numero_br(val: Any, casas: int = 2) -> str:
+    if val is None or pd.isna(val) or str(val).strip() in ["", "-", "None", "nan"]:
+        return "0,00"
+    try:
+        f = float(val)
+        s = f"{f:,.{casas}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        return s
+    except Exception:
+        return str(val)
+
+
+def _montar_tabelas_email_status10(resumo_dados: dict) -> tuple[str, str]:
+    """Gera o HTML da tabela de resumo consolidado e da tabela de desvios relevantes de custo."""
+    rotulos = rotulos_resumo_status10()
+    rotulo_fisico = rotulos.get("Total_Planejado", "Total Planejado (un)")
+    rotulo_modular = rotulos.get("Total_Modular", "Total Modular (R$)")
+
+    # ── 1. Tabela de Resumo Consolidado por Regional e Conjunto ──
+    resumo_linhas = resumo_dados.get("resumo_regional", [])
+    total_notas = resumo_dados.get("total_notas", 0)
+    total_fisico = resumo_dados.get("total_fisico", 0.0)
+    total_modular = resumo_dados.get("total_modular_obra", 0.0)
+    total_custo_ordem = resumo_dados.get("total_custo_ordem", 0.0)
+    total_dif = total_custo_ordem - total_modular
+    total_desvio_pct = (total_dif / total_modular * 100) if total_modular > 0 else 0.0
+
+    html_resumo = [
+        '<table style="border: 1px solid #cbd5e1; border-collapse: collapse; font-family: Segoe UI, Arial, sans-serif; font-size: 12.5px; width: 100%; max-width: 920px;">'
+    ]
+    html_resumo.append('<thead><tr style="background-color: #0f172a; color: #ffffff;">')
+    html_resumo.append('<th style="border: 1px solid #cbd5e1; padding: 7px 10px; text-align: left;">Regional</th>')
+    html_resumo.append('<th style="border: 1px solid #cbd5e1; padding: 7px 10px; text-align: left;">Conjunto</th>')
+    html_resumo.append('<th style="border: 1px solid #cbd5e1; padding: 7px 10px; text-align: center;">Qtd Notas</th>')
+    html_resumo.append(f'<th style="border: 1px solid #cbd5e1; padding: 7px 10px; text-align: right;">{rotulo_fisico}</th>')
+    html_resumo.append(f'<th style="border: 1px solid #cbd5e1; padding: 7px 10px; text-align: right;">{rotulo_modular}</th>')
+    html_resumo.append('<th style="border: 1px solid #cbd5e1; padding: 7px 10px; text-align: right;">Custo Ordem SAP (R$)</th>')
+    html_resumo.append('<th style="border: 1px solid #cbd5e1; padding: 7px 10px; text-align: right;">Diferença (R$)</th>')
+    html_resumo.append('<th style="border: 1px solid #cbd5e1; padding: 7px 10px; text-align: right;">Desvio (%)</th>')
+    html_resumo.append('</tr></thead><tbody>')
+
+    for idx, r in enumerate(resumo_linhas):
+        bg = "#f8fafc" if idx % 2 == 1 else "#ffffff"
+        reg = r.get("Regional", "-")
+        conj = r.get("Conjunto", "-")
+        qtd = r.get("Qtd_Notas", 0)
+        fis = float(r.get("Total_Fisico", 0) or 0)
+        mod = float(r.get("Total_Modular", 0) or 0)
+        ordem = float(r.get("Total_Custo_Ordem", 0) or 0)
+        dif = ordem - mod
+        pct = (dif / mod * 100) if mod > 0 else (100.0 if ordem > 0 else 0.0)
+        cor_dif = "#b91c1c" if dif > 500 else ("#1d4ed8" if dif < -500 else "#334155")
+        sinal = "+" if pct > 0 else ""
+
+        html_resumo.append(f'<tr style="background-color: {bg};">')
+        html_resumo.append(f'<td style="border: 1px solid #cbd5e1; padding: 6px 10px;">{reg}</td>')
+        html_resumo.append(f'<td style="border: 1px solid #cbd5e1; padding: 6px 10px; font-weight: 500;">{conj}</td>')
+        html_resumo.append(f'<td style="border: 1px solid #cbd5e1; padding: 6px 10px; text-align: center;">{qtd}</td>')
+        html_resumo.append(f'<td style="border: 1px solid #cbd5e1; padding: 6px 10px; text-align: right;">{_formatar_numero_br(fis, 2)}</td>')
+        html_resumo.append(f'<td style="border: 1px solid #cbd5e1; padding: 6px 10px; text-align: right;">{_formatar_moeda_br(mod)}</td>')
+        html_resumo.append(f'<td style="border: 1px solid #cbd5e1; padding: 6px 10px; text-align: right;">{_formatar_moeda_br(ordem)}</td>')
+        html_resumo.append(f'<td style="border: 1px solid #cbd5e1; padding: 6px 10px; text-align: right; color: {cor_dif}; font-weight: 600;">{_formatar_moeda_br(dif)}</td>')
+        html_resumo.append(f'<td style="border: 1px solid #cbd5e1; padding: 6px 10px; text-align: right; color: {cor_dif};">{sinal}{pct:.1f}%</td>')
+        html_resumo.append('</tr>')
+
+    sinal_tot = "+" if total_desvio_pct > 0 else ""
+    html_resumo.append('<tr style="background-color: #0f172a; color: #ffffff; font-weight: bold; border-top: 2px solid #0f172a;">')
+    html_resumo.append('<td colspan="2" style="border: 1px solid #334155; padding: 8px 10px; text-align: left; text-transform: uppercase;">TOTAL GERAL</td>')
+    html_resumo.append(f'<td style="border: 1px solid #334155; padding: 8px 10px; text-align: center;">{total_notas}</td>')
+    html_resumo.append(f'<td style="border: 1px solid #334155; padding: 8px 10px; text-align: right;">{_formatar_numero_br(total_fisico, 2)}</td>')
+    html_resumo.append(f'<td style="border: 1px solid #334155; padding: 8px 10px; text-align: right;">{_formatar_moeda_br(total_modular)}</td>')
+    html_resumo.append(f'<td style="border: 1px solid #334155; padding: 8px 10px; text-align: right;">{_formatar_moeda_br(total_custo_ordem)}</td>')
+    html_resumo.append(f'<td style="border: 1px solid #334155; padding: 8px 10px; text-align: right;">{_formatar_moeda_br(total_dif)}</td>')
+    html_resumo.append(f'<td style="border: 1px solid #334155; padding: 8px 10px; text-align: right;">{sinal_tot}{total_desvio_pct:.1f}%</td>')
+    html_resumo.append('</tr></tbody></table>')
+    tabela_resumo_html = "".join(html_resumo)
+
+    # ── 2. Tabela de Notas Individuais com Divergência Significativa ──
+    df_registros = pd.DataFrame(resumo_dados.get("registros", []))
+    desvios = []
+    if not df_registros.empty:
+        col_denom = [c for c in df_registros.columns if "Denomina" in c or "denomina" in c.lower()]
+        for _, r in df_registros.iterrows():
+            nota = r.get("Numero_Nota", r.get("Nota", "-"))
+            ordem = str(r.get("Ordem", "-")).replace(".0", "").strip()
+            conj = r.get(col_denom[0], r.get("Conjunto", "-")) if col_denom else r.get("Conjunto", "-")
+            reg = r.get("Regional", "-")
+            fis = float(r.get("Planejado_DDPM", 0) or 0)
+            mod = float(r.get("Modular_Obra", 0) or 0)
+            custo_ord = float(r.get("Custo_Plan", 0) or 0)
+            dif = custo_ord - mod
+            pct = (dif / mod * 100) if mod > 0 else (100.0 if custo_ord > 0 else 0.0)
+
+            # Filtra notas com divergência relevante (> R$ 1.500 ou desvio relativo >= 15%)
+            if abs(dif) > 1500 or (mod > 0 and abs(pct) >= 15):
+                desvios.append({
+                    "nota": nota,
+                    "ordem": ordem,
+                    "regional": reg,
+                    "conjunto": conj,
+                    "fisico": fis,
+                    "mod": mod,
+                    "custo_ord": custo_ord,
+                    "dif": dif,
+                    "pct": pct,
+                    "abs_dif": abs(dif),
+                    "desc": str(r.get("Descricao", r.get("Descrição", r.get("Observacao", "")))).strip(),
+                })
+
+    desvios.sort(key=lambda x: x["abs_dif"], reverse=True)
+
+    if desvios:
+        html_desv = [
+            '<div style="margin-top: 24px;">',
+            '<h3 style="font-size: 13.5px; color: #0f172a; margin-bottom: 6px;">⚠️ Notas com Divergência Significativa de Custos (Modular DDPM vs Ordem SAP):</h3>',
+            '<p style="font-size: 12px; color: #64748b; margin-top: 0; margin-bottom: 10px;">Notas com variação superior a R$ 1.500 ou desvio relativo acima de 15% entre o custo modular de engenharia e o orçamento da ordem SAP.</p>',
+            '<table style="border: 1px solid #cbd5e1; border-collapse: collapse; font-family: Segoe UI, Arial, sans-serif; font-size: 12px; width: 100%; max-width: 950px;">',
+            '<thead><tr style="background-color: #1e293b; color: #ffffff;">',
+            '<th style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: center;">Nº Nota</th>',
+            '<th style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: center;">Ordem SAP</th>',
+            '<th style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: left;">Conjunto</th>',
+            '<th style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right;">Físico (un)</th>',
+            '<th style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right;">Modular DDPM</th>',
+            '<th style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right;">Ordem SAP</th>',
+            '<th style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right;">Diferença (R$)</th>',
+            '<th style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right;">Desvio (%)</th>',
+            '<th style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: left;">Descrição / Observação</th>',
+            '</tr></thead><tbody>',
+        ]
+
+        for d in desvios:
+            bg = "#fff7ed" if d["dif"] > 0 else "#f0fdf4"
+            cor_dif = "#c2410c" if d["dif"] > 0 else "#15803d"
+            sinal = "+" if d["pct"] > 0 else ""
+            desc_text = d["desc"] if d["desc"] and d["desc"] != "nan" and d["desc"] != "None" else "-"
+
+            html_desv.append(f'<tr style="background-color: {bg};">')
+            html_desv.append(f'<td style="border: 1px solid #cbd5e1; padding: 5px 8px; text-align: center; font-weight: 600; font-family: monospace;">{d["nota"]}</td>')
+            html_desv.append(f'<td style="border: 1px solid #cbd5e1; padding: 5px 8px; text-align: center; font-family: monospace;">{d["ordem"]}</td>')
+            html_desv.append(f'<td style="border: 1px solid #cbd5e1; padding: 5px 8px;">{d["conjunto"]}</td>')
+            html_desv.append(f'<td style="border: 1px solid #cbd5e1; padding: 5px 8px; text-align: right;">{_formatar_numero_br(d["fisico"], 2)}</td>')
+            html_desv.append(f'<td style="border: 1px solid #cbd5e1; padding: 5px 8px; text-align: right;">{_formatar_moeda_br(d["mod"])}</td>')
+            html_desv.append(f'<td style="border: 1px solid #cbd5e1; padding: 5px 8px; text-align: right; font-weight: 500;">{_formatar_moeda_br(d["custo_ord"])}</td>')
+            html_desv.append(f'<td style="border: 1px solid #cbd5e1; padding: 5px 8px; text-align: right; font-weight: 700; color: {cor_dif};">{_formatar_moeda_br(d["dif"])}</td>')
+            html_desv.append(f'<td style="border: 1px solid #cbd5e1; padding: 5px 8px; text-align: right; font-weight: 600; color: {cor_dif};">{sinal}{d["pct"]:.1f}%</td>')
+            html_desv.append(f'<td style="border: 1px solid #cbd5e1; padding: 5px 8px; font-size: 11px; color: #475569;">{desc_text}</td>')
+            html_desv.append('</tr>')
+
+        html_desv.append('</tbody></table></div>')
+        tabela_desvios_html = "".join(html_desv)
+    else:
+        tabela_desvios_html = '<p style="color: #16a34a; font-size: 12.5px; margin: 12px 0;"><strong>✅ Nenhuma divergência crítica identificada entre os custos modulares e os orçamentos das ordens SAP.</strong></p>'
+
+    return tabela_resumo_html, tabela_desvios_html
+
+
 def gerar_email_outlook_status10(usuario: str = "sistema") -> dict:
-    """Monta o e-mail do Status 10 e abre o rascunho no Outlook do usuário."""
+    """Monta o e-mail do Status 10 com resumo executivo e notas com divergências de custos, abrindo o rascunho no Outlook."""
     resumo_dados = obter_resumo_status10()
     if resumo_dados["total_notas"] == 0:
         return {
@@ -499,36 +664,7 @@ def gerar_email_outlook_status10(usuario: str = "sistema") -> dict:
             "mensagem": "Nenhuma nota em Status 10 encontrada para gerar o relatório.",
         }
 
-    df_resumo = pd.DataFrame(resumo_dados["resumo_regional"])
-    rotulos = rotulos_resumo_status10()
-    df_resumo = df_resumo.rename(
-        columns={
-            "Regional": "Regional",
-            "Conjunto": "Conjunto",
-            "Qtd_Notas": "Qtd Notas",
-            "Total_Fisico": rotulos.get("Total_Planejado", "Físico (Postes)"),
-            "Total_Modular": rotulos.get("Total_Modular", "Modular Obra (R$)"),
-            "Total_Custo_Ordem": "Custo Ordem SAP (R$)",
-        }
-    )
-
-    tabela_html = (
-        df_resumo.to_html(index=False, na_rep="")
-        .replace(
-            '<table border="1" class="dataframe">',
-            '<table style="border: 1px solid #cbd5e1; border-collapse:'
-            ' collapse; font-family: sans-serif; font-size: 13px;">',
-        )
-        .replace(
-            "<th>",
-            '<th style="border: 1px solid #cbd5e1; padding: 6px 10px;'
-            ' background-color: #0f172a; color: #ffffff; text-align: left;">',
-        )
-        .replace(
-            "<td>",
-            '<td style="border: 1px solid #cbd5e1; padding: 6px 10px;">',
-        )
-    )
+    tabela_resumo_html, tabela_desvios_html = _montar_tabelas_email_status10(resumo_dados)
 
     caminho_macro = str(config.data_dir() / "STATUS_10_DDPM_Macro.xlsm")
     if not os.path.exists(caminho_macro):
@@ -540,6 +676,8 @@ def gerar_email_outlook_status10(usuario: str = "sistema") -> dict:
             "Status-10-SP",
             "STATUS_10_DDPM_Macro.xlsm",
         )
+
+    caminho_base_analise = os.path.join(tempfile.gettempdir(), "Base_Analise_Status_10.xlsx")
 
     try:
         import pythoncom
@@ -557,17 +695,18 @@ def gerar_email_outlook_status10(usuario: str = "sistema") -> dict:
         message.To = "james.junior@edp.com; fabricio.viana@edp.com"
         message.CC = "danilop.vilela@edp.com; felipeg.bezerra@edp.com"
         message.Subject = (
-            f"Notas - Status 10 ({resumo_dados['total_notas']} Notas | {resumo_dados['total_fisico']} Postes)"
+            f"Notas - Status 10 ({resumo_dados['total_notas']} Notas | {_formatar_numero_br(resumo_dados['total_fisico'])} Postes)"
         )
         message.BodyFormat = 2  # Formato HTML
 
         message.HTMLBody = f"""
         <html>
-        <body style="font-family: sans-serif; color: #1e293b; line-height: 1.5;">
+        <body style="font-family: Segoe UI, Arial, sans-serif; color: #1e293b; line-height: 1.5; font-size: 13px;">
             <p>Prezados, {saudacao}!</p>
-            <p>Conforme solicitado, segue resumo analítico das <strong>{resumo_dados['total_notas']} notas em Status 10</strong> ({resumo_dados['total_fisico']} postes planejados) encontradas no departamento.</p>
+            <p>Conforme solicitado, segue resumo analítico das <strong>{resumo_dados['total_notas']} notas em Status 10</strong> ({_formatar_numero_br(resumo_dados['total_fisico'])} postes planejados) encontradas no departamento.</p>
             <br>
-            {tabela_html}
+            {tabela_resumo_html}
+            {tabela_desvios_html}
             <br>
             <p>Fico à disposição caso precisem de algo mais.</p>
             <p>Atenciosamente,<br><strong>{usuario}</strong></p>
@@ -577,6 +716,8 @@ def gerar_email_outlook_status10(usuario: str = "sistema") -> dict:
 
         if os.path.exists(caminho_macro):
             message.Attachments.Add(caminho_macro)
+        elif os.path.exists(caminho_base_analise):
+            message.Attachments.Add(caminho_base_analise)
 
         message.Display()
         logger.info(
@@ -586,7 +727,7 @@ def gerar_email_outlook_status10(usuario: str = "sistema") -> dict:
             "ok": True,
             "mensagem": (
                 f"E-mail com {resumo_dados['total_notas']} notas em Status 10"
-                " gerado com sucesso no Outlook!"
+                " e análise de desvios gerado com sucesso no Outlook!"
             ),
         }
 
