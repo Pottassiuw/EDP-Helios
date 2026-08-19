@@ -1659,6 +1659,7 @@ def obter_versao_dataset() -> str:
     mesmo se o log de arquivos — que é best-effort — não tiver gravado; sem
     isso o navegador receberia 304 e seguiria servindo a base antiga.
     """
+    ENGINE_REVISAO = "2026.08.19.v3"
     conn = get_db_connection()
     try:
         max_alt = conn.execute("SELECT MAX(Data_Hora) FROM log_alteracoes").fetchone()[0]
@@ -1668,7 +1669,7 @@ def obter_versao_dataset() -> str:
         schema = conn.execute("PRAGMA schema_version").fetchone()[0]
     finally:
         conn.close()
-    return f"{max_alt}|{qtd_alt}|{max_arq}|{qtd_notas}|{schema}"
+    return f"{ENGINE_REVISAO}|{max_alt}|{qtd_alt}|{max_arq}|{qtd_notas}|{schema}"
 
 
 # ==============================================================================
