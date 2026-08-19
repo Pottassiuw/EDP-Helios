@@ -1589,6 +1589,19 @@ def aplicar_edicoes(linhas: list, usuario: str) -> dict:
                 if novo != antigo:
                     mudancas[campo] = _valor_para_coluna(campo, linha[campo])
                     logs.append((numero, usuario, agora, campo, antigo, novo))
+            if "Planejado_DDPM" in mudancas and float(mudancas["Planejado_DDPM"] or 0) <= 0.0:
+                tem_filhas = conn.execute(
+                    "SELECT 1 FROM notas WHERE Nota_Mae = ? OR Nota_Mae = ? LIMIT 1",
+                    (str(numero), str(int(numero))),
+                ).fetchone()
+                if tem_filhas:
+                    # Impede que a nota mãe tenha medida 0 no registro
+                    del mudancas["Planejado_DDPM"]
+                    logs = [
+                        l
+                        for l in logs
+                        if not (l[0] == numero and l[3] == "Planejado_DDPM")
+                    ]
             if not mudancas:
                 continue
             if "Status_Nota" in mudancas and "Status_Anterior" in colunas_no_banco:

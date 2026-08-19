@@ -236,7 +236,7 @@ export function Ramal({
     }
   };
 
-  async function confirmarExclusao(_justificativa: string): Promise<void> {
+  async function confirmarExclusao(_justificativa: string, _somarAMae: boolean = false): Promise<void> {
     if (selecionados.size === 0) return;
     const numeros = Array.from(selecionados);
     const setExcluir = new Set(numeros);
