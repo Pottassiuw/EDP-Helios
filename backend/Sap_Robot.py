@@ -99,6 +99,26 @@ def obter_credenciais_sap() -> tuple[str, str]:
 LOGIN_SAP, SENHA_SAP = obter_credenciais_sap()
 # endregion
 
+def obter_sap_gui_engine():
+    """Obtém o motor de scripting do SAP GUI ativo através do SapROTWrapper ou GetObject."""
+    try:
+        rot = win32com.client.Dispatch("SapROTWr.SapROTWrapper")
+        entry = rot.GetROTEntry("SAPGUI")
+        if entry is not None:
+            return entry.GetScriptingEngine
+    except Exception:
+        pass
+
+    try:
+        obj = win32com.client.GetObject("SAPGUI")
+        if obj is not None:
+            return obj.GetScriptingEngine
+    except Exception:
+        pass
+
+    return None
+
+
 # region Chapter 3. SAP AUTOMATION CLASS
 class SapAutomator:
     def __init__(self, system_name):
@@ -112,9 +132,8 @@ class SapAutomator:
 
             # 1. Tenta anexar à sessão ativa do SAP que já esteja aberta e logada
             try:
-                sapgui = win32com.client.GetObject("SAPGUI")
-                app = sapgui.GetScriptingEngine
-                if app.Connections.Count > 0:
+                app = obter_sap_gui_engine()
+                if app and app.Connections.Count > 0:
                     for conn in app.Connections:
                         if conn.Children.Count > 0:
                             for sess in conn.Children:
@@ -139,28 +158,23 @@ class SapAutomator:
                         password = getpass.getpass("Informe a senha SAP: ").strip()
 
             if not login or not password:
-                print("❌ ERRO: Credenciais SAP não fornecidas e nenhuma sessão ativa do SAP foi encontrada.")
-                print("💡 Dicas:")
-                print("   1. Abra o SAP GUI e faça login previamente, OU")
-                print("   2. Defina as variáveis de ambiente LOGIN_SAP e SENHA_SAP, OU")
-                print("   3. Execute: python Sap_Robot.py --user SEU_LOGIN --password SUA_SENHA")
+                print("❌ ERRO: Credenciais SAP não fornecidas e nenhuma sessão ativa do SAP aberta foi encontrada.")
+                print("💡 Dica: Abra a conexão do SAP (ex: duplo clique em P40_S4/HANA e entre no SAP) antes de executar o robô.")
                 return None
 
             subprocess.Popen(CAMINHO_SAP_LOGON)
             time.sleep(5)
 
-            sap_gui_auto = None
+            application = None
             for _ in range(10):
-                try:
-                    sap_gui_auto = win32com.client.GetObject("SAPGUI")
+                application = obter_sap_gui_engine()
+                if application is not None:
                     break
-                except:
-                    time.sleep(1)
+                time.sleep(1)
 
-            if sap_gui_auto is None:
+            if application is None:
                 raise Exception("SAP GUI scripting não disponível")
 
-            application = sap_gui_auto.GetScriptingEngine
             connection = application.OpenConnection(self.system_name, True)
             time.sleep(0.5) # Aguarda a renderização rápida da janela de login
             self.session = connection.Children(0)
@@ -401,9 +415,8 @@ def obter_ou_criar_sessao_sap(login_sap=None, senha_sap=None):
         pwd = str(senha_sap).strip()
 
     try:
-        sapgui = win32com.client.GetObject("SAPGUI")
-        app = sapgui.GetScriptingEngine
-        if app.Connections.Count > 0:
+        app = obter_sap_gui_engine()
+        if app and app.Connections.Count > 0:
             for conn in app.Connections:
                 if conn.Children.Count > 0:
                     for sess in conn.Children:
@@ -814,6 +827,7 @@ if __name__ == "__main__":
     login_sap, senha_sap = obter_credenciais_sap()
     sap = SapAutomator(NOME_SISTEMA_SAP)
     session = obter_ou_criar_sessao_sap(login_sap, senha_sap)
+    sap.session = session
 
     if not session:
         print("❌ ERRO: Não foi possível obter ou iniciar uma sessão ativa do SAP. Abra o SAP GUI previamente ou configure as credenciais.")
