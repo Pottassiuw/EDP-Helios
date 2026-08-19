@@ -3050,3 +3050,64 @@ def test_gerar_planilha_alteracoes_anexo():
         os.remove(caminho_xlsx)
     except Exception:
         pass
+
+
+def test_sincronizar_status_sap_para_notas(banco_temporario):
+    from input_module import db
+    # Cadastra notas no banco
+    db.salvar_em_massa(pd.DataFrame([
+        _nota(7001, Status_Nota="10 Em planejamento"),
+        _nota(7002, Status_Nota="51 Ordem Liberada"),
+        _nota(7003, Status_Nota="52 ADS e Viabilizado"),
+    ]))
+
+    # Cria base_iw28 simulando retorno do SAP onde 7001 foi para 51 e 7003 foi para 99
+    df_iw28 = pd.DataFrame([
+        {"Nota": 7001, "Status usuário": "51 Ordem Liberada"},
+        {"Nota": 7002, "Status usuário": "51 Ordem Liberada"},
+        {"Nota": 7003, "Status usuário": "99 Encerrado"},
+    ])
+    db.salvar_base_dataframe("base_iw28", df_iw28)
+
+    res = db.sincronizar_status_sap_para_notas(usuario="Robô SAP")
+    assert res["atualizadas"] == 2
+
+    # Verifica se notas foram atualizadas
+    df_banco = db.carregar_dados()
+    linha_7001 = df_banco[df_banco["Numero_Nota"] == 7001].iloc[0]
+    assert "51" in str(linha_7001["Status_Nota"])
+    assert "10" in str(linha_7001["Status_Anterior"])
+
+    linha_7003 = df_banco[df_banco["Numero_Nota"] == 7003].iloc[0]
+    assert "99" in str(linha_7003["Status_Nota"])
+    assert "52" in str(linha_7003["Status_Anterior"])
+
+    # Verifica se logs foram gerados
+    logs = db.carregar_logs()
+    logs_7001 = logs[logs["Numero_Nota"] == 7001]
+    assert len(logs_7001) >= 1
+    assert logs_7001.iloc[0]["Usuario"] == "Robô SAP"
+    assert logs_7001.iloc[0]["Campo_Alterado"] == "Status_Nota"
+    assert "10" in str(logs_7001.iloc[0]["Valor_Antigo"])
+    assert "51" in str(logs_7001.iloc[0]["Valor_Novo"])
+
+
+def test_endpoint_sincronizar_status_sap(cliente):
+    from input_module import db
+    db.salvar_em_massa(pd.DataFrame([
+        _nota(8001, Status_Nota="10 Em planejamento"),
+    ]))
+    db.salvar_base_dataframe("base_iw28", pd.DataFrame([
+        {"Nota": 8001, "Status usuário": "51 Ordem Liberada"},
+    ]))
+
+    resp = cliente.post("/api/input/bases/sincronizar-status-sap", headers={"X-User": "admin_teste"})
+    assert resp.status_code == 200
+    dados = resp.json()
+    assert dados["atualizadas"] >= 1
+
+    df_banco = db.carregar_dados()
+    linhas = df_banco[df_banco["Numero_Nota"] == 8001]
+    if not linhas.empty:
+        assert "51" in str(linhas.iloc[0]["Status_Nota"])
+

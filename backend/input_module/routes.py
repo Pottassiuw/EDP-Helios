@@ -412,6 +412,11 @@ def _processar_upload_base(nome_arquivo: str, caminho: str) -> bool:
     o chamador usa isso para decidir se registra o import em log_arquivos."""
     try:
         _importar_base_para_sqlite(nome_arquivo, caminho)
+        if nome_arquivo == "Gerada_base_IW28.XLSX":
+            try:
+                db.sincronizar_status_sap_para_notas(usuario="Sincronização SAP")
+            except Exception as ex_st:
+                print(f"Aviso: sincronização de status IW28 -> notas falhou: {ex_st}")
         return True
     except Exception as e:
         print(f"Aviso: Não foi possível importar {nome_arquivo} para o SQLite nativo: {e}")
@@ -512,6 +517,11 @@ def _rotina_sap_background():
             if _processar_upload_base(nome, caminho):
                 db.salvar_log_arquivo(nome, "robo-sap", agora, "Sync SAP")
 
+        try:
+            db.sincronizar_status_sap_para_notas(usuario="Robô SAP")
+        except Exception as e_sync:
+            print(f"Aviso: Erro ao sincronizar status pós extração SAP: {e_sync}")
+
         engine.invalidar_cache()
         engine.invalidar_status_bases()
     except subprocess.CalledProcessError as cpe:
@@ -537,6 +547,15 @@ def sync_sap(tasks: BackgroundTasks, x_user: Optional[str] = Header(default="Sis
         "mensagem": "Sincronização SAP iniciada em background.",
         "sap": estado,
     }
+
+
+@router.post("/bases/sincronizar-status-sap")
+def sincronizar_status_sap(x_user: Optional[str] = Header(default="Sistema", alias="X-User")):
+    """Sincroniza imediatamente os status das notas locais com a base_iw28 do SAP."""
+    garantir_banco()
+    res = db.sincronizar_status_sap_para_notas(usuario=f"Sync Manual ({x_user})")
+    engine.invalidar_cache()
+    return res
 
 
 @router.get("/bases/sync-sap/status")
