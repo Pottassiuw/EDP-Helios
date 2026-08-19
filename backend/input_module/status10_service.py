@@ -5,6 +5,7 @@ import gc
 import json
 import logging
 import os
+import re
 import subprocess
 import tempfile
 import time
@@ -69,6 +70,18 @@ def eh_status_10(val) -> bool:
     return val_str.startswith("10") or "EM PLANEJAMENTO" in val_str
 
 
+def ano_planejado_valido(val_mes) -> bool:
+    """Verifica se o ano do mês planejado é válido (exclui 2027, 9999, etc)."""
+    if pd.isna(val_mes) or val_mes is None:
+        return True
+    v_str = str(val_mes).strip()
+    match = re.search(r'\b(19\d\d|20\d\d|9999)\b', v_str)
+    if match:
+        ano = int(match.group(1))
+        return ano <= 2026 and ano != 9999
+    return True
+
+
 def obter_resumo_status10() -> dict:
     """Gera indicadores e tabela analítica detalhada das notas em Status 10."""
     df_db = db.carregar_dados()
@@ -107,8 +120,39 @@ def obter_resumo_status10() -> dict:
             "registros": [],
         }
 
-    # Filtra apenas notas em Status 10 da base principal
-    df_st10 = df_db[df_db["Status_Nota"].apply(eh_status_10)].copy() if not df_db.empty else pd.DataFrame()
+    # Carrega base_iw28 para verificar se notas mudaram de status no SAP (ex: 51, 50, 99, 55)
+    dict_sap_status = {}
+    try:
+        df_sap_iw28 = db.carregar_base_dataframe("base_iw28")
+        if df_sap_iw28 is not None and not df_sap_iw28.empty:
+            col_n = "Nota" if "Nota" in df_sap_iw28.columns else "Numero_Nota"
+            col_s = "Status usuário" if "Status usuário" in df_sap_iw28.columns else "Status_Usuario"
+            if col_n in df_sap_iw28.columns and col_s in df_sap_iw28.columns:
+                s_int = pd.to_numeric(df_sap_iw28[col_n], errors="coerce")
+                dict_sap_status = dict(zip(s_int, df_sap_iw28[col_s].astype(str)))
+    except Exception:
+        pass
+
+    # Filtra apenas notas REALMENTE em Status 10 (exclui notas com status 51/50/99/55 no SAP e anos inválidos)
+    def _filtro_st10(row):
+        num_nota = row.get("Numero_Nota")
+        st_sap = str(dict_sap_status.get(num_nota, row.get("Status usuário", row.get("Status_Usuario", "")))).strip()
+        st_nota = str(row.get("Status_Nota", "")).strip()
+
+        # Se no SAP a nota foi para 51, 50, 99, 55, NÃO é status 10
+        if st_sap.startswith("51") or st_sap.startswith("50") or st_sap.startswith("99") or st_sap.startswith("55"):
+            return False
+        if st_nota.startswith("51") or st_nota.startswith("50") or st_nota.startswith("99") or st_nota.startswith("55"):
+            return False
+
+        eh_10 = eh_status_10(st_sap) or eh_status_10(st_nota)
+        if not eh_10:
+            return False
+
+        mes_plan = row.get("Mes_Execucao_Planejado", row.get("Mês de Execução  Planejado - DDPM"))
+        return ano_planejado_valido(mes_plan)
+
+    df_st10 = df_db[df_db.apply(_filtro_st10, axis=1)].copy() if not df_db.empty else pd.DataFrame()
 
     if df_sap_enriquecido is not None and not df_sap_enriquecido.empty:
         # Se temos dados do SAP enriquecidos, consolidamos com a base de notas

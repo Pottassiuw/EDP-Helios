@@ -637,7 +637,7 @@ def enriquecer_dados():
     df['CHI_Conj'] = 0.0
 
     df_ganhos = db.carregar_base_dataframe("base_ganhos")
-    if df_ganhos is not None and not df_ganhos.empty:
+    if df_ganhos is not None and not df_ganhos.empty and len(df_ganhos.columns) > 10:
         try:
             df_ganhos.columns = df_ganhos.columns.astype(str).str.strip()
 

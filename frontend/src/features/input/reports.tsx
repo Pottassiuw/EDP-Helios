@@ -508,17 +508,54 @@ export function Reports({
     let r: Status10Registro[] = [];
 
     if (st10Remoto && st10Remoto.length > 0) {
-      r = st10Remoto;
+      r = st10Remoto.filter((n) => {
+        const stSap = String(n.Status_Usuario ?? '').trim();
+        const stNota = String(n.Status_Nota ?? '').trim();
+        if (stSap.startsWith('51') || stSap.startsWith('50') || stSap.startsWith('99') || stSap.startsWith('55')) return false;
+        if (stNota.startsWith('51') || stNota.startsWith('50') || stNota.startsWith('99') || stNota.startsWith('55')) return false;
+
+        const mesPlan = String(n.Mes_Execucao_Planejado ?? '');
+        const anoMatch = mesPlan.match(/\b(19\d\d|20\d\d|9999)\b/);
+        if (anoMatch) {
+          const ano = parseInt(anoMatch[1], 10);
+          if (ano > 2026 || ano === 9999) return false;
+        }
+        return true;
+      });
     } else {
       r = registrosBase
-        .filter((n) => String(n.Status_Nota ?? '').startsWith('10'))
+        .filter((n) => {
+          const stFinal = String(n.Status_Final ?? '').trim();
+          const stNota = String(n.Status_Nota ?? '').trim();
+          const stSap = String(n.Export_status ?? '').trim();
+
+          // Exclui notas que já estão em 51, 50, 99, 55 no SAP
+          if (stSap.startsWith('51') || stSap.startsWith('50') || stSap.startsWith('99') || stSap.startsWith('55')) {
+            return false;
+          }
+          if (stFinal.startsWith('51') || stFinal.startsWith('50') || stFinal.startsWith('99') || stFinal.startsWith('55')) {
+            return false;
+          }
+
+          const eh10 = stFinal.startsWith('10') || stSap === '10' || (stFinal === 'Fora SAP' && stNota.startsWith('10')) || stNota.toUpperCase().includes('PLANEJAMENTO');
+          if (!eh10) return false;
+
+          // Filtra anos inválidos / sentinelas / futuros distantes (2027, 9999)
+          const mesPlan = String(n.Mes_Execucao_Planejado ?? '');
+          const anoMatch = mesPlan.match(/\b(19\d\d|20\d\d|9999)\b/);
+          if (anoMatch) {
+            const ano = parseInt(anoMatch[1], 10);
+            if (ano > 2026 || ano === 9999) return false;
+          }
+          return true;
+        })
         .map((n) => {
           const fisico = Number(n.Planejado_DDPM) || 0;
           const mod = Number(n.Modular) || 0;
           return {
             Numero_Nota: n.Numero_Nota,
             Ordem: n.Ordem,
-            Status_Nota: n.Status_Nota,
+            Status_Nota: n.Status_Final ?? n.Status_Nota,
             Status_Usuario: n.Status_Usuário_Ordem,
             Conjunto: n.Conjunto,
             Local_Instalacao: n.Local_Instalacao,
