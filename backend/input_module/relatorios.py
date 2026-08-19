@@ -11,7 +11,7 @@ import re
 import pandas as pd
 
 from input_module import config
-from input_module.engine import meses_pt_rev as MESES_ABREV
+from input_module.engine import meses_pt_rev as MESES_ABREV, parse_data_encerramento
 
 MESES_NOME = ["janeiro", "fevereiro", "março", "abril", "maio", "junho",
               "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"]
@@ -79,13 +79,13 @@ def _linhas_fato(df_notas: pd.DataFrame, df_ramal: pd.DataFrame, ano: int) -> pd
         mes, ano_exec = _mes_de_execucao(row.get("Mes_Execucao_Planejado"))
         if ano_exec != ano or mes is None:
             continue
-        enc = pd.to_datetime(row.get("Encerram.por data"), errors="coerce")
+        enc = parse_data_encerramento(row.get("Encerram.por data"))
         executada = _executada(row)
         exec_mes = None
         executada_sem_data = False
-        if executada and pd.notna(enc) and enc.year == ano:
+        if executada and enc is not None and enc.year == ano:
             exec_mes = int(enc.month)
-        elif executada and pd.isna(enc):
+        elif executada and enc is None:
             exec_mes = mes
             executada_sem_data = True
         fatos.append({

@@ -3141,3 +3141,42 @@ def test_extrair_data_sap_e_comparacao(banco_temporario):
     assert r9002["Comparacao_Data_SAP"] == "Igual"
     assert r9003["Comparacao_Data_SAP"] == "Divergente"
 
+
+def test_parse_data_encerramento_evita_bug_dayfirst_iso():
+    """Valida que datas ISO YYYY-MM-DD não sofrem inversão de dia/mês (bug de dayfirst=True)."""
+    import datetime
+    from input_module.engine import parse_data_encerramento, avaliar_prazo_sap
+
+    # 1. Validação de parse de data ISO e BR
+    dt_iso = parse_data_encerramento("2026-08-03")
+    assert dt_iso is not None
+    assert dt_iso.month == 8
+    assert dt_iso.day == 3
+    assert dt_iso.year == 2026
+
+    dt_br = parse_data_encerramento("03/08/2026")
+    assert dt_br is not None
+    assert dt_br.month == 8
+    assert dt_br.day == 3
+    assert dt_br.year == 2026
+
+    dt_iso_hora = parse_data_encerramento("2026-08-03 00:00:00")
+    assert dt_iso_hora is not None
+    assert dt_iso_hora.month == 8
+    assert dt_iso_hora.day == 3
+
+    # 2. Validação no avaliar_prazo_sap:
+    # Planejado para jul-2026 e encerrado em 2026-08-03 (agosto):
+    # Desvio = 1 mês de atraso (dentro da tolerância de 1 mês) -> "🟢 No Prazo"
+    # Se o bug do dayfirst ocorresse, viraria março-2026 e geraria falso "🔵 Adiantado"
+    row = {
+        "Status_Final": "99 Encerrado",
+        "Status_Nota": "99 Encerrado",
+        "Mes_Execucao_Planejado": "jul-2026",
+        "Encerram.por data": "2026-08-03",
+        "Ordem_Executada": "SIM",
+    }
+    resultado = avaliar_prazo_sap(row)
+    assert resultado == "🟢 No Prazo"
+
+

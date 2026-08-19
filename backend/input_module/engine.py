@@ -19,6 +19,7 @@ import os
 import re
 import threading
 import time
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -110,25 +111,80 @@ def normalizar_status_sap(val):
     return None
 
 
-def extrair_data_sap(descricao):
-    if pd.isna(descricao):
+def parse_data_encerramento(val: Any) -> datetime.datetime | None:
+    """Interpreta datas de encerramento/SAP com precisão evitando o bug de dayfirst=True em formato ISO."""
+    if val is None or pd.isna(val):
+        return None
+    if isinstance(val, (datetime.datetime, datetime.date, pd.Timestamp)):
+        return pd.to_datetime(val)
+    s = str(val).strip()
+    if s in ["", "-", "None", "nan", "<NA>", "null"]:
+        return None
+
+    # 1. Formato ISO YYYY-MM-DD (com ou sem horário) -> SEMPRE Ano-Mês-Dia (NÃO dayfirst)
+    m_iso = re.match(r"^(\d{4})[-/](\d{1,2})[-/](\d{1,2})", s)
+    if m_iso:
+        ano, mes, dia = int(m_iso.group(1)), int(m_iso.group(2)), int(m_iso.group(3))
+        try:
+            return datetime.datetime(ano, mes, dia)
+        except Exception:
+            return None
+
+    # 2. Formato Brasileiro DD/MM/YYYY -> Dia-Mês-Ano
+    m_br = re.match(r"^(\d{1,2})[-/](\d{1,2})[-/](\d{4})", s)
+    if m_br:
+        dia, mes, ano = int(m_br.group(1)), int(m_br.group(2)), int(m_br.group(3))
+        try:
+            return datetime.datetime(ano, mes, dia)
+        except Exception:
+            return None
+
+    # 3. Fallback
+    try:
+        dt = pd.to_datetime(s, errors="coerce")
+        return None if pd.isna(dt) else dt
+    except Exception:
+        return None
+
+
+def extrair_data_sap(descricao: Any) -> str:
+    """Extrai o mês e ano programados no SAP a partir do texto da descrição (ex: M04/2026-SUBTERRANEO -> abr-2026)."""
+    if pd.isna(descricao) or not descricao:
         return "-"
     desc_str = str(descricao).strip()
-    match = re.search(r'\bM(\d{2})/(\d{4}|\d{2})\b', desc_str, re.IGNORECASE)
+    if desc_str in ["", "-", "None", "nan", "<NA>", "null"]:
+        return "-"
+
+    # 1. Padrão M04/2026, M04-2026, M 04/2026, 04/2026
+    match = re.search(r'M?\s*(\d{2})[/-](\d{4}|\d{2})', desc_str, re.IGNORECASE)
     if match:
         mes_num = int(match.group(1))
         ano_str = match.group(2)
         ano_num = int(ano_str)
         if len(ano_str) == 2:
             ano_num += 2000
-        
+
         meses_pt = {
             1: 'jan', 2: 'fev', 3: 'mar', 4: 'abr',
             5: 'maio', 6: 'jun', 7: 'jul', 8: 'ago',
             9: 'set', 10: 'out', 11: 'nov', 12: 'dez'
         }
-        if 1 <= mes_num <= 12:
+        if 1 <= mes_num <= 12 and 2000 <= ano_num <= 2099:
             return f"{meses_pt[mes_num]}-{ano_num}"
+
+    # 2. Padrão ISO 2026-04 ou 2026/04
+    match_iso = re.search(r'(\d{4})[/-](\d{2})', desc_str)
+    if match_iso:
+        ano_num = int(match_iso.group(1))
+        mes_num = int(match_iso.group(2))
+        meses_pt = {
+            1: 'jan', 2: 'fev', 3: 'mar', 4: 'abr',
+            5: 'maio', 6: 'jun', 7: 'jul', 8: 'ago',
+            9: 'set', 10: 'out', 11: 'nov', 12: 'dez'
+        }
+        if 1 <= mes_num <= 12 and 2000 <= ano_num <= 2099:
+            return f"{meses_pt[mes_num]}-{ano_num}"
+
     return "-"
 
 
@@ -247,13 +303,13 @@ def avaliar_prazo_sap(row):
             else:
                 return "⚪ Em Andamento (No Prazo)"
 
-        # 2. TRATAMENTO DO REALIZADO (SAP - Ex: 2024-02-21 00:00:00)
+        # 2. TRATAMENTO DO REALIZADO (SAP - Ex: 2026-08-03 ou 03/08/2026)
         val_real = row.get('Encerram.por data', '-')
-        if pd.isna(val_real) or str(val_real).strip() in ["", "-", "None", "nan"]:
+        if pd.isna(val_real) or str(val_real).strip() in ["", "-", "None", "nan", "<NA>", "null"]:
             return "⏳Sem Data SAP"
 
-        dt_real = pd.to_datetime(val_real, dayfirst=True, errors='coerce')
-        if pd.isna(dt_real):
+        dt_real = parse_data_encerramento(val_real)
+        if not dt_real:
             return "⚠️ Data SAP Inválida"
 
         mes_real = dt_real.month
@@ -348,63 +404,77 @@ def enriquecer_dados():
     df['Centro_Responsavel_Banco'] = df['Centro_Responsavel'].fillna("-")
 
     df_sap = db.carregar_base_dataframe("base_iw28")
-    colunas_esperadas = ['Nota', 'Status usuário', 'CenTrabalho princ.', 'Ordem', 'Encerram.por data', 'Descrição', 'Prioridade', 'Data da nota']
-
     if df_sap is not None and not df_sap.empty:
         try:
-            # Filtra colunas se existirem
-            col_validas = [c for c in colunas_esperadas if c in df_sap.columns]
-            df_sap = df_sap[col_validas].copy()
+            # Mapeamento resiliente de colunas do IW28 (resistente a variações de acentuação e encodings)
+            def _achar_coluna(padroes: list[str]) -> str | None:
+                for col in df_sap.columns:
+                    col_norm = unicodedata.normalize("NFKD", str(col)).encode("ascii", "ignore").decode("utf-8").lower()
+                    if any(p in col_norm for p in padroes):
+                        return col
+                return None
+
+            col_nota = _achar_coluna(["nota"])
+            col_status = _achar_coluna(["status usu", "status ordem", "status"])
+            col_centro = _achar_coluna(["centrabalho", "centro p/cen", "centro"])
+            col_ordem = _achar_coluna(["ordem"])
+            col_encerram = _achar_coluna(["encerram"])
+            col_desc = _achar_coluna(["descri"])
+            col_prio = _achar_coluna(["prioridade"])
+            col_data_nota = _achar_coluna(["data da nota", "data nota"])
+
             # Normaliza Nota do SAP como string numérica pura para cruzamento seguro
-            df_sap['Nota_str'] = pd.to_numeric(df_sap['Nota'], errors='coerce').dropna().astype(int).astype(str).str.strip()
+            if col_nota:
+                df_sap['Nota_str'] = pd.to_numeric(df_sap[col_nota], errors='coerce').dropna().astype(int).astype(str).str.strip()
+            else:
+                df_sap['Nota_str'] = df_sap.index.astype(str)
             df['Numero_Nota_str'] = pd.to_numeric(df['Numero_Nota'], errors='coerce').fillna(0).astype(int).astype(str).str.strip()
 
-            dicionario_status_sap = dict(zip(df_sap['Nota_str'], df_sap['Status usuário']))
-            df['Export_status'] = df['Numero_Nota_str'].map(dicionario_status_sap).fillna("Fora SAP")
+            if col_status:
+                dicionario_status_sap = dict(zip(df_sap['Nota_str'], df_sap[col_status]))
+                df['Export_status'] = df['Numero_Nota_str'].map(dicionario_status_sap).fillna("Fora SAP")
+            else:
+                df['Export_status'] = "Fora SAP"
 
-            if 'CenTrabalho princ.' in df_sap.columns:
-                dicionario_centro_sap = dict(zip(df_sap['Nota_str'], df_sap['CenTrabalho princ.']))
+            if col_centro:
+                dicionario_centro_sap = dict(zip(df_sap['Nota_str'], df_sap[col_centro]))
                 df['Centro_SAP'] = df['Numero_Nota_str'].map(dicionario_centro_sap)
             else:
                 df['Centro_SAP'] = None
 
             # Identifica a qual Ordem aquela Nota pertence para podermos cruzar com o financeiro (IW38)
-            if 'Ordem' in df_sap.columns:
-                df_sap['Ordem_Texto'] = pd.to_numeric(df_sap['Ordem'], errors='coerce').apply(lambda x: str(int(x)) if pd.notna(x) else "Fora SAP")
+            if col_ordem:
+                df_sap['Ordem_Texto'] = pd.to_numeric(df_sap[col_ordem], errors='coerce').apply(lambda x: str(int(x)) if pd.notna(x) else "-")
                 dicionario_ordem_sap = dict(zip(df_sap['Nota_str'], df_sap['Ordem_Texto']))
-                df['Ordem'] = df['Numero_Nota_str'].map(dicionario_ordem_sap).fillna("Fora SAP")
+                df['Ordem'] = df['Numero_Nota_str'].map(dicionario_ordem_sap).fillna("-")
+            else:
+                df['Ordem'] = "-"
 
             def _fmt_dt_sap(val):
                 if pd.isna(val) or str(val).strip().lower() in ["none", "nan", "-", "", "<na>"]:
                     return "-"
-                v_str = str(val).strip()
-                if len(v_str) >= 10 and v_str[2] == "/" and v_str[5] == "/":
-                    return v_str[:10]
-                if len(v_str) >= 10 and v_str[4] == "-" and v_str[7] == "-":
-                    p = v_str[:10].split("-")
-                    return f"{p[2]}/{p[1]}/{p[0]}"
-                try:
-                    return pd.to_datetime(val, dayfirst=True).strftime("%d/%m/%Y")
-                except Exception:
-                    return v_str
+                dt = parse_data_encerramento(val)
+                if dt:
+                    return dt.strftime("%d/%m/%Y")
+                return str(val).strip()
 
-            if 'Data da nota' in df_sap.columns:
-                dicionario_data_nota = dict(zip(df_sap['Nota_str'], df_sap['Data da nota']))
+            if col_data_nota:
+                dicionario_data_nota = dict(zip(df_sap['Nota_str'], df_sap[col_data_nota]))
                 df['Data_Nota_SAP'] = df['Numero_Nota_str'].map(dicionario_data_nota).apply(_fmt_dt_sap)
                 df['Data da nota'] = df['Data_Nota_SAP']
             else:
                 df['Data_Nota_SAP'] = "-"
                 df['Data da nota'] = "-"
 
-            if 'Encerram.por data' in df_sap.columns:
-                dicionario_encerram_data = dict(zip(df_sap['Nota_str'], df_sap['Encerram.por data']))
+            if col_encerram:
+                dicionario_encerram_data = dict(zip(df_sap['Nota_str'], df_sap[col_encerram]))
                 df['Encerram.por data'] = df['Numero_Nota_str'].map(dicionario_encerram_data).apply(_fmt_dt_sap)
             else:
                 df['Encerram.por data'] = "-"
 
-            # Integração do Descrição para extrair a data programada do SAP
-            if 'Descrição' in df_sap.columns:
-                dicionario_desc_sap = dict(zip(df_sap['Nota_str'], df_sap['Descrição']))
+            # Integração da Descrição para extrair a data programada do SAP
+            if col_desc:
+                dicionario_desc_sap = dict(zip(df_sap['Nota_str'], df_sap[col_desc]))
                 df['Descricao_SAP'] = df['Numero_Nota_str'].map(dicionario_desc_sap)
                 df['Data programada SAP'] = df['Descricao_SAP'].apply(extrair_data_sap)
             else:
@@ -420,14 +490,6 @@ def enriquecer_dados():
                 m = re.match(r'^(\d{4})[-/](\d{1,2})', s)
                 if m:
                     return int(m.group(1)), int(m.group(2))
-                meses_pt_rev = {
-                    'jan': 1, 'janeiro': 1, 'fev': 2, 'fevereiro': 2,
-                    'mar': 3, 'março': 3, 'marco': 3, 'abr': 4, 'abril': 4,
-                    'mai': 5, 'maio': 5, 'jun': 6, 'junho': 6,
-                    'jul': 7, 'julho': 7, 'ago': 8, 'agosto': 8,
-                    'set': 9, 'setembro': 9, 'out': 10, 'outubro': 10,
-                    'nov': 11, 'novembro': 11, 'dez': 12, 'dezembro': 12
-                }
                 m2 = re.search(r'([a-zç]+)[-/\s]+(\d{2,4})', s)
                 if m2:
                     m_txt, y_txt = m2.group(1), int(m2.group(2))
@@ -454,8 +516,8 @@ def enriquecer_dados():
             df['Status_Nota'] = df['Status_SAP_Norm'].fillna(df['Status_Nota'])
 
             # Integração da Prioridade da Nota vinda do SAP
-            if 'Prioridade' in df_sap.columns:
-                dicionario_prio_sap = dict(zip(df_sap['Nota_str'], df_sap['Prioridade']))
+            if col_prio:
+                dicionario_prio_sap = dict(zip(df_sap['Nota_str'], df_sap[col_prio]))
                 df['Prioridade_SAP'] = df['Numero_Nota_str'].map(dicionario_prio_sap)
                 df['Prioridade_SAP_Norm'] = df['Prioridade_SAP'].apply(normalizar_prioridade_sap)
                 df['Prioridade_Nota'] = df['Prioridade_SAP_Norm'].fillna(df['Prioridade_Nota'])
@@ -478,6 +540,11 @@ def enriquecer_dados():
         df['Centro_Responsavel'] = df['Centro_Responsavel_Banco']
         df['Data_Nota_SAP'] = "-"
         df['Data da nota'] = "-"
+        df['Encerram.por data'] = "-"
+        df['Data programada SAP'] = "-"
+        df['Data_programada_SAP'] = "-"
+        df['Comparação Data SAP'] = "-"
+        df['Comparacao_Data_SAP'] = "-"
         df['Encerram.por data'] = "-"
         df['Data programada SAP'] = "-"
         df['Data_programada_SAP'] = "-"
