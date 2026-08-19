@@ -431,7 +431,7 @@ Router `/api/input` (prefixo). Todo endpoint de leitura/escrita chama
 | `GET /sync` | Retorna `ultima_alteracao` e `versao` (`db.obter_versao_dataset()`), usado para polling leve — o frontend compara `versao` a cada 60s para saber se precisa revalidar (ver `03-frontend-input.md`). |
 | `GET /relatorios/dashboard?regional=<opcional>&mes=<opcional, 1-12>` | Home do app. `mes` seleciona o mês de referência do hero/regionais (padrão: mês corrente do servidor); fora de `1..12` retorna `422`. Chama `metas.sincronizar_se_preciso()` (no-op se o mtime não mudou), monta o payload via `relatorios.montar_dashboard(..., mes_referencia=...)` a partir de `engine.get_dataset()` + `db.carregar_dados_ramal()` + `db.carregar_metas()` + `db.carregar_planos_depara()` + `db.carregar_postergacoes()`, e anexa `regionais_disponiveis`/`metas_info`. O payload traz `mes_referencia` (renomeado de `mes_corrente`), `hero.postergadas` (soma do mês de referência) e `visao_anual[].postergado` (soma do ano por plano) — ambos respeitam o filtro de `regional`. Mesmo contrato de ETag/304 de `GET /notas`, mas o ETag agora inclui `versao-mes-regional` (`routes.py:79`) — cada combinação de filtro tem sua própria entidade cacheável, então trocar de mês/regional nunca serve payload de outra combinação. Como o sync de metas grava em `log_arquivos`, a versão computada logo depois já reflete uma reimportação — o ETag nunca serve payload velho pós-sync. |
 | `POST /metas/sincronizar` | Força `metas.sincronizar_se_preciso(forcar=True)` (ignora mtime) e devolve o estado; usado pelo botão "Sincronizar agora" em Configurações. |
-| `GET /logs`, `GET /logs/arquivos`, `GET /logs/nota/{numero}` | Log de alterações e de substituição de arquivos. |
+| `GET /logs`, `GET /logs/arquivos`, `GET /logs/nota/{numero}` | Log de alterações e de arquivos. `/logs` aceita `nota` (um ou vários números colados), `usuario`, `tipo` (`criacao`/`edicao`/`exclusao`/`ocultacao`), `limite` e `offset` — ver "Paginação do log" abaixo. `/logs/nota/{numero}` consulta a timeline direto em SQL e aceita `limite`. |
 | `PATCH /notas` | Edição parcial (`db.aplicar_edicoes`), com diff campo a campo e log; exige header `X-User`. Pula notas travadas por outro usuário e devolve os números em `bloqueadas`. |
 | `POST /notas`, `POST /notas/bulk` | Criação de notas (unitária/lote), validando duplicatas contra o lote e contra o banco. |
 | `DELETE /notas` | Exclusão em lote, com log de auditoria. Pula notas travadas por outro usuário (contagem real de `excluidas` reflete isso). |
@@ -805,6 +805,28 @@ obter_estado_metas() -> {
 
 Colunas extras/vazias são ignoradas; linhas com valores faltantes em
 `Regionais`/`Mês`/`Plano` são descartadas.
+
+## Paginação do log (`GET /logs`)
+
+O filtro, a paginação e a classificação por tipo de evento acontecem no banco.
+Antes a tela baixava o histórico inteiro para mostrar uma página, montar a
+lista de usuários e contar eventos por tipo.
+
+- **Sem parâmetros o contrato antigo continua valendo**: `registros` traz o
+  histórico completo. `paginacao`, `resumo` e `usuarios` são acréscimos, então
+  um cliente antigo não quebra.
+- `limite` é limitado por `db.LIMITE_MAXIMO_LOGS` (1000): uma página nunca
+  vira "traga tudo" por acidente. `tipo` desconhecido responde `422`.
+- `paginacao` traz `total` (do filtro aplicado), `limite`, `offset` e
+  `tem_mais`; `resumo` conta por tipo sobre o histórico inteiro — é o cabeçalho
+  da tela, que não muda ao paginar; `usuarios` alimenta o filtro por autor.
+- A classificação por tipo em SQL (`db.CONDICOES_TIPO_LOG`) espelha o que a
+  tela fazia em memória (`ehCriacao`/`ehExclusao`/`ehOcultacao` em `logs.tsx`).
+  Mudou uma regra, muda nos dois lugares — o teste de filtro cobre a paridade.
+- **D6 continua aberta** (issue #16): tamanho padrão de página, janela padrão e
+  política de expurgo são decisão de produto. O que existe aqui é o teto por
+  página; a tela usa 100 registros por página e 500 na linha do tempo. Nenhum
+  expurgo é feito.
 
 ## SLA — aderência ao prazo (`input_module/sla.py`)
 

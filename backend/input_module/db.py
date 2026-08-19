@@ -593,15 +593,147 @@ def _proximo_id_cronologia(cursor: sqlite3.Cursor) -> int:
     return int(maximo) + 1 if maximo is not None else 1
 
 
-def carregar_logs() -> pd.DataFrame:
-    """Carrega todos os registros da tabela de log de alterações."""
+COLUNAS_LOG_ALTERACOES = ["ID_Log", "Numero_Nota", "Usuario", "Data_Hora",
+                          "Campo_Alterado", "Valor_Antigo", "Valor_Novo"]
+
+# Teto por página do endpoint de logs. O tamanho padrão de página e a política
+# de expurgo continuam sendo decisão de produto (D6, issue #16); aqui só existe
+# o teto que impede uma página pedir o histórico inteiro.
+LIMITE_MAXIMO_LOGS = 1000
+
+# Classificação por tipo de evento, espelhando o que a tela já fazia em memória
+# (`ehCriacao`/`ehExclusao`/`ehOcultacao` em logs.tsx). Fica em SQL para a
+# página vir filtrada do banco em vez de o navegador baixar tudo e descartar.
+_CONDICAO_CRIACAO = (
+    "(Campo_Alterado LIKE '%CRIAÇÃO%' OR Campo_Alterado LIKE '%INSERÇÃO%')")
+_CONDICAO_EXCLUSAO = (
+    "(Campo_Alterado LIKE '%EXCLUSÃO%' OR Valor_Novo LIKE '%APAGADO%')")
+_CONDICAO_OCULTACAO = (
+    "((Campo_Alterado LIKE '%CHECK%' AND (Valor_Novo LIKE '%OCULTA%' "
+    "OR Valor_Novo LIKE '%OCULTO%')) OR Valor_Novo LIKE '%[OCULTA%' "
+    "OR Valor_Antigo LIKE '%[OCULTA%')")
+CONDICOES_TIPO_LOG = {
+    "criacao": _CONDICAO_CRIACAO,
+    "exclusao": _CONDICAO_EXCLUSAO,
+    "ocultacao": _CONDICAO_OCULTACAO,
+    "edicao": (f"NOT ({_CONDICAO_CRIACAO} OR {_CONDICAO_EXCLUSAO} "
+               f"OR {_CONDICAO_OCULTACAO})"),
+}
+
+
+def _filtros_logs(termos_nota: list[str] | None, usuario: str | None,
+                  tipo: str | None) -> tuple[str, list]:
+    """Monta o WHERE dos logs. Termos de nota casam por trecho, como na tela."""
+    condicoes, parametros = [], []
+    if termos_nota:
+        casamentos = ["CAST(Numero_Nota AS TEXT) LIKE ?"] * len(termos_nota)
+        condicoes.append("(" + " OR ".join(casamentos) + ")")
+        parametros.extend(f"%{termo}%" for termo in termos_nota)
+    if usuario:
+        condicoes.append("Usuario = ?")
+        parametros.append(usuario)
+    if tipo in CONDICOES_TIPO_LOG:
+        condicoes.append(CONDICOES_TIPO_LOG[tipo])
+    return (" WHERE " + " AND ".join(condicoes)) if condicoes else "", parametros
+
+
+def carregar_logs(termos_nota: list[str] | None = None,
+                  usuario: str | None = None, tipo: str | None = None,
+                  limite: int | None = None, offset: int = 0) -> pd.DataFrame:
+    """Página do log de alterações, já filtrada no banco.
+
+    Sem argumentos devolve o histórico inteiro, como antes — o contrato antigo
+    continua valendo para quem não pagina.
+    """
+    where, parametros = _filtros_logs(termos_nota, usuario, tipo)
+    sql = f"SELECT * FROM log_alteracoes{where} ORDER BY Data_Hora DESC"
+    if limite is not None:
+        sql += " LIMIT ? OFFSET ?"
+        parametros = [*parametros, limite, max(offset, 0)]
+
     conn = get_db_connection()
     try:
-        return pd.read_sql("SELECT * FROM log_alteracoes ORDER BY Data_Hora DESC", conn)
-    except Exception:
-        return pd.DataFrame(columns=["ID_Log", "Numero_Nota", "Usuario",
-                                     "Data_Hora", "Campo_Alterado",
-                                     "Valor_Antigo", "Valor_Novo"])
+        return pd.read_sql(sql, conn, params=parametros)
+    except Exception as erro:
+        print(f"Erro ao consultar log de alterações: {erro}")
+        return pd.DataFrame(columns=COLUNAS_LOG_ALTERACOES)
+    finally:
+        conn.close()
+
+
+def contar_logs(termos_nota: list[str] | None = None,
+                usuario: str | None = None, tipo: str | None = None) -> int:
+    """Total de registros que casam com o filtro — o denominador da paginação."""
+    where, parametros = _filtros_logs(termos_nota, usuario, tipo)
+    conn = get_db_connection()
+    try:
+        return int(conn.execute(
+            f"SELECT COUNT(*) FROM log_alteracoes{where}", parametros).fetchone()[0])
+    except Exception as erro:
+        print(f"Erro ao contar log de alterações: {erro}")
+        return 0
+    finally:
+        conn.close()
+
+
+def resumo_logs() -> dict:
+    """Contagem por tipo de evento sobre o histórico inteiro (cabeçalho da tela)."""
+    conn = get_db_connection()
+    try:
+        criacoes, exclusoes, ocultacoes, total = conn.execute(
+            f"""SELECT
+                    SUM(CASE WHEN {_CONDICAO_CRIACAO} THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN {_CONDICAO_EXCLUSAO} THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN {_CONDICAO_OCULTACAO} THEN 1 ELSE 0 END),
+                    COUNT(*)
+                FROM log_alteracoes""").fetchone()
+    except Exception as erro:
+        print(f"Erro ao resumir log de alterações: {erro}")
+        return {"total": 0, "criacoes": 0, "exclusoes": 0, "ocultacoes": 0,
+                "edicoes": 0}
+    finally:
+        conn.close()
+
+    criacoes, exclusoes, ocultacoes = (int(v or 0) for v in (criacoes, exclusoes, ocultacoes))
+    return {
+        "total": int(total or 0),
+        "criacoes": criacoes,
+        "exclusoes": exclusoes,
+        "ocultacoes": ocultacoes,
+        "edicoes": int(total or 0) - criacoes - exclusoes - ocultacoes,
+    }
+
+
+def usuarios_dos_logs() -> list[str]:
+    """Autores presentes no log — alimenta o filtro por usuário da tela."""
+    conn = get_db_connection()
+    try:
+        linhas = conn.execute(
+            "SELECT DISTINCT Usuario FROM log_alteracoes "
+            "WHERE Usuario IS NOT NULL AND Usuario <> '' ORDER BY Usuario").fetchall()
+        return [linha[0] for linha in linhas]
+    except Exception as erro:
+        print(f"Erro ao listar usuários do log: {erro}")
+        return []
+    finally:
+        conn.close()
+
+
+def carregar_logs_da_nota(numero: int, limite: int | None = None) -> pd.DataFrame:
+    """Timeline de uma nota — consulta direta, sem carregar o histórico todo."""
+    sql = ("SELECT * FROM log_alteracoes WHERE Numero_Nota = ? "
+           "ORDER BY Data_Hora DESC")
+    parametros: list = [int(numero)]
+    if limite is not None:
+        sql += " LIMIT ?"
+        parametros.append(limite)
+
+    conn = get_db_connection()
+    try:
+        return pd.read_sql(sql, conn, params=parametros)
+    except Exception as erro:
+        print(f"Erro ao consultar timeline da nota {numero}: {erro}")
+        return pd.DataFrame(columns=COLUNAS_LOG_ALTERACOES)
     finally:
         conn.close()
 

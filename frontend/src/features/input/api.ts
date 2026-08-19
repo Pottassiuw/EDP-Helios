@@ -1,7 +1,16 @@
 import type {
   BackupInfo, BaseStatus, Bloqueio, EdicaoResultado, HierarquiaInfo, InputDataset, LogArquivo,
-  LogRegistro, NotaInput, NotaRamal, RamalDataset, TravarResultado,
+  LogsPagina, NotaInput, NotaRamal, RamalDataset, TravarResultado,
 } from './types';
+
+/** Filtros server-side de GET /logs (todos opcionais). */
+export interface FiltroLogs {
+  nota?: string;
+  usuario?: string;
+  tipo?: string;
+  limite?: number;
+  offset?: number;
+}
 
 const base = (): string => localStorage.getItem('edp_api') ?? '/api';
 
@@ -74,9 +83,15 @@ export const InputApi = {
   destravarNotas: (numeros: number[]) =>
     req<{ liberadas: number }>('/notas/destravar', escrita('POST', { numeros })),
 
-  logs: () => req<{ registros: LogRegistro[] }>('/logs'),
+  logs: (filtro: FiltroLogs = {}) => {
+    const busca = new URLSearchParams();
+    for (const [chave, valor] of Object.entries(filtro)) {
+      if (valor !== undefined && valor !== '') busca.set(chave, String(valor));
+    }
+    const query = busca.toString();
+    return req<LogsPagina>(`/logs${query ? `?${query}` : ''}`);
+  },
   logsArquivos: () => req<{ registros: LogArquivo[] }>('/logs/arquivos'),
-  timeline: (numero: number) => req<{ registros: LogRegistro[] }>(`/logs/nota/${numero}`),
 
   responsaveis: () => req<Record<string, string>>('/responsaveis'),
   salvarResponsaveis: (mapa: Record<string, string>) =>

@@ -1,5 +1,5 @@
 import React from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
   FileText,
   PlusCircle,
@@ -10,8 +10,9 @@ import {
   EyeOff,
 } from 'lucide-react';
 import { InputApi } from './api';
-import type { LogArquivo, LogRegistro } from './types';
+import type { LogArquivo, LogRegistro, LogsResumo } from './types';
 import { formatarDataHora } from './lib';
+import { criarFuncaoComDebounce } from '@/lib/debounce';
 import { SegTabs, type SegTab } from '@/components/branded/section';
 import {
   Select,
@@ -33,6 +34,14 @@ const LOG_TABS: SegTab<SubAba>[] = [
   { id: 'arquivos', rotulo: 'Arquivos' },
   { id: 'timeline', rotulo: 'Linha do Tempo' },
 ];
+
+/** Página do histórico: o backend nunca devolve mais que `LIMITE_MAXIMO_LOGS`. */
+const TAMANHO_PAGINA = 100;
+const LIMITE_TIMELINE = 500;
+const ATRASO_BUSCA_MS = 300;
+const RESUMO_VAZIO: LogsResumo = {
+  total: 0, criacoes: 0, exclusoes: 0, ocultacoes: 0, edicoes: 0,
+};
 
 
 function ehCriacao(campo: string): boolean {
@@ -64,66 +73,74 @@ function parseNotasBusca(texto: string): string[] {
 
 export function Logs(): React.JSX.Element {
   const [sub, setSub] = React.useState<SubAba>('notas');
+  const [buscaNota, setBuscaNota] = React.useState('');
   const [filtroNota, setFiltroNota] = React.useState('');
   const [filtroUsuario, setFiltroUsuario] = React.useState('');
   const [filtroTipo, setFiltroTipo] = React.useState<TipoAcao>('todos');
+  const [buscaTimeline, setBuscaTimeline] = React.useState('');
   const [notaTimeline, setNotaTimeline] = React.useState('');
+  const [pagina, setPagina] = React.useState(0);
   const [modalNotificacao, setModalNotificacao] = React.useState(false);
 
-  const logs = useQuery({ queryKey: ['input-logs'], queryFn: InputApi.logs });
+  // Filtro, paginação e classificação por tipo acontecem no banco (issue #27):
+  // a tela pede uma página, não o histórico inteiro.
+  const logs = useQuery({
+    queryKey: ['input-logs', filtroNota, filtroUsuario, filtroTipo, pagina],
+    queryFn: () => InputApi.logs({
+      nota: filtroNota,
+      usuario: filtroUsuario,
+      tipo: filtroTipo === 'todos' ? undefined : filtroTipo,
+      limite: TAMANHO_PAGINA,
+      offset: pagina * TAMANHO_PAGINA,
+    }),
+    placeholderData: keepPreviousData,
+  });
   const logsArquivos = useQuery({ queryKey: ['input-logs-arquivos'], queryFn: InputApi.logsArquivos });
 
-  const todosLogs: LogRegistro[] = logs.data?.registros ?? [];
   const termosNotas = React.useMemo(() => parseNotasBusca(filtroNota), [filtroNota]);
   const termosTimeline = React.useMemo(() => parseNotasBusca(notaTimeline), [notaTimeline]);
 
-  const registros: LogRegistro[] = React.useMemo(() => {
-    return todosLogs.filter((r) => {
-      const matchNota =
-        termosNotas.length === 0 ||
-        termosNotas.some((termo) => String(r.Numero_Nota).includes(termo));
+  const timeline = useQuery({
+    queryKey: ['input-logs-timeline', notaTimeline],
+    queryFn: () => InputApi.logs({ nota: notaTimeline, limite: LIMITE_TIMELINE }),
+    enabled: termosTimeline.length > 0,
+  });
 
-      const matchUsuario =
-        filtroUsuario === '' || r.Usuario === filtroUsuario;
+  const buscaNotaComDebounce = React.useMemo(
+    () => criarFuncaoComDebounce((valor: string) => setFiltroNota(valor), ATRASO_BUSCA_MS),
+    [],
+  );
+  const buscaTimelineComDebounce = React.useMemo(
+    () => criarFuncaoComDebounce((valor: string) => setNotaTimeline(valor), ATRASO_BUSCA_MS),
+    [],
+  );
+  React.useEffect(() => () => {
+    buscaNotaComDebounce.cancelar();
+    buscaTimelineComDebounce.cancelar();
+  }, [buscaNotaComDebounce, buscaTimelineComDebounce]);
 
-      let matchTipo = true;
-      if (filtroTipo === 'criacao') matchTipo = ehCriacao(r.Campo_Alterado);
-      else if (filtroTipo === 'exclusao') matchTipo = ehExclusao(r.Campo_Alterado);
-      else if (filtroTipo === 'ocultacao') matchTipo = ehOcultacao(r.Campo_Alterado, r.Valor_Novo, r.Valor_Antigo);
-      else if (filtroTipo === 'edicao') {
-        matchTipo = !ehCriacao(r.Campo_Alterado) && !ehExclusao(r.Campo_Alterado) && !ehOcultacao(r.Campo_Alterado, r.Valor_Novo, r.Valor_Antigo);
-      }
+  // Trocar de filtro recomeça a paginação: manter o offset mostraria uma
+  // página vazia de um resultado que encolheu.
+  React.useEffect(() => {
+    setPagina(0);
+  }, [filtroNota, filtroUsuario, filtroTipo]);
 
-      return matchNota && matchUsuario && matchTipo;
-    });
-  }, [todosLogs, termosNotas, filtroUsuario, filtroTipo]);
+  const registros: LogRegistro[] = logs.data?.registros ?? [];
+  const logsTimelineFiltrados: LogRegistro[] = timeline.data?.registros ?? [];
+  const usuarios = logs.data?.usuarios ?? [];
+  const stats = logs.data?.resumo ?? RESUMO_VAZIO;
+  const paginacao = logs.data?.paginacao;
+  const totalFiltrado = paginacao?.total ?? registros.length;
+  const primeiroDaPagina = registros.length === 0 ? 0 : pagina * TAMANHO_PAGINA + 1;
+  const ultimoDaPagina = pagina * TAMANHO_PAGINA + registros.length;
 
-  const logsTimelineFiltrados = React.useMemo(() => {
-    if (termosTimeline.length === 0) return [];
-    return todosLogs.filter((r) =>
-      termosTimeline.some((termo) => String(r.Numero_Nota).includes(termo)),
-    );
-  }, [todosLogs, termosTimeline]);
-
-  const usuarios = React.useMemo(() => {
-    const s = new Set<string>();
-    for (const r of todosLogs) if (r.Usuario) s.add(r.Usuario);
-    return Array.from(s).sort();
-  }, [todosLogs]);
-
-  const stats = React.useMemo(() => {
-    let criacoes = 0;
-    let exclusoes = 0;
-    let ocultacoes = 0;
-    let edicoes = 0;
-    for (const r of todosLogs) {
-      if (ehCriacao(r.Campo_Alterado)) criacoes++;
-      else if (ehExclusao(r.Campo_Alterado)) exclusoes++;
-      else if (ehOcultacao(r.Campo_Alterado, r.Valor_Novo, r.Valor_Antigo)) ocultacoes++;
-      else edicoes++;
-    }
-    return { total: todosLogs.length, criacoes, exclusoes, ocultacoes, edicoes };
-  }, [todosLogs]);
+  function limparFiltros(): void {
+    buscaNotaComDebounce.cancelar();
+    setBuscaNota('');
+    setFiltroNota('');
+    setFiltroUsuario('');
+    setFiltroTipo('todos');
+  }
 
   return (
     <div className="p-6 flex flex-col gap-6 max-w-full">
@@ -184,10 +201,14 @@ export function Logs(): React.JSX.Element {
             <div className="relative flex-1 min-w-[260px] max-w-md">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-text-mute" />
               <Input
-                value={filtroNota}
+                value={buscaNota}
                 placeholder="Buscar nota(s) (ex: 1001, 1002 ou cole do Excel)..."
                 className="pl-8 h-9 text-xs bg-bg-2 border-line font-mono"
-                onChange={(e) => setFiltroNota(e.target.value)}
+                aria-label="Buscar notas no histórico"
+                onChange={(e) => {
+                  setBuscaNota(e.target.value);
+                  buscaNotaComDebounce.chamar(e.target.value);
+                }}
               />
             </div>
 
@@ -230,19 +251,21 @@ export function Logs(): React.JSX.Element {
               </SelectContent>
             </Select>
 
-            {(filtroNota || filtroUsuario || filtroTipo !== 'todos') && (
+            {(buscaNota || filtroUsuario || filtroTipo !== 'todos') && (
               <Button
                 variant="ghost"
                 size="sm"
                 className="h-9 px-2.5 text-xs text-text-mute hover:text-foreground"
-                onClick={() => {
-                  setFiltroNota('');
-                  setFiltroUsuario('');
-                  setFiltroTipo('todos');
-                }}
+                onClick={limparFiltros}
               >
                 Limpar filtros
               </Button>
+            )}
+
+            {logs.isFetching && (
+              <span className="text-[11px] text-text-mute font-mono" role="status">
+                Carregando…
+              </span>
             )}
           </div>
 
@@ -263,7 +286,7 @@ export function Logs(): React.JSX.Element {
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
-                {registros.slice(0, 500).map((r) => {
+                {registros.map((r) => {
                   const criacao = ehCriacao(r.Campo_Alterado);
                   const exclusao = ehExclusao(r.Campo_Alterado);
                   const ocultacao = ehOcultacao(r.Campo_Alterado, r.Valor_Novo, r.Valor_Antigo);
@@ -334,11 +357,41 @@ export function Logs(): React.JSX.Element {
                 })}
               </tbody>
             </table>
-            {registros.length === 0 && (
+            {registros.length === 0 && !logs.isFetching && (
               <div className="p-8 text-center text-text-mute text-xs italic">
                 Nenhum registro de alteração localizado com os filtros selecionados.
               </div>
             )}
+          </div>
+
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <span className="text-[11px] text-text-mute font-mono" aria-live="polite">
+              {totalFiltrado === 0
+                ? 'Nenhum registro'
+                : `${primeiroDaPagina}–${ultimoDaPagina} de ${totalFiltrado} registros`}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs"
+                disabled={pagina === 0 || logs.isFetching}
+                aria-label="Página anterior do histórico"
+                onClick={() => setPagina((atual) => Math.max(atual - 1, 0))}
+              >
+                Anterior
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs"
+                disabled={!paginacao?.tem_mais || logs.isFetching}
+                aria-label="Próxima página do histórico"
+                onClick={() => setPagina((atual) => atual + 1)}
+              >
+                Próxima
+              </Button>
+            </div>
           </div>
         </React.Fragment>
       )}
@@ -386,15 +439,21 @@ export function Logs(): React.JSX.Element {
             <div className="relative flex-1 min-w-[260px] max-w-md">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-text-mute" />
               <Input
-                value={notaTimeline}
+                value={buscaTimeline}
                 placeholder="Digite ou cole nota(s) (ex: 1001234, 1001235)..."
                 className="pl-8 h-9 text-xs bg-bg-2 border-line font-mono"
-                onChange={(e) => setNotaTimeline(e.target.value)}
+                aria-label="Buscar notas na linha do tempo"
+                onChange={(e) => {
+                  setBuscaTimeline(e.target.value);
+                  buscaTimelineComDebounce.chamar(e.target.value);
+                }}
               />
             </div>
             {termosTimeline.length > 0 && (
               <span className="text-[11px] px-2.5 py-1 rounded-full bg-accent/15 text-accent font-mono font-semibold border border-accent/30">
-                {logsTimelineFiltrados.length} evento(s) em {termosTimeline.length} nota(s)
+                {timeline.isFetching
+                  ? 'Carregando…'
+                  : `${logsTimelineFiltrados.length} evento(s) em ${termosTimeline.length} nota(s)`}
               </span>
             )}
           </div>
@@ -470,7 +529,8 @@ export function Logs(): React.JSX.Element {
               );
             })}
 
-            {termosTimeline.length > 0 && logsTimelineFiltrados.length === 0 && (
+            {termosTimeline.length > 0 && logsTimelineFiltrados.length === 0
+              && !timeline.isFetching && (
               <div className="p-8 text-center text-text-mute text-xs italic bg-surface rounded-lg border border-line">
                 Nenhum histórico de alteração localizado para as notas pesquisadas ({termosTimeline.join(', ')}).
               </div>

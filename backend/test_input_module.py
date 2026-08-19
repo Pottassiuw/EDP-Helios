@@ -1771,6 +1771,105 @@ def test_export_gera_xlsx(cliente):
     assert list(df.columns) == ["Nº Nota (ID)", "Status Nota"]
 
 
+# ── Issue #27: logs paginados e timeline consultada em SQL ───────────────
+def _semear_logs(quantidade: int = 5) -> None:
+    from input_module import db
+    agora = datetime.datetime.now()
+    logs = []
+    for i in range(quantidade):
+        logs.append((7700 + i, "ana" if i % 2 == 0 else "bob",
+                     agora - datetime.timedelta(minutes=i),
+                     "CRIAÇÃO DE NOTA" if i % 2 == 0 else "Observacao",
+                     "-", f"valor {i}"))
+    db.salvar_log_alteracoes(logs)
+
+
+def test_logs_sem_parametros_mantem_o_contrato_antigo(cliente):
+    _semear_logs(3)
+    r = cliente.get("/api/input/logs")
+    assert r.status_code == 200
+    corpo = r.json()
+    assert len(corpo["registros"]) == 3
+    assert corpo["paginacao"] == {"total": 3, "limite": None, "offset": 0,
+                                  "tem_mais": False}
+
+
+def test_logs_respeitam_limite_e_offset(cliente):
+    _semear_logs(5)
+    primeira = cliente.get("/api/input/logs?limite=2").json()
+    assert len(primeira["registros"]) == 2
+    assert primeira["paginacao"]["total"] == 5
+    assert primeira["paginacao"]["tem_mais"] is True
+
+    ultima = cliente.get("/api/input/logs?limite=2&offset=4").json()
+    assert len(ultima["registros"]) == 1
+    assert ultima["paginacao"]["tem_mais"] is False
+
+    ids_primeira = {r["ID_Log"] for r in primeira["registros"]}
+    ids_ultima = {r["ID_Log"] for r in ultima["registros"]}
+    assert ids_primeira.isdisjoint(ids_ultima)
+
+
+def test_logs_filtram_por_nota_usuario_e_tipo_no_banco(cliente):
+    _semear_logs(4)
+    por_nota = cliente.get("/api/input/logs?nota=7701").json()["registros"]
+    assert [r["Numero_Nota"] for r in por_nota] == [7701]
+
+    por_usuario = cliente.get("/api/input/logs?usuario=bob").json()["registros"]
+    assert {r["Usuario"] for r in por_usuario} == {"bob"}
+
+    criacoes = cliente.get("/api/input/logs?tipo=criacao").json()["registros"]
+    assert {r["Campo_Alterado"] for r in criacoes} == {"CRIAÇÃO DE NOTA"}
+
+    edicoes = cliente.get("/api/input/logs?tipo=edicao").json()["registros"]
+    assert "CRIAÇÃO DE NOTA" not in {r["Campo_Alterado"] for r in edicoes}
+
+
+def test_logs_aceitam_varias_notas_coladas(cliente):
+    _semear_logs(4)
+    colado = cliente.get("/api/input/logs?nota=7700%2C%207702").json()["registros"]
+    assert {r["Numero_Nota"] for r in colado} == {7700, 7702}
+
+
+def test_logs_resumem_o_historico_inteiro_mesmo_paginado(cliente):
+    _semear_logs(4)
+    corpo = cliente.get("/api/input/logs?limite=1").json()
+    assert corpo["resumo"]["total"] == 4
+    assert corpo["resumo"]["criacoes"] == 2
+    assert corpo["resumo"]["edicoes"] == 2
+    assert corpo["usuarios"] == ["ana", "bob"]
+
+
+def test_logs_recusam_tipo_desconhecido(cliente):
+    r = cliente.get("/api/input/logs?tipo=inventado")
+    assert r.status_code == 422
+    assert "inventado" in r.json()["detail"]
+
+
+def test_logs_limitam_o_tamanho_da_pagina(cliente):
+    from input_module import db
+    _semear_logs(2)
+    corpo = cliente.get("/api/input/logs?limite=99999").json()
+    assert corpo["paginacao"]["limite"] == db.LIMITE_MAXIMO_LOGS
+
+
+def test_logs_offset_negativo_e_recusado(cliente):
+    assert cliente.get("/api/input/logs?offset=-1").status_code == 422
+
+
+def test_timeline_da_nota_nao_le_o_historico_inteiro(cliente, monkeypatch):
+    from input_module import db, routes
+    _semear_logs(4)
+
+    def falhar(*args, **kwargs):
+        raise AssertionError("timeline não pode varrer o histórico completo")
+
+    monkeypatch.setattr(routes.db, "carregar_logs", falhar)
+    corpo = cliente.get("/api/input/logs/nota/7701").json()
+    assert [r["Numero_Nota"] for r in corpo["registros"]] == [7701]
+    assert db.carregar_logs_da_nota(7701).shape[0] == 1
+
+
 def test_export_rejeita_coluna_fora_do_contrato(cliente):
     r = cliente.post("/api/input/export", headers=CABECALHO_USER,
                      json={"numeros": [], "colunas": ["Numero_Nota", "Coluna_Inventada"]})

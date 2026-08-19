@@ -46,6 +46,29 @@ export interface LogRegistro {
   Valor_Novo: string;
 }
 
+export interface LogsPaginacao {
+  total: number;
+  limite: number | null;
+  offset: number;
+  tem_mais: boolean;
+}
+
+export interface LogsResumo {
+  total: number;
+  criacoes: number;
+  exclusoes: number;
+  ocultacoes: number;
+  edicoes: number;
+}
+
+/** Resposta de GET /logs: página + metadados do histórico inteiro. */
+export interface LogsPagina {
+  registros: LogRegistro[];
+  paginacao: LogsPaginacao;
+  resumo: LogsResumo;
+  usuarios: string[];
+}
+
 export interface LogArquivo {
   ID_Log: number;
   Nome_Arquivo: string;

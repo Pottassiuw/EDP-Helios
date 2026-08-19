@@ -21,7 +21,7 @@ from input_module.notificacoes_service import (
 
 import pandas as pd
 from fastapi import (APIRouter, BackgroundTasks, Depends, File, Header,
-                     HTTPException, Request, Response, UploadFile)
+                     HTTPException, Query, Request, Response, UploadFile)
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -184,10 +184,44 @@ def metas_sincronizar():
     return metas.sincronizar_se_preciso(forcar=True)
 
 
+def _termos_de_nota(busca: Optional[str]) -> list[str]:
+    """Quebra a busca colada da tela (vírgula, espaço, quebra de linha)."""
+    if not busca:
+        return []
+    return [termo for termo in _re.split(r"[\s,;\n\t]+", busca.strip()) if termo]
+
+
 @router.get("/logs")
-def listar_logs():
+def listar_logs(nota: Optional[str] = None, usuario: Optional[str] = None,
+                tipo: Optional[str] = None,
+                limite: Optional[int] = Query(None, ge=1),
+                offset: int = Query(0, ge=0)):
+    """Log de alterações paginado e filtrado no banco.
+
+    Sem parâmetros o contrato antigo continua valendo (histórico inteiro em
+    `registros`); `paginacao`, `resumo` e `usuarios` são acréscimos.
+    """
     garantir_banco()
-    return {"registros": _df_para_registros(db.carregar_logs())}
+    if tipo and tipo not in db.CONDICOES_TIPO_LOG:
+        raise HTTPException(
+            422, f"Tipo de evento desconhecido: {tipo}. "
+                 f"Use um de: {', '.join(sorted(db.CONDICOES_TIPO_LOG))}.")
+
+    termos = _termos_de_nota(nota)
+    limite_efetivo = min(limite, db.LIMITE_MAXIMO_LOGS) if limite else None
+    df = db.carregar_logs(termos, usuario, tipo, limite_efetivo, offset)
+    total = db.contar_logs(termos, usuario, tipo)
+    return {
+        "registros": _df_para_registros(df),
+        "paginacao": {
+            "total": total,
+            "limite": limite_efetivo,
+            "offset": offset,
+            "tem_mais": limite_efetivo is not None and offset + len(df) < total,
+        },
+        "resumo": db.resumo_logs(),
+        "usuarios": db.usuarios_dos_logs(),
+    }
 
 
 @router.get("/logs/arquivos")
@@ -197,12 +231,12 @@ def listar_logs_arquivos():
 
 
 @router.get("/logs/nota/{numero}")
-def timeline_nota(numero: int):
+def timeline_nota(numero: int, limite: Optional[int] = Query(None, ge=1)):
+    """Timeline da nota consultada direto no SQLite (sem varrer o histórico)."""
     garantir_banco()
-    df = db.carregar_logs()
-    if not df.empty:
-        df = df[df["Numero_Nota"] == numero]
-    return {"registros": _df_para_registros(df)}
+    limite_efetivo = min(limite, db.LIMITE_MAXIMO_LOGS) if limite else None
+    return {"registros": _df_para_registros(
+        db.carregar_logs_da_nota(numero, limite_efetivo))}
 
 
 # ── Escrita ──────────────────────────────────────────────────────────────
