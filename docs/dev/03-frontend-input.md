@@ -392,3 +392,17 @@ o Input em si não guarda essa informação.
   com COFFEE/Carteira, então o campo "Mês de Execução Planejado" ainda
   mostra o trigger em Inter com o popup em mono quando usado dentro do
   Input.
+
+## Formulários de Cadastro de Notas (`CadastroModal` e `CadastroRamalModal`)
+
+- **Placeholders de Traço (`"-"`):** Os campos de texto (`Conjunto`, `Circuito`, `Local_Instalacao`, `Observacao`, `Check`) iniciam com campos limpos e exibem `placeholder="-"` (e `placeholder="Ex: 14118256"` no número da nota), dispensando a necessidade de o usuário apagar o caractere `-` manualmente ao digitar. Ao submeter, campos não preenchidos recebem automaticamente o valor padrão `"-"`.
+- **Seletor de Mês de Execução:** O campo `Mes_Execucao_Planejado` utiliza o componente `MesExecucaoPicker`, permitindo a seleção intuitiva dos meses do ano e sentinela neutro `—`.
+- **Resposta Otimista & Fechamento Imediato:** O modal é fechado imediatamente após o sucesso da chamada `InputApi.criar`, executando o refetch de revalidação de dados em segundo plano para não travar a experiência do usuário.
+
+## Gestão de Medidas na Exclusão de Notas Filhas (`ExclusaoModal`)
+
+- Ao excluir uma nota filha que possua vínculo com uma Nota Mãe ativa:
+  - O modal exibe um diálogo de confirmação perguntando se o usuário deseja **devolver/somar a medida planejada da nota filha de volta para a Nota Mãe**.
+  - Impede que a Nota Mãe seja deixada com medida zero indevidamente.
+  - Se confirmado, a medida da Nota Mãe é recalculada e atualizada no banco no mesmo fluxo de exclusão.
+
