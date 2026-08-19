@@ -225,6 +225,15 @@ definido: `input-section.tsx` resolve o nome pelo `GET /me` na montagem da aba
 quando o `localStorage` ainda não tem um. Se o backend recusar, a mensagem dele
 é propagada para o `toast` em vez do corpo bruto da resposta.
 
+## Falha na publicação do espelho
+
+`GET /sync` traz `espelho` (estado da publicação das planilhas na rede, ver
+`06-backend-input-module.md`). `useInputSync` compara `espelho.ultimo_erro`
+com o último já avisado (`deveAvisarFalhaDoEspelho`) e dispara **um** toast de
+erro por falha nova — o polling repete o mesmo estado a cada ciclo e não pode
+virar um toast a cada 60s. A mensagem diz que os dados estão salvos no banco e
+que a publicação é refeita na próxima escrita.
+
 ## Handoff de filtros {#handoff-de-filtros}
 
 `InputSection` recebe `filtrosHandoff?: { estado: FiltersState; id: number } | null`

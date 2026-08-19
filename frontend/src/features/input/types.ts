@@ -25,6 +25,15 @@ export interface InputMeta {
   sap?: SapSyncState;
 }
 
+/** Publicação do espelho Excel da rede (coalescida no backend). */
+export interface EspelhoRedeEstado {
+  publicando: boolean;
+  aguardando_janela: boolean;
+  publicacoes: number;
+  ultima_publicacao: string | null;
+  ultimo_erro: string | null;
+}
+
 export interface SapSyncState {
   estado: 'ocioso' | 'executando' | 'concluido' | 'falhou';
   ultima_atualizacao: string | null;

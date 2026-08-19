@@ -806,6 +806,34 @@ obter_estado_metas() -> {
 Colunas extras/vazias são ignoradas; linhas com valores faltantes em
 `Regionais`/`Mês`/`Plano` são descartadas.
 
+## Espelho Excel da rede (`engine.gerar_copia_excel_rede`)
+
+Toda mutação do plano agenda a publicação das planilhas espelho na rede
+(`pos_escrita` → `BackgroundTasks`). Uma colagem em massa dispara dezenas
+desses pedidos.
+
+- **Coalescência por janela** (`JANELA_ESPELHO_SEGUNDOS = 30`): o primeiro
+  pedido segura a janela; os que chegam dentro dela são absorvidos. N escritas
+  próximas viram uma publicação. Antes, um pedido que chegasse durante uma
+  publicação em andamento era **descartado** — a última escrita podia nunca
+  chegar ao espelho. Agora ele marca `pendente` e ganha uma rodada nova ao
+  final.
+- **Reuso do dataset**: a publicação lê `get_dataset()` (cache revalidado por
+  versão) em vez de refazer `enriquecer_dados()` a cada pedido.
+- **Locks de terceiros são intocáveis**: o arquivo `~$Planilha.xlsx` que o
+  Excel cria enquanto alguém está com a planilha aberta não é mais removido.
+  Se o alvo estiver travado, o `os.replace` falha, o erro sobe para o estado
+  observável e o temporário é descartado — a sessão de quem está com o arquivo
+  aberto continua íntegra.
+- **Formatação por coluna**: largura, fonte e alinhamento dos dados são
+  aplicados em `column_dimensions` em vez de célula a célula (as células
+  escritas pelo pandas não têm formato próprio, então herdam o da coluna). O
+  cabeçalho segue estilizado célula a célula — é uma linha só.
+- **Falha não é engolida**: `engine.estado_espelho()` guarda `publicando`,
+  `aguardando_janela`, `publicacoes`, `ultima_publicacao` e `ultimo_erro`, e é
+  exposto em `GET /sync` (`espelho`). A tela avisa uma vez por erro novo
+  (`deveAvisarFalhaDoEspelho` em `use-input-sync.ts`).
+
 ## Paginação do log (`GET /logs`)
 
 O filtro, a paginação e a classificação por tipo de evento acontecem no banco.

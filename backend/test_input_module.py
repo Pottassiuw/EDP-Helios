@@ -3291,14 +3291,138 @@ def _liberar_copia_excel_rede(monkeypatch):
     monkeypatch.delenv("INPUT_DATA_DIR", raising=False)
 
 
+# ── Issue #30: espelho Excel da rede (coalescência, locks, observabilidade) ──
+def _zerar_estado_espelho(engine) -> None:
+    engine._espelho.update({
+        "agendado": False, "pendente": False, "publicando": False,
+        "publicacoes": 0, "ultima_publicacao": None, "ultimo_erro": None,
+    })
+
+
+def test_espelho_coalesce_pedidos_da_mesma_janela():
+    """N escritas próximas publicam uma vez só — é o ponto da janela."""
+    from input_module import engine
+    _zerar_estado_espelho(engine)
+    publicacoes = []
+    prontos = threading.Barrier(3)
+    absorvidos = []
+
+    def pedir():
+        prontos.wait(timeout=5)
+        absorvidos.append(engine.solicitar_publicacao_espelho(
+            lambda: publicacoes.append(1), janela=0.2))
+
+    threads = [threading.Thread(target=pedir) for _ in range(3)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert len(publicacoes) == 1
+    assert absorvidos.count(True) == 1      # um pedido conduziu
+    assert absorvidos.count(False) == 2     # os outros entraram na mesma janela
+    assert engine.estado_espelho()["publicacoes"] == 1
+
+
+def test_espelho_republica_o_que_chegou_durante_a_publicacao():
+    """Escrita que chega no meio da publicação não pode ser descartada."""
+    from input_module import engine
+    _zerar_estado_espelho(engine)
+    publicando = threading.Event()
+    liberar = threading.Event()
+    publicacoes = []
+
+    def publicar():
+        publicacoes.append(1)
+        if len(publicacoes) == 1:
+            publicando.set()
+            liberar.wait(timeout=5)
+
+    thread = threading.Thread(
+        target=lambda: engine.solicitar_publicacao_espelho(publicar, janela=0))
+    thread.start()
+    assert publicando.wait(timeout=5)
+
+    assert engine.solicitar_publicacao_espelho(publicar, janela=0) is False
+    liberar.set()
+    thread.join(timeout=10)
+
+    assert not thread.is_alive()
+    assert len(publicacoes) == 2
+    assert engine.estado_espelho()["publicando"] is False
+
+
+def test_espelho_registra_a_falha_em_vez_de_engolir():
+    from input_module import engine
+    _zerar_estado_espelho(engine)
+
+    def publicar():
+        raise RuntimeError("rede indisponível")
+
+    engine.solicitar_publicacao_espelho(publicar, janela=0)
+
+    estado = engine.estado_espelho()
+    assert "rede indisponível" in estado["ultimo_erro"]
+    assert estado["publicacoes"] == 0
+    assert estado["ultima_publicacao"] is None
+
+
+def test_espelho_nao_remove_lock_de_terceiro(tmp_path):
+    """`~$Arquivo.xlsx` é o lock de quem está com a planilha aberta."""
+    from input_module import engine
+    alvo = tmp_path / "Espelho.xlsx"
+    lock_de_terceiro = tmp_path / "~$Espelho.xlsx"
+    lock_de_terceiro.write_bytes(b"lock de outro usuario")
+
+    engine._salvar_excel_formatado(pd.DataFrame([{"Nº Nota (ID)": 1}]), str(alvo))
+
+    assert lock_de_terceiro.exists()
+    assert lock_de_terceiro.read_bytes() == b"lock de outro usuario"
+    assert alvo.exists()
+
+
+def test_espelho_formata_por_coluna_e_nao_celula_a_celula(tmp_path):
+    from openpyxl import load_workbook
+    from input_module import engine
+
+    alvo = tmp_path / "Espelho.xlsx"
+    df = pd.DataFrame([{"Observação": "texto", "Conjunto": "POA", "Nº Nota (ID)": 1}])
+    engine._salvar_excel_formatado(df, str(alvo))
+
+    planilha = load_workbook(alvo).active
+    assert planilha.column_dimensions["A"].width == 45      # Observação
+    assert planilha.column_dimensions["B"].width == 20      # Conjunto
+    assert planilha.column_dimensions["C"].width == 14
+    assert planilha.column_dimensions["A"].alignment.horizontal == "center"
+    assert planilha.column_dimensions["A"].font.name == "Calibri"
+    assert planilha["A1"].font.bold                          # cabeçalho segue estilizado
+    assert planilha.freeze_panes == "A2"
+
+
+def test_espelho_falha_ao_substituir_nao_deixa_temporario(tmp_path, monkeypatch):
+    from input_module import engine
+    alvo = tmp_path / "Espelho.xlsx"
+
+    def recusar(*args, **kwargs):
+        raise PermissionError("alvo aberto por outro usuário")
+
+    monkeypatch.setattr(engine.os, "replace", recusar)
+    with pytest.raises(PermissionError):
+        engine._salvar_excel_formatado(pd.DataFrame([{"Nº Nota (ID)": 1}]), str(alvo))
+
+    assert not alvo.exists()
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_copia_excel_rede_nao_toca_rede_no_perfil_local(monkeypatch):
     """Perfil local sai antes de enriquecer dados e de qualquer caminho de rede."""
     from input_module import engine
     _liberar_copia_excel_rede(monkeypatch)
     monkeypatch.delenv("EDP_PERFIL", raising=False)
     chamadas = []
-    monkeypatch.setattr(engine, "enriquecer_dados",
-                        lambda: chamadas.append("enriquecer_dados"))
+    monkeypatch.setattr(engine, "get_dataset",
+                        lambda *a, **k: chamadas.append("get_dataset"))
 
     engine.gerar_copia_excel_rede()
 
@@ -3310,17 +3434,19 @@ def test_copia_excel_rede_segue_no_perfil_producao(monkeypatch):
     from input_module import engine
     _liberar_copia_excel_rede(monkeypatch)
     monkeypatch.setenv("EDP_PERFIL", "producao")
+    monkeypatch.setattr(engine, "JANELA_ESPELHO_SEGUNDOS", 0)
     chamadas = []
 
-    def _enriquecer_e_parar():
-        chamadas.append("enriquecer_dados")
+    def _dataset_e_parar(*args, **kwargs):
+        chamadas.append("get_dataset")
         raise RuntimeError("teste para antes de escrever na rede")
 
-    monkeypatch.setattr(engine, "enriquecer_dados", _enriquecer_e_parar)
+    monkeypatch.setattr(engine, "get_dataset", _dataset_e_parar)
 
     engine.gerar_copia_excel_rede()
 
-    assert chamadas == ["enriquecer_dados"]
+    assert chamadas == ["get_dataset"]
+    assert "teste para antes de escrever na rede" in engine.estado_espelho()["ultimo_erro"]
 
 
 def test_perfil_local_usa_banco_do_data_dir(monkeypatch, tmp_path):

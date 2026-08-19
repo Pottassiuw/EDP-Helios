@@ -144,6 +144,7 @@ def sync():
         "ultima_alteracao": db.obter_data_ultima_alteracao(),
         "versao": db.obter_versao_dataset(),
         "sincronizando": engine.esta_sincronizando_rede(),
+        "espelho": engine.estado_espelho(),
         "sap": sap_sync.estado(),
     }
 

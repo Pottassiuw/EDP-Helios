@@ -17,6 +17,7 @@ import concurrent.futures
 import datetime
 import os
 import re
+import tempfile
 import threading
 import time
 
@@ -718,12 +719,88 @@ _CACHE_TTL_SEGUNDOS = 600  # fallback para escritas que não passem pelos logs
 _cache = {"df": None, "quando": 0.0, "versao": None}
 _cache_lock = threading.Lock()
 
-_sincronizando_rede = False
-_sincronizando_lock = threading.Lock()
+# Janela de coalescência do espelho Excel da rede. Uma rajada de escritas
+# (colagem em massa, correção em lote) vira UMA publicação: o pedido espera a
+# janela fechar e leva junto tudo que chegou nela.
+JANELA_ESPELHO_SEGUNDOS = 30.0
+
+_espelho = {
+    "agendado": False,      # já existe alguém segurando a janela
+    "pendente": False,      # chegou pedido depois que a publicação começou
+    "publicando": False,
+    "publicacoes": 0,
+    "ultima_publicacao": None,
+    "ultimo_erro": None,
+}
+_espelho_lock = threading.Lock()
+
 
 def esta_sincronizando_rede() -> bool:
-    with _sincronizando_lock:
-        return _sincronizando_rede
+    """Só a publicação em si — a espera pela janela não é "sincronizando".
+
+    Mantém o significado que a tela já dava ao badge e ao aviso de saída; quem
+    quiser distinguir "agendado" de "publicando" lê `estado_espelho()`.
+    """
+    with _espelho_lock:
+        return _espelho["publicando"]
+
+
+def estado_espelho() -> dict:
+    """Estado observável da publicação do espelho (exposto em `GET /sync`)."""
+    with _espelho_lock:
+        return {
+            "publicando": _espelho["publicando"],
+            "aguardando_janela": _espelho["agendado"] and not _espelho["publicando"],
+            "publicacoes": _espelho["publicacoes"],
+            "ultima_publicacao": _espelho["ultima_publicacao"],
+            "ultimo_erro": _espelho["ultimo_erro"],
+        }
+
+
+def solicitar_publicacao_espelho(publicar, janela: float | None = None) -> bool:
+    """Pede a publicação do espelho, coalescendo pedidos próximos.
+
+    Devolve `True` se este pedido conduziu a publicação e `False` se foi
+    absorvido por uma janela já aberta. Um pedido que chega durante a
+    publicação não é descartado: marca `pendente` e ganha uma nova rodada ao
+    final — antes ele era ignorado e a última escrita podia nunca ser
+    publicada.
+    """
+    janela = JANELA_ESPELHO_SEGUNDOS if janela is None else janela
+    with _espelho_lock:
+        if _espelho["agendado"]:
+            _espelho["pendente"] = True
+            return False
+        _espelho["agendado"] = True
+        _espelho["pendente"] = False
+
+    try:
+        while True:
+            time.sleep(janela)
+            with _espelho_lock:
+                _espelho["pendente"] = False
+                _espelho["publicando"] = True
+            try:
+                publicar()
+                erro = None
+            except Exception as falha:
+                erro = f"{type(falha).__name__}: {falha}"
+                print(f"Erro ao publicar o espelho Excel da rede: {falha}")
+            with _espelho_lock:
+                _espelho["publicando"] = False
+                _espelho["ultimo_erro"] = erro
+                if erro is None:
+                    _espelho["publicacoes"] += 1
+                    _espelho["ultima_publicacao"] = datetime.datetime.now().isoformat(
+                        timespec="seconds")
+                if not _espelho["pendente"]:
+                    _espelho["agendado"] = False
+                    return True
+    except BaseException:
+        with _espelho_lock:
+            _espelho["agendado"] = False
+            _espelho["publicando"] = False
+        raise
 
 
 def get_dataset(forcar: bool = False) -> pd.DataFrame:
@@ -828,136 +905,127 @@ def invalidar_status_bases() -> None:
 # CÓPIA EXCEL NA REDE — porte de Input/processamento.py:387
 # (nunca derruba a request: corpo inteiro em try/except)
 # ====================================================================
-def gerar_copia_excel_rede():
-    """Puxa a base mais recente, executa todos os cruzamentos e gera o Excel
-    sincronizado na rede para alimentar as planilhas laterais.
+def _publicar_espelho_na_rede() -> None:
+    """Gera e substitui as planilhas espelho na rede. Levanta em caso de falha —
+    quem chama registra o erro no estado observável."""
+    # Reusa o dataset já enriquecido em memória (revalidado por versão): o
+    # pos_escrita invalida o cache antes de agendar, então a primeira
+    # publicação da janela recalcula e as seguintes aproveitam.
+    df_fresco = get_dataset()
 
-    Toda a lógica está protegida por try/except: se a rede estiver indisponível
-    o erro é apenas registrado, sem derrubar a request que disparou a tarefa.
+    colunas_exportar = [col for col in config.COLUNAS_PAINEL if col in df_fresco.columns]
+    df_export = df_fresco[colunas_exportar].copy()
+    df_export = df_export.rename(columns=config.MAPA_NOMES_EXCEL_LEGADO)
+
+    falhas = []
+    for caminho in (config.CAMINHO_COPIA_EXCEL, config.CAMINHO_INPUT_NOTA_RAIZ):
+        try:
+            _salvar_excel_formatado(df_export, caminho)
+        except Exception as erro:
+            falhas.append(f"{os.path.basename(caminho)}: {erro}")
+    if falhas:
+        raise RuntimeError("; ".join(falhas))
+
+
+def _largura_da_coluna(nome_coluna: str) -> int:
+    if "Observação" in nome_coluna or "Observacao" in nome_coluna:
+        return 45
+    if "Local" in nome_coluna or "Conjunto" in nome_coluna or "Circuito" in nome_coluna:
+        return 20
+    return 14
+
+
+def _salvar_excel_formatado(df_export: pd.DataFrame, caminho: str) -> None:
+    """Escreve a planilha formatada e substitui o alvo atomicamente.
+
+    Arquivos `~$...` (o "owner file" que o Excel cria enquanto alguém está com
+    a planilha aberta) NÃO são removidos: apagar o lock de outra pessoa é
+    justamente o que esta função não pode fazer. Se o alvo estiver travado, a
+    substituição falha, o erro sobe e o temporário é descartado — a planilha de
+    quem está com o arquivo aberto fica intacta.
+    """
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+
+    diretorio = os.path.dirname(caminho)
+    prefixo = os.path.basename(caminho).removesuffix(".xlsx")
+    with tempfile.NamedTemporaryFile(
+            dir=diretorio, prefix=f".{prefixo}_", suffix=".xlsx",
+            delete=False) as arquivo:
+        caminho_tmp = arquivo.name
+
+    try:
+        with pd.ExcelWriter(caminho_tmp, engine="openpyxl") as writer:
+            nome_aba = "Input de Notas"
+            df_export.to_excel(writer, sheet_name=nome_aba, index=False)
+            worksheet = writer.sheets[nome_aba]
+
+            fonte_cabecalho = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+            fonte_dados = Font(name="Calibri", size=11)
+            preenchimento = PatternFill(start_color="4F81BD", end_color="4F81BD",
+                                        fill_type="solid")
+            centralizado = Alignment(horizontal="center", vertical="center",
+                                     wrap_text=True)
+            borda = Border(
+                left=Side(style="thin", color="A6A6A6"),
+                right=Side(style="thin", color="A6A6A6"),
+                top=Side(style="thin", color="A6A6A6"),
+                bottom=Side(style="thin", color="A6A6A6"),
+            )
+
+            # Estilo dos dados aplicado por COLUNA, não célula a célula: o
+            # custo passa a ser proporcional ao número de colunas em vez de
+            # linhas × colunas. As células escritas pelo pandas não carregam
+            # formato próprio, então herdam o da coluna.
+            worksheet.row_dimensions[1].height = 45
+            for indice, nome_coluna in enumerate(df_export.columns, start=1):
+                dimensao = worksheet.column_dimensions[get_column_letter(indice)]
+                dimensao.width = _largura_da_coluna(str(nome_coluna))
+                dimensao.font = fonte_dados
+                dimensao.alignment = centralizado
+
+                celula = worksheet.cell(row=1, column=indice)
+                celula.fill = preenchimento
+                celula.font = fonte_cabecalho
+                celula.alignment = centralizado
+                celula.border = borda
+
+            worksheet.auto_filter.ref = worksheet.dimensions
+            worksheet.freeze_panes = "A2"
+
+        os.replace(caminho_tmp, caminho)
+        caminho_tmp = None
+    finally:
+        if caminho_tmp and os.path.exists(caminho_tmp):
+            try:
+                os.remove(caminho_tmp)
+            except OSError as erro:
+                print(f"Erro ao remover temporário do espelho '{caminho_tmp}': {erro}")
+
+
+def gerar_copia_excel_rede():
+    """Pede a publicação do espelho Excel da rede, coalescendo pedidos próximos.
+
+    Chamada por `service.pos_escrita` a cada mutação do plano. O trabalho real
+    é `_publicar_espelho_na_rede`; aqui ficam só os desvios de ambiente e o
+    agendamento por janela (`JANELA_ESPELHO_SEGUNDOS`).
     """
     if os.environ.get("PYTEST_CURRENT_TEST") or os.environ.get("INPUT_DATA_DIR"):
         return
 
-    # Perfil local não publica nada: sai ANTES de enriquecer dados, de checar/
-    # remover locks "~$" e de qualquer escrita em caminho de rede.
+    # Perfil local não publica nada: sai ANTES de enriquecer dados e de
+    # qualquer escrita em caminho de rede.
     if not config.em_producao():
         print("⚠️ [input] Perfil LOCAL: cópia Excel da rede NÃO gerada e banco "
               "NÃO espelhado — as alterações ficam apenas nesta máquina. "
               "Rode o servidor com EDP_PERFIL=producao para publicar.")
         return
 
-    global _sincronizando_rede
-    with _sincronizando_lock:
-        if _sincronizando_rede:
-            print("Sincronização com a rede já em andamento. Ignorando chamada duplicada.")
-            return
-        _sincronizando_rede = True
-    try:
-        # 1. Puxa os dados atualizados com todos os cálculos automáticos prontos
-        df_fresco = enriquecer_dados()
+    solicitar_publicacao_espelho(_publicar_espelho_na_rede)
 
-        # Filtra e renomeia as colunas para o mesmo padrão amigável do painel
-        colunas_exportar = [col for col in config.COLUNAS_PAINEL if col in df_fresco.columns]
-        df_export = df_fresco[colunas_exportar].copy()
-        df_export = df_export.rename(columns=config.MAPA_NOMES_EXCEL_LEGADO)
-
-        # Função auxiliar para formatar e salvar o Excel de forma idêntica ao legado
-        def salvar_excel_formatado(caminho):
-            dir_name = os.path.dirname(caminho)
-            base_name = os.path.basename(caminho)
-            caminho_owner = os.path.join(dir_name, f"~${base_name}")
-            caminho_tmp = caminho.replace('.xlsx', '_TEMP.xlsx') if caminho.endswith('.xlsx') else caminho + '_TEMP.xlsx'
-
-            if os.path.exists(caminho_owner):
-                try:
-                    os.remove(caminho_owner)
-                    print(f"🧹 Lock fantasma '{caminho_owner}' removido automaticamente.")
-                except Exception:
-                    pass
-
-            if os.path.exists(caminho_tmp):
-                try: os.remove(caminho_tmp)
-                except Exception: pass
-
-            with pd.ExcelWriter(caminho_tmp, engine='openpyxl') as writer:
-                nome_aba = 'Input de Notas'
-                df_export.to_excel(writer, sheet_name=nome_aba, index=False)
-                
-                workbook = writer.book
-                worksheet = writer.sheets[nome_aba]
-                
-                from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
-                
-                # Estilo do cabeçalho
-                header_fill = PatternFill(start_color='4F81BD', end_color='4F81BD', fill_type='solid')
-                header_font = Font(name='Calibri', size=11, bold=True, color='FFFFFF')
-                data_font = Font(name='Calibri', size=11)
-                
-                center_align = Alignment(horizontal='center', vertical='center', wrap_text=True)
-                
-                thin_border = Border(
-                    left=Side(style='thin', color='A6A6A6'),
-                    right=Side(style='thin', color='A6A6A6'),
-                    top=Side(style='thin', color='A6A6A6'),
-                    bottom=Side(style='thin', color='A6A6A6')
-                )
-                
-                # Formata linha do cabeçalho
-                worksheet.row_dimensions[1].height = 45
-                for col_num in range(1, len(df_export.columns) + 1):
-                    cell = worksheet.cell(row=1, column=col_num)
-                    cell.fill = header_fill
-                    cell.font = header_font
-                    cell.alignment = center_align
-                    cell.border = thin_border
-                    
-                # Formata dados e configura largura das colunas
-                for col_num, col_name in enumerate(df_export.columns, 1):
-                    if "Observação" in col_name or "Observacao" in col_name:
-                        width = 45
-                    elif "Local" in col_name or "Conjunto" in col_name or "Circuito" in col_name:
-                        width = 20
-                    else:
-                        width = 14
-                    
-                    letter = chr(64 + col_num) if col_num <= 26 else f"{chr(64 + col_num // 26)}{chr(64 + col_num % 26)}"
-                    worksheet.column_dimensions[letter].width = width
-                    
-                    for row_num in range(2, len(df_export) + 2):
-                        cell = worksheet.cell(row=row_num, column=col_num)
-                        cell.alignment = center_align
-                        cell.font = data_font
-                
-                # Adiciona autofiltro e congela cabeçalho
-                worksheet.auto_filter.ref = worksheet.dimensions
-                worksheet.freeze_panes = 'A2'
-
-            if os.path.exists(caminho_tmp):
-                try:
-                    os.replace(caminho_tmp, caminho)
-                except Exception:
-                    import shutil
-                    shutil.move(caminho_tmp, caminho)
-
-        # 2. Salva na rede a planilha principal
-        salvar_excel_formatado(config.CAMINHO_COPIA_EXCEL)
-        
-        # 3. Salva também como "Input Nota.xlsx" na raiz da rede para compatibilidade externa
-        try:
-            salvar_excel_formatado(config.CAMINHO_INPUT_NOTA_RAIZ)
-        except Exception as e2:
-            print(f"Erro ao gerar cópia de compatibilidade Input Nota.xlsx na rede: {e2}")
-            
-        # 4. Banco de notas: nada a fazer.
-        # Aqui só chega o perfil de produção, onde o banco EM USO já é o da rede
-        # (config.caminho_banco_notas) — a escrita já caiu no arquivo
-        # compartilhado. Nunca reintroduzir src.backup(dst) neste ponto: ele
-        # sobrescreve o arquivo inteiro da rede e apaga o que os outros usuários
-        # gravaram (removido em ef19f4f). Se o perfil local precisar publicar, o
-        # caminho é UPSERT por Numero_Nota, nunca cópia de arquivo.
-
-    except Exception as e:
-        print(f"Erro ao gerar cópia Excel na rede: {e}")
-    finally:
-        with _sincronizando_lock:
-            _sincronizando_rede = False
+    # Banco de notas: nada a fazer. Aqui só chega o perfil de produção, onde o
+    # banco EM USO já é o da rede (config.caminho_banco_notas) — a escrita já
+    # caiu no arquivo compartilhado. Nunca reintroduzir src.backup(dst) neste
+    # ponto: ele sobrescreve o arquivo inteiro da rede e apaga o que os outros
+    # usuários gravaram (removido em ef19f4f). Se o perfil local precisar
+    # publicar, o caminho é UPSERT por Numero_Nota, nunca cópia de arquivo.

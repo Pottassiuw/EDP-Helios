@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { InputApi } from './api';
 import { INPUT_DADOS_KEY } from './use-input-data';
 import type { NetworkSyncState } from './network-sync-status';
-import type { SapSyncState } from './types';
+import type { EspelhoRedeEstado, SapSyncState } from './types';
 
 export const INPUT_SYNC_KEY = ['input', 'sync'] as const;
 export const SYNC_INTERVALO_REPOUSO_MS = 60_000;
@@ -14,7 +14,16 @@ export const SYNC_INTERVALO_ATIVO_MS = 3_000;
 interface RespostaSincronizacao {
   versao: string;
   sincronizando?: boolean;
+  espelho?: EspelhoRedeEstado;
   sap?: SapSyncState;
+}
+
+/** Só avisa quando o erro é novo — o polling repete o mesmo estado a cada ciclo. */
+export function deveAvisarFalhaDoEspelho(
+  erroAtual: string | null | undefined,
+  erroJaAvisado: string | null | undefined,
+): boolean {
+  return Boolean(erroAtual) && erroAtual !== erroJaAvisado;
 }
 
 export function intervaloPollingSincronizacao(
@@ -46,6 +55,7 @@ export function useInputSync(
 ): UseInputSyncResultado {
   const queryClient = useQueryClient();
   const ultimaVersaoNotificada = React.useRef<string>();
+  const ultimoErroEspelho = React.useRef<string | null>(null);
   const ultimoSapNotificado = React.useRef(estadoSapConhecido);
   const consulta = useQuery({
     queryKey: INPUT_SYNC_KEY,
@@ -72,6 +82,16 @@ export function useInputSync(
       description: 'A tabela foi recarregada em segundo plano.',
     });
   }, [consulta.data, queryClient, versaoConhecida, estadoSapConhecido]);
+
+  React.useEffect(() => {
+    const erro = consulta.data?.espelho?.ultimo_erro ?? null;
+    const avisar = deveAvisarFalhaDoEspelho(erro, ultimoErroEspelho.current);
+    ultimoErroEspelho.current = erro;
+    if (!avisar) return;
+    toast.error('Falha ao publicar a planilha espelho na rede', {
+      description: `${erro} As alterações estão salvas no banco; a publicação é refeita na próxima escrita.`,
+    });
+  }, [consulta.data?.espelho?.ultimo_erro]);
 
   React.useEffect(() => {
     if (!consulta.data?.sincronizando) return;

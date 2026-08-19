@@ -64,7 +64,13 @@ function escrita(method: string, corpo?: unknown): RequestInit {
 export const InputApi = {
   me: () => req<{ usuario: string }>('/me'),
   dados: () => req<InputDataset>('/notas'),
-  sync: () => req<{ ultima_alteracao: string | null; versao: string; sincronizando?: boolean; sap?: import('./types').SapSyncState }>('/sync'),
+  sync: () => req<{
+    ultima_alteracao: string | null;
+    versao: string;
+    sincronizando?: boolean;
+    espelho?: import('./types').EspelhoRedeEstado;
+    sap?: import('./types').SapSyncState;
+  }>('/sync'),
 
   editar: (linhas: Partial<NotaInput>[]) =>
     req<EdicaoResultado>('/notas', escrita('PATCH', { linhas })),
