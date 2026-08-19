@@ -35,13 +35,13 @@ def _registrar_conexao(resultado: str) -> None:
     """Log seguro da origem dos dados — sem caminho completo nem credenciais."""
     resumo = db.descrever_conexao()
     print(
-        f"ℹ️ [input] ambiente={resumo['ambiente']} tipo={resumo['tipo']} "
+        f"[input] ambiente={resumo['ambiente']} tipo={resumo['tipo']} "
         f"alvo={resumo['alvo']} database={resumo['database']} "
         f"status={resumo['status']} notas={resumo['qtd_notas']} "
         f"resolucao={resultado}"
     )
     if not config.em_producao():
-        print("⚠️ [input] Perfil LOCAL: escritas ficam apenas nesta máquina e "
+        print("[input] Perfil LOCAL: escritas ficam apenas nesta máquina e "
               "notas novas do banco da rede não aparecem até uma nova migração. "
               "Use EDP_PERFIL=producao no servidor do setor.")
 
