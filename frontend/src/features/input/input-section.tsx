@@ -143,7 +143,7 @@ export function InputSection({
       {error != null && !dados && (
         <div role="alert" className="m-6 p-4 rounded-md bg-red/10 border border-red/20 text-red text-sm flex items-center gap-2">
           <AlertTriangle className="h-4 w-4 shrink-0" />
-          <span>Backend indisponível. O módulo Input exige o backend rodando na porta 8000. Detalhe: {String((error as Error).message)}</span>
+          <span>Backend indisponível. O módulo Input exige o backend rodando na porta 6328. Detalhe: {String((error as Error).message)}</span>
         </div>
       )}
 
