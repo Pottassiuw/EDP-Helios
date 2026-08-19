@@ -8,6 +8,21 @@ evidência, não para tomá-la.
 Preenchimento esperado por decisão: **dono**, **opção escolhida**,
 **justificativa** e **issues desbloqueadas**.
 
+## Placar
+
+| Decisão | Estado | Escolha |
+|---|---|---|
+| D1 | Sem objeto | Não especificada na issue |
+| D2 | **Decidida** | Servidor único centralizado (dono: @Pottassiuw) |
+| D3 | Em aberto | Aguardando alinhamento com a equipe |
+| D4 | Em aberto | Recomendação vira concreta com D2 decidida (ver abaixo) |
+| D5 | Em aberto | Em avaliação |
+| D6 | Parcial | Paginação entregue na #27; retenção em aberto |
+| D7 | Resolvida por inspeção | Premissa não vale mais — o inspector está em uso |
+| D8 | Em aberto | Confirmar unidade com quem usa o relatório |
+| D9 | Em aberto | — |
+| D10 | **Decidida** | Execução e detalhes fora do tracker público, conforme a #37 |
+
 > Repositório público: nenhuma credencial, dado pessoal, caminho de rede
 > interno ou passo de exploração entra aqui. O que for sensível é tratado fora
 > do tracker.
@@ -36,6 +51,11 @@ legado, e o esquema é somente-leitura para este app.
   mundo dispara) e deixa a publicação do espelho em disputa.
 
 **Desbloqueia:** D4, e o desenho de #24, #25 e #30.
+
+> **Decidido: servidor único centralizado.** Consequências assumidas: o
+> agendador noturno passa a ter um dono único (ver D4), o perfil local fica
+> restrito a desenvolvimento e a publicação do espelho continua com um único
+> processo — o que a coalescência da #30 já pressupõe.
 
 ## D3 — Credenciais SAP: credencial do servidor ou fluxo por usuário
 
@@ -70,6 +90,11 @@ não sobrevive a reinício e não cobre dois processos. Se o app estiver parado
 - **Lock persistido no app**: tabela de execuções com dono e heartbeat,
   tolerante a reinício e a múltiplos workers. Necessário se houver mais de uma
   instância.
+
+> Com D2 decidida por servidor único, o Agendador de Tarefas do Windows é a
+> opção recomendada: some o laço `asyncio` do processo, o histórico de
+> execução passa a existir fora do app e "rodou/não rodou" deixa de depender
+> de o backend estar de pé às 03:00. Ainda falta a decisão formal.
 
 **Desbloqueia:** #24.
 
@@ -146,10 +171,9 @@ autenticada muda para onde as notificações vão.
 
 ## D10 — Dados e configuração sensíveis versionados
 
-Há artefato sensível no versionamento. Detalhe, avaliação de impacto e plano
-de remediação são tratados **fora do tracker público**, como a própria #37
-determina. O que precisa ser decidido: aprovar (ou não) a remediação, e se ela
-inclui reescrita de histórico — que exige coordenação de re-clone com todo
-mundo que tem cópia do repositório.
+Decisão tomada e **em execução fora do tracker público**, como a própria #37
+determina. Nada de detalhe, caminho ou avaliação entra aqui. Nenhuma reescrita
+de histórico foi feita por agente: isso exige autorização explícita e janela
+combinada com todo mundo que tem cópia do repositório.
 
 **Desbloqueia:** #37.
