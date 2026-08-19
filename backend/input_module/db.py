@@ -580,6 +580,38 @@ def proximo_id_cronologia(df: pd.DataFrame) -> int:
     return int(pd.to_numeric(df["ID_Cronologia"], errors="coerce").max()) + 1
 
 
+def verificar_notas_existentes(numeros: list[int]) -> list[int]:
+    """Verifica diretamente no SQLite se números de notas já existem, sem carregar todo o DataFrame."""
+    if not numeros:
+        return []
+    conn = get_db_connection()
+    try:
+        placeholders = ",".join("?" for _ in numeros)
+        rows = conn.execute(
+            f"SELECT Numero_Nota FROM notas WHERE Numero_Nota IN ({placeholders})",
+            numeros,
+        ).fetchall()
+        return [int(r[0]) for r in rows if r[0] is not None]
+    except Exception:
+        return []
+    finally:
+        conn.close()
+
+
+def obter_proximo_id_cronologia_banco() -> int:
+    """Obtém o próximo ID_Cronologia diretamente via MAX no banco SQLite."""
+    conn = get_db_connection()
+    try:
+        max_id = conn.execute(
+            "SELECT MAX(CAST(ID_Cronologia AS INTEGER)) FROM notas"
+        ).fetchone()[0]
+        return (int(max_id) + 1) if max_id is not None else 1
+    except Exception:
+        return 1
+    finally:
+        conn.close()
+
+
 def carregar_logs() -> pd.DataFrame:
     """Carrega todos os registros da tabela de log de alterações."""
     conn = get_db_connection()

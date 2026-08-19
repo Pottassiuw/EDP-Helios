@@ -19,17 +19,17 @@ const NOTA_RAMAL_VAZIA: Record<string, string> = {
   Numero_Nota: '',
   Status_Nota: '00 Pendente',
   Prioridade_Nota: 'Programável',
-  Planejado_DDPM: '0',
-  Conjunto: '-',
-  Circuito: '-',
-  Local_Instalacao: '-',
+  Planejado_DDPM: '',
+  Conjunto: '',
+  Circuito: '',
+  Local_Instalacao: '',
   Mes_Execucao_Planejado: '-',
-  CenTrab_Respon: '-',
+  CenTrab_Respon: '',
   Observacao: '',
-  Extracao_Antiga: '-',
-  Status_Anterior: '-',
-  Check_Btzero: '-',
-  Plano: '-',
+  Extracao_Antiga: '',
+  Status_Anterior: '',
+  Check_Btzero: '',
+  Plano: '',
 };
 
 interface CadastroRamalModalProps {
@@ -63,30 +63,29 @@ export function CadastroRamalModal({
     try {
       const payload: Partial<NotaRamal> = {
         Numero_Nota: num,
-        Status_Nota: form.Status_Nota,
-        Prioridade_Nota: form.Prioridade_Nota,
+        Status_Nota: form.Status_Nota || '00 Pendente',
+        Prioridade_Nota: form.Prioridade_Nota || 'Programável',
         Planejado_DDPM: Number(form.Planejado_DDPM) || 0,
-        Conjunto: form.Conjunto,
-        Circuito: form.Circuito,
-        Local_Instalacao: form.Local_Instalacao,
-        Mes_Execucao_Planejado: form.Mes_Execucao_Planejado,
-        CenTrab_Respon: form.CenTrab_Respon,
-        Observacao: form.Observacao,
-        Extracao_Antiga: form.Extracao_Antiga,
-        Status_Anterior: form.Status_Anterior,
-        Check_Btzero: form.Check_Btzero,
-        Plano: form.Plano,
+        Conjunto: form.Conjunto?.trim() || '-',
+        Circuito: form.Circuito?.trim() || '-',
+        Local_Instalacao: form.Local_Instalacao?.trim() || '-',
+        Mes_Execucao_Planejado: form.Mes_Execucao_Planejado?.trim() || '-',
+        CenTrab_Respon: form.CenTrab_Respon?.trim() || '-',
+        Observacao: form.Observacao?.trim() || '',
+        Extracao_Antiga: form.Extracao_Antiga?.trim() || '-',
+        Status_Anterior: form.Status_Anterior?.trim() || '-',
+        Check_Btzero: form.Check_Btzero?.trim() || '-',
+        Plano: form.Plano?.trim() || '-',
       };
 
       await InputApi.importarRamal([payload]);
       toast.success(`Nota Ramal #${num} cadastrada com sucesso!`);
-      await recarregar();
       onFechar();
+      void recarregar();
     } catch (e) {
       toast.error('Erro ao cadastrar nota ramal', {
         description: e instanceof Error ? e.message : String(e),
       });
-    } finally {
       setSalvando(false);
     }
   }
@@ -140,7 +139,7 @@ export function CadastroRamalModal({
               ) : campo === 'Mes_Execucao_Planejado' ? (
                 <MesExecucaoPicker
                   id={`cad-ramal-${campo}`}
-                  value={form[campo]}
+                  value={form[campo] || '-'}
                   onChange={(v) => setForm({ ...form, [campo]: v })}
                   valorNeutro="-"
                   rotuloNeutro="—"
@@ -150,7 +149,13 @@ export function CadastroRamalModal({
                 <Input
                   id={`cad-ramal-${campo}`}
                   value={form[campo]}
-                  placeholder={campo === 'Numero_Nota' ? 'Ex: 14118256' : ''}
+                  placeholder={
+                    campo === 'Numero_Nota'
+                      ? 'Ex: 14118256'
+                      : campo === 'Planejado_DDPM'
+                      ? '0'
+                      : '-'
+                  }
                   className="h-8 text-xs bg-bg-2 border-line font-mono"
                   onChange={(e) => setForm({ ...form, [campo]: e.target.value })}
                 />

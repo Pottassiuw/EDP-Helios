@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Eyebrow } from '@/components/branded/section';
+import { MesExecucaoPicker } from '@/components/branded/mes-execucao-picker';
 
 import { ROTULOS } from './columns';
 import { InputApi } from './api';
@@ -16,17 +17,17 @@ import type { InputDataset, NotaInput } from './types';
 
 const NOTA_VAZIA: Record<string, string> = {
   Numero_Nota: '',
-  Nota_Mae: '-',
+  Nota_Mae: '',
   Status_Nota: '00 Pendente',
   Prioridade_Nota: 'Programável',
-  Planejado_DDPM: '0',
-  Conjunto: '-',
-  Circuito: '-',
-  Local_Instalacao: '-',
+  Planejado_DDPM: '',
+  Conjunto: '',
+  Circuito: '',
+  Local_Instalacao: '',
   Mes_Execucao_Planejado: '-',
   Data_Envio_Projeto: new Date().toLocaleDateString('pt-BR'),
   Observacao: '',
-  Check: '-',
+  Check: '',
 };
 
 interface CadastroModalProps {
@@ -75,9 +76,9 @@ export function CadastroModal({
     const m = notaMae.obj;
     setForm((prev) => ({
       ...prev,
-      Conjunto: String(m.Conjunto || prev.Conjunto || '-'),
-      Circuito: String(m.Circuito || prev.Circuito || '-'),
-      Local_Instalacao: String(m.Local_Instalacao || prev.Local_Instalacao || '-'),
+      Conjunto: String(m.Conjunto || prev.Conjunto || ''),
+      Circuito: String(m.Circuito || prev.Circuito || ''),
+      Local_Instalacao: String(m.Local_Instalacao || prev.Local_Instalacao || ''),
       Mes_Execucao_Planejado: String(m.Mes_Execucao_Planejado || prev.Mes_Execucao_Planejado || '-'),
       Prioridade_Nota: String(m.Prioridade_Nota || prev.Prioridade_Nota || 'Programável'),
     }));
@@ -94,17 +95,17 @@ export function CadastroModal({
     try {
       const payload: Partial<NotaInput> = {
         Numero_Nota: num,
-        Nota_Mae: form.Nota_Mae || '-',
-        Status_Nota: form.Status_Nota,
-        Prioridade_Nota: form.Prioridade_Nota,
+        Nota_Mae: form.Nota_Mae?.trim() || '-',
+        Status_Nota: form.Status_Nota || '00 Pendente',
+        Prioridade_Nota: form.Prioridade_Nota || 'Programável',
         Planejado_DDPM: Number(form.Planejado_DDPM) || 0,
-        Conjunto: form.Conjunto,
-        Circuito: form.Circuito,
-        Local_Instalacao: form.Local_Instalacao,
-        Mes_Execucao_Planejado: form.Mes_Execucao_Planejado,
-        Data_Envio_Projeto: form.Data_Envio_Projeto,
-        Observacao: form.Observacao,
-        Check: form.Check,
+        Conjunto: form.Conjunto?.trim() || '-',
+        Circuito: form.Circuito?.trim() || '-',
+        Local_Instalacao: form.Local_Instalacao?.trim() || '-',
+        Mes_Execucao_Planejado: form.Mes_Execucao_Planejado?.trim() || '-',
+        Data_Envio_Projeto: form.Data_Envio_Projeto?.trim() || new Date().toLocaleDateString('pt-BR'),
+        Observacao: form.Observacao?.trim() || '',
+        Check: form.Check?.trim() || '-',
       };
 
       await InputApi.criar(payload);
@@ -126,13 +127,12 @@ export function CadastroModal({
         toast.success(`Nota #${num} criada com sucesso!`);
       }
 
-      await recarregar();
       onFechar();
+      void recarregar();
     } catch (e) {
       toast.error('Erro ao cadastrar nota', {
         description: e instanceof Error ? e.message : String(e),
       });
-    } finally {
       setSalvando(false);
     }
   }
@@ -183,18 +183,27 @@ export function CadastroModal({
                     ))}
                   </SelectContent>
                 </Select>
+              ) : campo === 'Mes_Execucao_Planejado' ? (
+                <MesExecucaoPicker
+                  id={`cad-${campo}`}
+                  value={form[campo] || '-'}
+                  onChange={(v) => setForm({ ...form, [campo]: v })}
+                  valorNeutro="-"
+                  rotuloNeutro="—"
+                  className="h-8 text-xs bg-bg-2 border-line"
+                />
               ) : (
                 <Input
                   id={`cad-${campo}`}
                   value={form[campo]}
                   placeholder={
-                    campo === 'Nota_Mae'
-                      ? '- (ou Nº da Mãe)'
-                      : campo === 'Numero_Nota'
+                    campo === 'Numero_Nota'
                       ? 'Ex: 14118256'
-                      : ''
+                      : campo === 'Planejado_DDPM'
+                      ? '0'
+                      : '-'
                   }
-                  className="h-8 text-xs bg-bg-2 border-line"
+                  className="h-8 text-xs bg-bg-2 border-line font-mono"
                   onChange={(e) => setForm({ ...form, [campo]: e.target.value })}
                 />
               )}
