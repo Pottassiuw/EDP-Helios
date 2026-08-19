@@ -146,6 +146,8 @@ cd frontend && npm run build                    # type-check (tsc) + build
 | Carteira | `frontend/src/features/carteira/` | Explorador da base COFFEE (Databricks): tabela paginada, filtros, situação, detalhe e sincronização — referência de não-regressão da direção visual Supabaze (DESIGN.md), hoje global | [11-frontend-carteira.md](./11-frontend-carteira.md) |
 | Backend — Verificar | `backend/verificar_module/`, `backend/main.py` | Leitura read-only de `Verificar.db`, normalização da triagem e endpoint `/api/data`; o upload é só compatibilidade | [01-frontend-verificar.md](./01-frontend-verificar.md) |
 | Entrega no GitHub | `.github/`, `CONTRIBUTING.md`, GitHub Issues/Project/PRs | Processo de Issue → branch isolada → Pull Request → revisão → merge, templates e gates automatizados | [13-github-delivery-workflow.md](./13-github-delivery-workflow.md) |
+| Sprint 1 — baseline | (cross-cutting) | Fonte canônica (repo/branch/SHA), estado real por issue verificado no código, gates registrados e divergência entre `main` e `develop` | [15-baseline-sprint-1.md](./15-baseline-sprint-1.md) |
+| Sprint 1 — decisões | (cross-cutting) | Dossiê das decisões pendentes (D2–D10): o que o código faz hoje, opções, impacto e recomendação | [16-decisoes-sprint-1.md](./16-decisoes-sprint-1.md) |
 
 ## Pontos de atenção
 
