@@ -222,14 +222,24 @@ class SapAutomator:
             self.session.findById("wnd[0]/tbar[0]/okcd").text = "IW66"
             self.session.findById("wnd[0]").sendVKey(0)
 
-            notas_string = "\r\n".join(map(str, lista_notas))
-            pyperclip.copy(notas_string)
+            # Marca medidas pendentes e encerradas/histórico
+            for chk in ["chkDY_MAB", "chkDY_HIS", "chkDY_NOT_ERL", "chkDY_MAB_ERL"]:
+                try:
+                    self.session.findById(f"wnd[0]/usr/{chk}").selected = True
+                except: pass
 
-            self.session.findById("wnd[0]/usr/btn%_QMNUM_%_APP_%-VALU_PUSH").press()
-            time.sleep(1)
-            self.session.findById("wnd[1]/tbar[0]/btn[24]").press()
-            time.sleep(1)
-            self.session.findById("wnd[1]/tbar[0]/btn[8]").press()
+            try:
+                self.session.findById("wnd[0]/usr/ctxtVARIANT").text = "/GALVAO"
+                self.session.findById("wnd[0]/usr/ctxtVARIANT").setFocus()
+                self.session.findById("wnd[0]/usr/ctxtVARIANT").caretPosition = 7
+            except Exception as e:
+                print(f"  [Aviso] Erro ao aplicar variante: {e}")
+
+            # Reafirma flags de status abertas e encerradas após carregar a variante
+            for chk in ["chkDY_MAB", "chkDY_HIS", "chkDY_NOT_ERL", "chkDY_MAB_ERL"]:
+                try:
+                    self.session.findById(f"wnd[0]/usr/{chk}").selected = True
+                except: pass
 
             try:
                 self.session.findById("wnd[0]/usr/ctxtDATUV").text = ""
@@ -238,12 +248,14 @@ class SapAutomator:
                 self.session.findById("wnd[0]/usr/ctxtDATUB").text = ""
             except: pass
 
-            try:
-                self.session.findById("wnd[0]/usr/ctxtVARIANT").text = "/GALVAO"
-                self.session.findById("wnd[0]/usr/ctxtVARIANT").setFocus()
-                self.session.findById("wnd[0]/usr/ctxtVARIANT").caretPosition = 7
-            except Exception as e:
-                print(f"  [Aviso] Erro ao aplicar variante: {e}")
+            notas_string = "\r\n".join(map(str, lista_notas))
+            pyperclip.copy(notas_string)
+
+            self.session.findById("wnd[0]/usr/btn%_QMNUM_%_APP_%-VALU_PUSH").press()
+            time.sleep(1)
+            self.session.findById("wnd[1]/tbar[0]/btn[24]").press()
+            time.sleep(1)
+            self.session.findById("wnd[1]/tbar[0]/btn[8]").press()
 
             self.session.findById("wnd[0]/tbar[1]/btn[8]").press()
             time.sleep(5)
