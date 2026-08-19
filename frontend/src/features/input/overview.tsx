@@ -14,7 +14,6 @@ import {
   Trash2,
   X,
   Loader2,
-  RefreshCw,
   Folder,
   List,
 } from 'lucide-react';
@@ -636,36 +635,6 @@ export function Overview({
             Inserir em Massa
           </Button>
 
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-9 px-3 text-xs"
-            disabled={dados.meta.sap?.estado === 'executando'}
-            onClick={() => {
-              toast.promise(
-                (async () => {
-                  await InputApi.syncSap();
-                })(),
-                {
-                  loading: 'Iniciando extração do SAP...',
-                  success: 'Sincronização SAP rodando em background!',
-                  error: 'Erro ao iniciar SAP',
-                }
-              );
-            }}
-          >
-            {dados.meta.sap?.estado === 'executando' ? (
-              <>
-                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                Sincronizando...
-              </>
-            ) : (
-              <>
-                <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-                Sincronizar SAP
-              </>
-            )}
-          </Button>
 
           {onIrParaRateio && (
             <Button

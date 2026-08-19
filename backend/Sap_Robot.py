@@ -815,38 +815,46 @@ if __name__ == "__main__":
     sap = SapAutomator(NOME_SISTEMA_SAP)
     session = obter_ou_criar_sessao_sap(login_sap, senha_sap)
 
-    if session and lista_notas_banco:
-        success_iw28 = sap.execute_iw28(lista_notas_banco, os.path.dirname(CAMINHO_EXPORT_NOTAS), ARQUIVO_NOME_IW28)
+    if not session:
+        print("❌ ERRO: Não foi possível obter ou iniciar uma sessão ativa do SAP. Abra o SAP GUI previamente ou configure as credenciais.")
+        sys.exit(1)
 
-        if success_iw28:
-            sap.execute_iw66(lista_notas_banco, os.path.dirname(CAMINHO_EXPORT_MEDIDAS), ARQUIVO_NOME_IW66)
+    if not lista_notas_banco:
+        print("❌ ERRO: Nenhuma nota ativa encontrada no banco de dados.")
+        sys.exit(1)
 
-            try:
-                time.sleep(5)
-                caminho_completo_iw28 = CAMINHO_EXPORT_NOTAS
-                print(f"Lendo a coluna 'Ordem' do arquivo '{ARQUIVO_NOME_IW28}'...")
+    success_iw28 = sap.execute_iw28(lista_notas_banco, os.path.dirname(CAMINHO_EXPORT_NOTAS), ARQUIVO_NOME_IW28)
 
-                time.sleep(2)
-                df_para_ordens = pd.read_excel(caminho_completo_iw28)
+    if not success_iw28:
+        print("❌ A extração da IW28 falhou. Processo interrompido.")
+        sys.exit(1)
 
-                if "Ordem" in df_para_ordens.columns:
-                    orders = df_para_ordens["Ordem"].dropna().astype(int).astype(str).tolist()
-                    if orders:
-                        sap.execute_iw38(orders, LAYOUT_IW38, os.path.dirname(CAMINHO_EXPORT_ORDEM), ARQUIVO_NOME_IW38)
-                    else:
-                        print("⚠️ Nenhuma ordem atrelada às notas foi encontrada.")
-                else:
-                    print("⚠️ Coluna 'Ordem' não encontrada no arquivo gerado.")
-            except Exception as e:
-                print(f"❌ Erro ao extrair custos (IW38): {e}")
-                limpar_ambiente()
+    sap.execute_iw66(lista_notas_banco, os.path.dirname(CAMINHO_EXPORT_MEDIDAS), ARQUIVO_NOME_IW66)
+
+    try:
+        time.sleep(5)
+        caminho_completo_iw28 = CAMINHO_EXPORT_NOTAS
+        print(f"Lendo a coluna 'Ordem' do arquivo '{ARQUIVO_NOME_IW28}'...")
+
+        time.sleep(2)
+        df_para_ordens = pd.read_excel(caminho_completo_iw28)
+
+        if "Ordem" in df_para_ordens.columns:
+            orders = df_para_ordens["Ordem"].dropna().astype(int).astype(str).tolist()
+            if orders:
+                sap.execute_iw38(orders, LAYOUT_IW38, os.path.dirname(CAMINHO_EXPORT_ORDEM), ARQUIVO_NOME_IW38)
+            else:
+                print("⚠️ Nenhuma ordem atrelada às notas foi encontrada.")
         else:
-            print("❌ A extração da IW28 falhou. Processo interrompido.")
+            print("⚠️ Coluna 'Ordem' não encontrada no arquivo gerado.")
+    except Exception as e:
+        print(f"❌ Erro ao extrair custos (IW38): {e}")
+        limpar_ambiente()
 
-        print("--- EXECUÇÃO CONCLUÍDA ---")
+    print("--- EXECUÇÃO CONCLUÍDA ---")
 
-        try:
-            subprocess.run(["taskkill", "/F", "/IM", "saplogon.exe"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            subprocess.run(["taskkill", "/F", "/IM", "sapgui.exe"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except: pass
+    try:
+        subprocess.run(["taskkill", "/F", "/IM", "saplogon.exe"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["taskkill", "/F", "/IM", "sapgui.exe"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except: pass
 # endregion

@@ -107,7 +107,7 @@ export function Settings({ dados }: { dados: InputDataset }): React.JSX.Element 
               Dispara a extração automatizada das bases IW28, IW38 e IW66 no SAP GUI em segundo plano e atualiza as bases locais.
             </span>
             <span className="text-[11.5px] text-text-mute">
-              Nota: Requer SAP GUI ativo e credenciais configuradas em <code className="font-mono text-foreground">credenciais.json</code>.
+              Nota: Conecta-se automaticamente à sessão do SAP GUI aberta ou utiliza credenciais do sistema.
             </span>
           </div>
           <Button

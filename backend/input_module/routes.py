@@ -488,7 +488,16 @@ def _rotina_sap_background():
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
         env["INPUT_DB_PATH"] = db.obter_caminho_banco()
-        subprocess.run([python_exe, script_path], check=True, env=env)
+        res = subprocess.run(
+            [python_exe, script_path],
+            check=True,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+        if res.stdout:
+            print(res.stdout)
 
         # Assim que termina, atualiza o SQLite com os arquivos gerados; só
         # registra em log_arquivos (e portanto bumpa a versão do dataset) os
@@ -505,6 +514,10 @@ def _rotina_sap_background():
 
         engine.invalidar_cache()
         engine.invalidar_status_bases()
+    except subprocess.CalledProcessError as cpe:
+        msg = (cpe.stdout or cpe.stderr or str(cpe)).strip()
+        print(f"Erro na execução em background do SAP: {msg}")
+        raise RuntimeError(msg) from cpe
     except Exception as e:
         print(f"Erro na execução em background do SAP: {e}")
         raise
@@ -531,6 +544,13 @@ def sync_sap_status():
     """Estado exclusivo da execução SAP, sem inferir estado por outra operação."""
     garantir_banco()
     return {"sap": sap_sync.estado()}
+
+
+@router.post("/bases/sync-sap/reset")
+def sync_sap_reset():
+    """Reseta a trava de execução do SAP."""
+    sap_sync.resetar_estado()
+    return {"mensagem": "Estado de sincronização SAP resetado com sucesso.", "sap": sap_sync.estado()}
 
 
 @router.post("/bases/{nome_arquivo}")
