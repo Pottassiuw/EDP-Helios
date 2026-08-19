@@ -35,28 +35,68 @@ LAYOUT_IW66 = "/GALVAO"
 CAMINHO_SAP_LOGON = r"C:\Program Files (x86)\SAP\FrontEnd\SAPgui\saplogon.exe"
 # endregion
 
-# region Chapter 2. CREDENTIALS LOAD
-# Descobre a pasta onde o script está rodando e procura o arquivo JSON
-caminho_script = os.path.dirname(os.path.abspath(__file__))
-caminho_credenciais = os.path.join(caminho_script, 'credenciais.json')
-caminho_credenciais_alt = r"c:\Users\E713105\Documents\INPUT SQL\credenciais.json"
+# region Chapter 2. CREDENTIALS HELPER
+def obter_credenciais_sap() -> tuple[str, str]:
+    """
+    Obtém as credenciais do SAP com prioridade flexível e sem dependência obrigatória de arquivo:
+    1. Argumentos de linha de comando (--user/--password ou posicionais)
+    2. Variáveis de ambiente (LOGIN_SAP/SENHA_SAP ou SAP_USER/SAP_PASSWORD)
+    3. Arquivo credenciais.json (fallback opcional se existir)
+    4. Solicitação interativa no console (se executado via terminal interativo)
+    """
+    import argparse
 
-if not os.path.exists(caminho_credenciais) and os.path.exists(caminho_credenciais_alt):
-    caminho_credenciais = caminho_credenciais_alt
+    login = ""
+    senha = ""
 
-# Tenta ler o arquivo de senhas
-try:
-    with open(caminho_credenciais, 'r', encoding='utf-8') as f:
-        segredos = json.load(f)
-        LOGIN_SAP = segredos['LOGIN_SAP']
-        SENHA_SAP = segredos['SENHA_SAP']
-except FileNotFoundError:
-    print(f"❌ ERRO FATAL: Arquivo 'credenciais.json' não encontrado na pasta {caminho_script} nem em {caminho_credenciais_alt}.")
-    print("Crie o arquivo com suas credenciais antes de rodar o robô.")
-    os._exit(1)
-except KeyError as e:
-    print(f"❌ ERRO FATAL: Chave {e} não encontrada dentro do 'credenciais.json'.")
-    os._exit(1)
+    # 1. Argumentos de linha de comando
+    try:
+        parser = argparse.ArgumentParser(description="Automação do Robô SAP", add_help=False)
+        parser.add_argument("-u", "--user", "--login", dest="user", default="")
+        parser.add_argument("-p", "--password", "--senha", dest="password", default="")
+        args, extras = parser.parse_known_args()
+        if args.user:
+            login = args.user
+        if args.password:
+            senha = args.password
+        if not login and len(extras) >= 1 and not extras[0].startswith("-"):
+            login = extras[0]
+        if not senha and len(extras) >= 2 and not extras[1].startswith("-"):
+            senha = extras[1]
+    except Exception:
+        pass
+
+    # 2. Variáveis de ambiente
+    if not login:
+        login = os.environ.get("LOGIN_SAP", "") or os.environ.get("SAP_USER", "")
+    if not senha:
+        senha = os.environ.get("SENHA_SAP", "") or os.environ.get("SAP_PASSWORD", "")
+
+    # 3. Fallback opcional para credenciais.json (sem travar se não existir)
+    if not (login and senha):
+        caminhos_tentativas = [
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "credenciais.json"),
+            os.path.join(os.getcwd(), "credenciais.json"),
+            r"c:\Users\E713105\Documents\INPUT SQL\credenciais.json",
+        ]
+        for cp in caminhos_tentativas:
+            if os.path.exists(cp):
+                try:
+                    with open(cp, "r", encoding="utf-8") as f:
+                        dados = json.load(f)
+                        if not login:
+                            login = str(dados.get("LOGIN_SAP", ""))
+                        if not senha:
+                            senha = str(dados.get("SENHA_SAP", ""))
+                        if login and senha:
+                            break
+                except Exception:
+                    pass
+
+    return login.strip(), senha.strip()
+
+
+LOGIN_SAP, SENHA_SAP = obter_credenciais_sap()
 # endregion
 
 # region Chapter 3. SAP AUTOMATION CLASS
@@ -65,10 +105,46 @@ class SapAutomator:
         self.system_name = system_name
         self.session = None
 
-    def connect(self, login, password):
+    def connect(self, login="", password=""):
         try:
             self.session = None
             gc.collect()
+
+            # 1. Tenta anexar à sessão ativa do SAP que já esteja aberta e logada
+            try:
+                sapgui = win32com.client.GetObject("SAPGUI")
+                app = sapgui.GetScriptingEngine
+                if app.Connections.Count > 0:
+                    for conn in app.Connections:
+                        if conn.Children.Count > 0:
+                            for sess in conn.Children:
+                                try:
+                                    sess.findById("wnd[0]/tbar[0]/okcd")
+                                    print("✅ Conectado à sessão ativa do SAP já aberta pelo usuário.")
+                                    self.session = sess
+                                    return self.session
+                                except Exception:
+                                    pass
+            except Exception:
+                pass
+
+            # 2. Se não há sessão ativa, valida se as credenciais foram fornecidas
+            if not login or not password:
+                if sys.stdin and sys.stdin.isatty():
+                    print("\n🔑 Nenhuma sessão ativa do SAP encontrada.")
+                    import getpass
+                    if not login:
+                        login = input("Informe o usuário SAP: ").strip()
+                    if not password:
+                        password = getpass.getpass("Informe a senha SAP: ").strip()
+
+            if not login or not password:
+                print("❌ ERRO: Credenciais SAP não fornecidas e nenhuma sessão ativa do SAP foi encontrada.")
+                print("💡 Dicas:")
+                print("   1. Abra o SAP GUI e faça login previamente, OU")
+                print("   2. Defina as variáveis de ambiente LOGIN_SAP e SENHA_SAP, OU")
+                print("   3. Execute: python Sap_Robot.py --user SEU_LOGIN --password SUA_SENHA")
+                return None
 
             subprocess.Popen(CAMINHO_SAP_LOGON)
             time.sleep(5)
@@ -317,10 +393,12 @@ def obter_ou_criar_sessao_sap(login_sap=None, senha_sap=None):
     """
     Tenta se conectar a uma sessão ativa do SAP. Se encontrar uma conexão aberta mas não autenticada (tela de login),
     realiza o login nela. Se não encontrar nenhuma conexão, inicia uma nova.
-    Usa fallbacks para as credenciais padrão do credenciais.json.
     """
-    usr = login_sap if (login_sap and str(login_sap).strip() != "") else LOGIN_SAP
-    pwd = senha_sap if (senha_sap and str(senha_sap).strip() != "") else SENHA_SAP
+    usr, pwd = obter_credenciais_sap()
+    if login_sap and str(login_sap).strip():
+        usr = str(login_sap).strip()
+    if senha_sap and str(senha_sap).strip():
+        pwd = str(senha_sap).strip()
 
     try:
         sapgui = win32com.client.GetObject("SAPGUI")
@@ -331,36 +409,32 @@ def obter_ou_criar_sessao_sap(login_sap=None, senha_sap=None):
                     for sess in conn.Children:
                         try:
                             # Se o campo de texto do usuário está visível, a conexão está na tela de login.
-                            # Preenchemos as credenciais diretamente nela!
                             try:
-                                sess.findById("wnd[0]/usr/txtRSYST-BNAME").text = usr
-                                sess.findById("wnd[0]/usr/pwdRSYST-BCODE").text = pwd
-                                sess.findById("wnd[0]").sendVKey(0)
-                                try:
-                                    # Trata pop-up de multi-logon se aparecer
-                                    sess.findById("wnd[1]/usr/radMULTI_LOGON_OPT2").select()
-                                    sess.findById("wnd[1]/tbar[0]/btn[0]").press()
-                                except:
-                                    pass
-                                return sess
+                                if usr and pwd:
+                                    sess.findById("wnd[0]/usr/txtRSYST-BNAME").text = usr
+                                    sess.findById("wnd[0]/usr/pwdRSYST-BCODE").text = pwd
+                                    sess.findById("wnd[0]").sendVKey(0)
+                                    try:
+                                        # Trata pop-up de multi-logon se aparecer
+                                        sess.findById("wnd[1]/usr/radMULTI_LOGON_OPT2").select()
+                                        sess.findById("wnd[1]/tbar[0]/btn[0]").press()
+                                    except:
+                                        pass
+                                    return sess
                             except:
-                                # Se não há campo de login, valida se a sessão está ativa e logada
-                                sess.findById("wnd[0]/tbar[0]/okcd")
-                                return sess
+                                pass
+
+                            # Se não há campo de login, valida se a sessão está ativa e logada
+                            sess.findById("wnd[0]/tbar[0]/okcd")
+                            return sess
                         except:
                             pass
     except Exception:
         pass
 
-    # Se não há sessão ativa, inicia uma nova do zero
-    if usr and pwd:
-        try:
-            sap = SapAutomator(NOME_SISTEMA_SAP)
-            return sap.connect(usr, pwd)
-        except Exception as e:
-            print(f"Erro ao criar nova sessão SAP: {e}")
-            return None
-    return None
+    # Se não há sessão ativa, inicia uma nova
+    sap = SapAutomator(NOME_SISTEMA_SAP)
+    return sap.connect(usr, pwd)
 def log_debug(msg):
     import datetime
     try:
@@ -737,8 +811,9 @@ if __name__ == "__main__":
         print(f"❌ Erro ao ler o banco de dados: {e}")
         os._exit(1)
 
+    login_sap, senha_sap = obter_credenciais_sap()
     sap = SapAutomator(NOME_SISTEMA_SAP)
-    session = sap.connect(LOGIN_SAP, SENHA_SAP)
+    session = obter_ou_criar_sessao_sap(login_sap, senha_sap)
 
     if session and lista_notas_banco:
         success_iw28 = sap.execute_iw28(lista_notas_banco, os.path.dirname(CAMINHO_EXPORT_NOTAS), ARQUIVO_NOME_IW28)
