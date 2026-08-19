@@ -23,12 +23,12 @@ import time
 import numpy as np
 import pandas as pd
 
-from input_module import config, db
+from input_module import config, db, sla
 from input_module.db import carregar_dados, carregar_projeto_construcao
 
 
-meses_pt_rev = {"jan": 1, "fev": 2, "mar": 3, "abr": 4, "maio": 5, "jun": 6,
-                "jul": 7, "ago": 8, "set": 9, "out": 10, "nov": 11, "dez": 12}
+# Tabela única de meses (relatorios.py importa daqui como MESES_ABREV).
+meses_pt_rev = sla.MESES
 
 
 def normalizar_prioridade_sap(val):
@@ -171,26 +171,10 @@ def avaliar_prazo_sap(row):
         # casaram no IW28 com outro status SAP (ex.: LIBE).
         is_99 = ('99' in status_final) or ('99' in status_nota)
 
-        # 1. TRATAMENTO ULTRA-ROBUSTO DO PLANEJADO (DDPM)
-        val_plan = str(row.get('Mes_Execucao_Planejado', '')).strip()
-        mes_planejado, ano_planejado = None, None
-
-        if val_plan not in ["", "-", "None", "nan"]:
-            # Testa se o Pandas autoconverteu o planejamento para data completa (Ex: 2024-02-01 00:00:00)
-            match_iso = re.match(r'^(\d{4})[-/](\d{2})[-/](\d{2})', val_plan)
-            if match_iso:
-                ano_planejado = int(match_iso.group(1))
-                mes_planejado = int(match_iso.group(2))
-            elif '-' in val_plan:
-                partes = val_plan.split('-')
-                if partes[0].lower() in meses_pt_rev:
-                    mes_planejado = meses_pt_rev[partes[0].lower()]
-                    ano_planejado = int(partes[1])
-                    if ano_planejado < 100: ano_planejado += 2000
-                elif partes[1].lower() in meses_pt_rev:
-                    mes_planejado = meses_pt_rev[partes[1].lower()]
-                    ano_planejado = int(partes[0])
-                    if ano_planejado < 100: ano_planejado += 2000
+        # 1. PLANEJADO (DDPM) — parsing canônico em sla.py, compartilhado com
+        # o Status_SLA para as duas leituras nunca divergirem.
+        planejado = sla.mes_planejado(row.get('Mes_Execucao_Planejado'))
+        ano_planejado, mes_planejado = planejado if planejado else (None, None)
 
         hoje = datetime.datetime.now()
 
@@ -209,31 +193,29 @@ def avaliar_prazo_sap(row):
 
         # --- NOVA REGRA 2: NOTAS NÃO ENCERRADAS (AVALIAÇÃO DE ATRASO) ---
         if not is_99:
-            desvio_hoje = (hoje.year - ano_planejado) * 12 + (hoje.month - mes_planejado)
-            if desvio_hoje > 1:
+            desvio_hoje = sla.desvio_em_meses(
+                (ano_planejado, mes_planejado), (hoje.year, hoje.month))
+            if desvio_hoje > sla.TOLERANCIA_MESES:
                 return "🔴 Com Atraso"
             else:
                 return "⚪ Em Andamento (No Prazo)"
 
         # 2. TRATAMENTO DO REALIZADO (SAP - Ex: 2024-02-21 00:00:00)
         val_real = row.get('Encerram.por data', '-')
-        if pd.isna(val_real) or str(val_real).strip() in ["", "-", "None", "nan"]:
+        if sla.valor_ausente(val_real):
             return "⏳Sem Data SAP"
 
-        dt_real = pd.to_datetime(val_real, dayfirst=True, errors='coerce')
-        if pd.isna(dt_real):
+        real = sla.mes_encerramento(val_real)
+        if real is None:
             return "⚠️ Data SAP Inválida"
-
-        mes_real = dt_real.month
-        ano_real = dt_real.year
 
         # 3. COMPARAÇÃO MATEMÁTICA DO DESVIO
         # Notas adiantadas sempre marcadas como Adiantado.
-        # Notas com atraso de até 1 mês são consideradas No Prazo (tolerância).
-        desvio_meses = (ano_real - ano_planejado) * 12 + (mes_real - mes_planejado)
+        # Atraso dentro da tolerância homologada continua sendo No Prazo.
+        desvio_meses = sla.desvio_em_meses((ano_planejado, mes_planejado), real)
         if desvio_meses < 0:
             return "🟢 Adiantado"
-        elif desvio_meses <= 1:
+        elif desvio_meses <= sla.TOLERANCIA_MESES:
             return "🔵 No Prazo"
         else:
             return "🔴 Com Atraso"
@@ -720,6 +702,11 @@ def enriquecer_dados():
     )
 
     df["Auditoria_Cronograma"] = df.apply(avaliar_prazo_sap, axis=1)
+
+    # SLA materializado: tela e exportação leem o mesmo valor, calculado uma vez.
+    veredictos = [sla.calcular(linha) for _, linha in df.iterrows()]
+    for coluna in ("Status_SLA", "Desvio_SLA", "Desvio_SLA_Meses"):
+        df[coluna] = [veredicto[coluna] for veredicto in veredictos]
     return df
 
 

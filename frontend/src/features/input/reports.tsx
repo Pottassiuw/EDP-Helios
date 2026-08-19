@@ -19,7 +19,7 @@ import {
 } from '@/components/ui/dialog';
 import { MultiSelect } from './filters';
 import { Bot, Info, Loader2, Mail, RefreshCw } from 'lucide-react';
-import { anoEncerramento, calcularSLA } from './reports-lib';
+import { anoEncerramento } from './reports-lib';
 
 /** Cores do "semáforo" (porte de Input/app.py:1132-1139). */
 const CORES_AUDITORIA: Record<string, string> = {
@@ -214,15 +214,9 @@ export function Reports({
 
   // --- PROCESSAMENTO DADOS: PRAZOS & ADERÊNCIA (SLA) ---
   const auditadas = React.useMemo(() => {
-    let r: NotaInput[] = registrosBase.map((n) => {
-      const sla = calcularSLA(n);
-      return {
-        ...n,
-        Desvio_SLA: sla.textoDesvio,
-        Status_SLA: sla.statusSLA,
-        Desvio_Numero: sla.desvio,
-      };
-    });
+    // Status_SLA/Desvio_SLA/Desvio_SLA_Meses vêm materializados do backend
+    // (input_module/sla.py) — a tela não recalcula prazo.
+    let r: NotaInput[] = registrosBase;
 
     if (rapido === '⚠️ Passível de Encerramento') {
       r = r.filter((n) => n.Status_Nota !== '99 Encerrado' && n.Ordem_Executada === 'SIM');
@@ -281,7 +275,7 @@ export function Reports({
     let comAtrasoQtd = 0;
 
     auditadas.forEach((item) => {
-      const d = typeof item.Desvio_Numero === 'number' ? item.Desvio_Numero : null;
+      const d = typeof item.Desvio_SLA_Meses === 'number' ? item.Desvio_SLA_Meses : null;
       if (d !== null && d > 0) {
         atrasoAcumuladoMeses += d;
         totalNotasComAtrasoReal += 1;
@@ -328,11 +322,12 @@ export function Reports({
       'Atrasado (2 meses)': 0,
       'Atrasado (3+ meses)': 0,
       'Pendente Atrasado (≥2m)': 0,
+      'Passível de Encerramento': 0,
       'Outros/Sem Planejamento': 0,
     };
 
     auditadas.forEach((item) => {
-      const d = item.Desvio_Numero;
+      const d = item.Desvio_SLA_Meses;
       if (item.Status_SLA === 'Adiantado') {
         contagem['Adiantado'] += 1;
       } else if (item.Status_SLA === 'No Prazo') {
@@ -344,6 +339,8 @@ export function Reports({
         else contagem['Atrasado (3+ meses)'] += 1;
       } else if (item.Status_SLA === 'Pendente Atrasado') {
         contagem['Pendente Atrasado (≥2m)'] += 1;
+      } else if (item.Status_SLA === 'Passível de Encerramento') {
+        contagem['Passível de Encerramento'] += 1;
       } else {
         contagem['Outros/Sem Planejamento'] += 1;
       }
@@ -861,7 +858,9 @@ export function Reports({
                         const totalSLA = auditadas.length || 1;
                         const percent = (qtd / totalSLA) * 100;
                         const barColor =
-                          desvioTipo.startsWith('Atrasado') || desvioTipo.startsWith('Pendente Atrasado')
+                          desvioTipo.startsWith('Passível')
+                            ? 'bg-amber'
+                            : desvioTipo.startsWith('Atrasado') || desvioTipo.startsWith('Pendente Atrasado')
                             ? 'bg-red'
                             : desvioTipo.startsWith('Adiantado') || desvioTipo.startsWith('No Prazo') || desvioTipo.startsWith('Tolerância')
                             ? 'bg-primary'
@@ -965,6 +964,7 @@ export function Reports({
                       'Atrasado',
                       'Pendente Atrasado',
                       'Pendente No Prazo',
+                      'Passível de Encerramento',
                       'Sem Planejamento',
                     ]}
                     selected={fSlaStatus}

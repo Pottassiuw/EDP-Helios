@@ -574,6 +574,8 @@ NOMES_AMIGAVEIS.update(
         "Modular": "Modular (R$)",
         "Data programada SAP": "Data programada SAP",
         "Comparação Data SAP": "Comparação Data SAP",
+        "Status_SLA": "Status SLA",
+        "Desvio_SLA": "SLA / Desvio",
     }
 )
 
@@ -605,6 +607,8 @@ COLUNAS_PAINEL = [
     "Check",
     "Export_status",
     "Status_Final",
+    "Status_SLA",
+    "Desvio_SLA",
     "Status_Anterior",
     "Check_Cancelado",
     "Ordem",

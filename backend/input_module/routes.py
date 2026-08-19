@@ -315,10 +315,17 @@ NOME_ARQUIVO_EXPORT = "export_notas.xlsx"
 @router.post("/export")
 def exportar(pedido: ExportPedido, usuario: str = Depends(usuario_atual)):
     garantir_banco()
+    desconhecidas = [c for c in pedido.colunas if c not in config.COLUNAS_PAINEL]
+    if desconhecidas:
+        raise HTTPException(
+            422, "Coluna(s) fora do contrato de exportação: "
+                 f"{', '.join(desconhecidas)}. Use as colunas do painel.")
     df = engine.get_dataset()
     df = df[df["Numero_Nota"].isin(pedido.numeros)]
-    colunas = [c for c in pedido.colunas if c in df.columns]
-    df = df[colunas].rename(columns=config.NOMES_AMIGAVEIS)
+    # `reindex` preserva a ordem pedida e entrega a coluna vazia quando ela
+    # existe no contrato mas não no dataset (base de apoio ausente, por
+    # exemplo) — a planilha nunca sai com menos colunas do que a tela ofereceu.
+    df = df.reindex(columns=pedido.colunas).rename(columns=config.NOMES_AMIGAVEIS)
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         df.to_excel(writer, index=False, sheet_name="Selecao_Filtrada")
@@ -327,7 +334,7 @@ def exportar(pedido: ExportPedido, usuario: str = Depends(usuario_atual)):
     # sem rastro é exatamente o que esta trilha existe para impedir.
     auditoria_gravada = db.salvar_log_arquivo(
         NOME_ARQUIVO_EXPORT, usuario, datetime.datetime.now(),
-        f"{db.ACAO_EXPORTACAO} ({len(df)} notas, {len(colunas)} colunas)")
+        f"{db.ACAO_EXPORTACAO} ({len(df)} notas, {len(pedido.colunas)} colunas)")
     if not auditoria_gravada:
         raise HTTPException(
             500, "Exportação cancelada: não foi possível registrar a auditoria. "

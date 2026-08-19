@@ -1303,6 +1303,137 @@ def test_auditoria_cronograma(engine_isolado):
     assert df.iloc[0]["Auditoria_Cronograma"] == "🟢 Adiantado"
 
 
+# ── Issue #21: SLA canônico (tolerância homologada de +1 mês) ────────────
+def _linha_sla(**extras) -> dict:
+    base = {
+        "Mes_Execucao_Planejado": "jul-2026",
+        "Status_Nota": "99 Encerrado",
+        "Status_Final": "ENCE",
+        "Ordem_Executada": "NÃO",
+        "Encerram.por data": "2026-07-20",
+    }
+    base.update(extras)
+    return base
+
+
+def test_sla_no_mes_planejado_e_no_prazo():
+    from input_module import sla
+    assert sla.calcular(_linha_sla()) == {
+        "Status_SLA": "No Prazo", "Desvio_SLA": "No Prazo", "Desvio_SLA_Meses": 0}
+
+
+def test_sla_um_mes_depois_fica_dentro_da_tolerancia_homologada():
+    """+1 mês é "No Prazo" — regra homologada com a operação (legenda dos relatórios)."""
+    from input_module import sla
+    resultado = sla.calcular(_linha_sla(**{"Encerram.por data": "2026-08-03"}))
+    assert resultado["Status_SLA"] == "No Prazo"
+    assert resultado["Desvio_SLA"] == "No Prazo (+1m tolerância)"
+    assert resultado["Desvio_SLA_Meses"] == 1
+
+
+def test_sla_dois_meses_depois_ja_e_atraso():
+    from input_module import sla
+    resultado = sla.calcular(_linha_sla(**{"Encerram.por data": "2026-09-03"}))
+    assert resultado["Status_SLA"] == "Atrasado"
+    assert resultado["Desvio_SLA"] == "Atrasado (2m)"
+    assert resultado["Desvio_SLA_Meses"] == 2
+
+
+def test_sla_antes_do_planejado_e_adiantado():
+    from input_module import sla
+    resultado = sla.calcular(_linha_sla(**{"Encerram.por data": "2026-05-30"}))
+    assert resultado["Status_SLA"] == "Adiantado"
+    assert resultado["Desvio_SLA"] == "Antecipado (2m)"
+
+
+def test_sla_ordem_executada_com_nota_aberta_nao_entra_na_conta_do_prazo():
+    """Obra executada em campo sem encerramento tem estado próprio, não "sem dados"."""
+    from input_module import sla
+    resultado = sla.calcular(_linha_sla(
+        Status_Nota="10 Em planejamento", Status_Final="LIBE",
+        Ordem_Executada="SIM", **{"Encerram.por data": "-"}))
+    assert resultado["Status_SLA"] == "Passível de Encerramento"
+    assert resultado["Desvio_SLA_Meses"] is None
+
+
+def test_sla_pendente_usa_a_mesma_tolerancia():
+    from input_module import sla
+    pendente = _linha_sla(Status_Nota="10 Em planejamento", Status_Final="LIBE")
+
+    dentro = sla.calcular(pendente, hoje=datetime.date(2026, 8, 15))
+    assert dentro["Status_SLA"] == "Pendente No Prazo"
+
+    fora = sla.calcular(pendente, hoje=datetime.date(2026, 9, 15))
+    assert fora["Status_SLA"] == "Pendente Atrasado"
+    assert fora["Desvio_SLA"] == "Atrasado pendente (2m)"
+
+
+def test_sla_separa_sem_planejamento_de_dado_invalido():
+    from input_module import sla
+    assert sla.calcular(_linha_sla(Mes_Execucao_Planejado="-"))["Status_SLA"] == "Sem Planejamento"
+    assert sla.calcular(_linha_sla(Mes_Execucao_Planejado="xxx-2026"))["Status_SLA"] == "Dados Insuficientes"
+
+
+def test_sla_encerrada_sem_data_de_encerramento_e_dado_insuficiente():
+    from input_module import sla
+    resultado = sla.calcular(_linha_sla(**{"Encerram.por data": ""}))
+    assert resultado == {"Status_SLA": "Dados Insuficientes",
+                         "Desvio_SLA": "Sem Data Encerramento",
+                         "Desvio_SLA_Meses": None}
+
+
+def test_sla_data_iso_nao_troca_mes_com_dia():
+    """`2026-08-03` é 3 de agosto — com dia <= 12 o parser antigo lia 8 de março."""
+    from input_module import sla
+    assert sla.mes_encerramento("2026-08-03") == (2026, 8)
+    assert sla.mes_encerramento("03/08/2026") == (2026, 8)
+    assert sla.mes_encerramento(datetime.datetime(2026, 8, 3)) == (2026, 8)
+    assert sla.mes_encerramento("2026-08-03 00:00:00") == (2026, 8)
+
+
+def test_status_sla_e_auditoria_cronograma_nao_divergem():
+    """As duas leituras do prazo saem da mesma regra — é o que a #21 pede."""
+    from input_module import engine, sla
+
+    equivalentes = {
+        "No Prazo": "🔵 No Prazo",
+        "Adiantado": "🟢 Adiantado",
+        "Atrasado": "🔴 Com Atraso",
+        "Pendente Atrasado": "🔴 Com Atraso",
+        "Pendente No Prazo": "⚪ Em Andamento (No Prazo)",
+        "Passível de Encerramento": "⚠️ Passível de Encerramento",
+        "Sem Planejamento": "⚪ Sem Planejamento",
+    }
+    linhas = [
+        _linha_sla(),
+        _linha_sla(**{"Encerram.por data": "2026-08-03"}),
+        _linha_sla(**{"Encerram.por data": "2026-09-03"}),
+        _linha_sla(**{"Encerram.por data": "2026-05-30"}),
+        _linha_sla(Status_Nota="10 Em planejamento", Status_Final="LIBE"),
+        _linha_sla(Status_Nota="10 Em planejamento", Status_Final="LIBE",
+                   Ordem_Executada="SIM"),
+        _linha_sla(Status_Nota="10 Em planejamento", Status_Final="LIBE",
+                   Mes_Execucao_Planejado="-"),
+    ]
+
+    for linha in linhas:
+        status_sla = sla.calcular(linha)["Status_SLA"]
+        assert engine.avaliar_prazo_sap(linha) == equivalentes[status_sla], linha
+
+
+def test_engine_materializa_sla_no_dataset(engine_isolado):
+    from input_module import db, engine
+    db.salvar_em_massa(pd.DataFrame([
+        _nota(2000, Status_Nota="99 Encerrado", Mes_Execucao_Planejado="jun-2026")]))
+    _sqlite_iw28()
+    _sqlite_iw38()
+    df = engine.enriquecer_dados()
+    linha = df.iloc[0]
+    assert linha["Status_SLA"] == "Adiantado"
+    assert "Antecipado" in linha["Desvio_SLA"]
+    assert linha["Desvio_SLA_Meses"] < 0
+
+
 def test_engine_totais_numericos_e_modular(engine_isolado):
     from input_module import db, engine
     db.salvar_em_massa(pd.DataFrame([_nota(2000, Status_Nota="99 Encerrado")]))
@@ -1638,6 +1769,43 @@ def test_export_gera_xlsx(cliente):
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     df = pd.read_excel(io.BytesIO(r.content))
     assert list(df.columns) == ["Nº Nota (ID)", "Status Nota"]
+
+
+def test_export_rejeita_coluna_fora_do_contrato(cliente):
+    r = cliente.post("/api/input/export", headers=CABECALHO_USER,
+                     json={"numeros": [], "colunas": ["Numero_Nota", "Coluna_Inventada"]})
+    assert r.status_code == 422
+    assert "Coluna_Inventada" in r.json()["detail"]
+
+
+def test_export_entrega_exatamente_as_colunas_pedidas(cliente):
+    """Contrato da tela preservado: mesma ordem, e coluna ausente vem vazia."""
+    from input_module import db, engine
+    db.salvar_em_massa(pd.DataFrame([_nota(9006)]))
+    engine.invalidar_cache()
+
+    r = cliente.post("/api/input/export", headers=CABECALHO_USER,
+                     json={"numeros": [9006],
+                           "colunas": ["Status_SLA", "Numero_Nota", "Medida_SAP"]})
+    assert r.status_code == 200
+    exportado = pd.read_excel(io.BytesIO(r.content))
+    assert list(exportado.columns) == ["Status SLA", "Nº Nota (ID)", "Medida SAP"]
+
+
+def test_export_leva_o_mesmo_sla_que_a_tela_mostra(cliente):
+    from input_module import db, engine
+    db.salvar_em_massa(pd.DataFrame([
+        _nota(9007, Status_Nota="99 Encerrado", Mes_Execucao_Planejado="jun-2026")]))
+    engine.invalidar_cache()
+    dataset = engine.get_dataset(forcar=True)
+    linha = dataset.loc[dataset["Numero_Nota"] == 9007].iloc[0]
+
+    r = cliente.post("/api/input/export", headers=CABECALHO_USER,
+                     json={"numeros": [9007], "colunas": ["Status_SLA", "Desvio_SLA"]})
+    assert r.status_code == 200
+    exportado = pd.read_excel(io.BytesIO(r.content))
+    assert exportado.iloc[0]["Status SLA"] == linha["Status_SLA"]
+    assert exportado.iloc[0]["SLA / Desvio"] == linha["Desvio_SLA"]
 
 
 def test_export_exige_identidade_e_nao_gera_arquivo(cliente):

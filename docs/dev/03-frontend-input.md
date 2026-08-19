@@ -279,7 +279,8 @@ O painel de Relatórios (`reports.tsx`) oferece 3 visões consolidadas:
 
 1. **Aderência ao Plano (`prazos`)**:
    - Consolidação unificada de auditoria de datas de encerramento SAP com índice de aderência ao plano/cronograma.
-   - **Regra de Tolerância (+1 mês)**: notas com encerramento até 1 mês após o planejado são contabilizadas como **No Prazo**. Notas concluídas antes são sempre **Adiantadas**, e com 2+ meses são **Com Atraso**.
+   - **Regra de Tolerância (+1 mês)**: notas com encerramento até 1 mês após o planejado são contabilizadas como **No Prazo**. Notas concluídas antes são sempre **Adiantadas**, e com 2+ meses são **Com Atraso**. A regra mora no backend (`input_module/sla.py`, ver `06-backend-input-module.md`): a tela lê `Status_SLA`, `Desvio_SLA` e `Desvio_SLA_Meses` já materializados no dataset e **não recalcula prazo** — foi assim que a tela e a exportação passaram a mostrar sempre o mesmo número.
+   - **Passível de Encerramento** é um status de SLA próprio (ordem executada em campo com a nota ainda aberta), disponível no filtro "Status de SLA" e na distribuição de desvios. Antes essas notas caíam em "Dados Insuficientes".
    - **Atraso Acumulado**: Exibe a métrica total somada de todos os meses em atraso real (inclusive o 1º mês) para gestão transparente de dívida temporal.
    - **Guia de Flags**: Banner informativo integrado explicando as regras de cada status e tolerâncias.
    - KPIs consolidados: Total Auditadas, Índice de Aderência (%), Atraso Acumulado (meses), Média de Desvio Real, Adiantadas, No Prazo (+1m), Com Atraso (≥2m), Pendentes Atrasadas e Passíveis de Encerramento.

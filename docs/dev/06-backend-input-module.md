@@ -439,7 +439,7 @@ Router `/api/input` (prefixo). Todo endpoint de leitura/escrita chama
 | `POST /notas/{numero}/travar` | Reivindica a edição da nota (`db.travar_nota`). Conflito volta no corpo (`{"ok": false, "usuario", "desde"}`, HTTP 200), não como erro — mesmo padrão de `/desfazer`. |
 | `POST /notas/destravar` | Libera os bloqueios de `numeros` que pertencem ao usuário do header. |
 | `POST /desfazer` | Reverte a última transação de edição (`db.reverter_ultima_alteracao`). |
-| `POST /export` | Gera um `.xlsx` filtrado (linhas/colunas selecionadas) com nomes amigáveis. Exige header `X-User` (400 sem ele) e registra a exportação em `log_arquivos` — quem, quando e o volume levado. |
+| `POST /export` | Gera um `.xlsx` filtrado (linhas/colunas selecionadas) com nomes amigáveis. Contrato estrito: coluna fora de `config.COLUNAS_PAINEL` responde `422`, e a planilha sai com exatamente as colunas pedidas, na ordem pedida (coluna do contrato ausente do dataset vem vazia, não some). Exige header `X-User` (400 sem ele) e registra a exportação em `log_arquivos` — quem, quando e o volume levado. |
 | `GET /responsaveis`, `PUT /responsaveis` | Mapa Regional → responsável (JSON local). |
 | `GET /bases`, `GET /bases/{nome}/download`, `POST /bases/{nome}` | Lista/baixa/substitui as bases de apoio na rede (`config.BASES_APOIO`). O upload é atômico e só responde `200` se o import para o SQLite deu certo — ver "Upload atômico de bases" abaixo. |
 | `POST /bases/sync-sap` | Dispara a extração SAP em background — é o que o botão **"Sincronizar SAP"** do frontend chama (`InputApi.syncSap()`, ver [`03-frontend-input.md`](03-frontend-input.md)). Roda `Sap_Robot.py` num subprocesso, depois importa os três Excel gerados (IW28/IW38/IW66) para o SQLite via `_processar_upload_base` e invalida o cache do engine. |
@@ -805,6 +805,44 @@ obter_estado_metas() -> {
 
 Colunas extras/vazias são ignoradas; linhas com valores faltantes em
 `Regionais`/`Mês`/`Plano` são descartadas.
+
+## SLA — aderência ao prazo (`input_module/sla.py`)
+
+A regra de prazo é uma só, em `input_module/sla.py`, e vale para as duas
+leituras que o app publica:
+
+- `Auditoria_Cronograma` (`engine.avaliar_prazo_sap`) — semáforo com emoji,
+  usado nos filtros e no gráfico de rosca;
+- `Status_SLA` / `Desvio_SLA` / `Desvio_SLA_Meses` — materializados em
+  `engine.enriquecer_dados()`, consumidos pela tela de Relatórios, pelos KPIs
+  e pela exportação. A tela não recalcula prazo: exportar e olhar a tela dão
+  o mesmo valor porque é o mesmo valor.
+
+**Tolerância homologada com a operação: `sla.TOLERANCIA_MESES = 1`.** É a regra
+descrita na legenda "Guia de Critérios e Regras das Flags" da aba Relatórios:
+concluída no mês planejado ou até 1 mês depois é **No Prazo**; 2 meses ou mais
+é **Com Atraso**; antes do mês planejado é **Adiantado**. A nota ainda aberta
+usa a mesma tolerância contra o mês corrente (`Pendente Atrasado` só a partir
+de 2 meses). Mudou a regra com a operação? Muda a constante — os dois
+consumidores leem dela.
+
+| `Status_SLA` | Quando |
+|---|---|
+| `Passível de Encerramento` | `Ordem_Executada = SIM` com a nota ainda aberta (sem 99). Obra feita em campo, nota não encerrada: não entra na conta do prazo, tem estado próprio. |
+| `Adiantado` / `No Prazo` / `Atrasado` | Nota encerrada (99), comparando o mês do `Encerram.por data` com o planejado. |
+| `Pendente No Prazo` / `Pendente Atrasado` | Nota aberta, comparando o mês corrente com o planejado. |
+| `Sem Planejamento` | Sem `Mes_Execucao_Planejado`. |
+| `Dados Insuficientes` | Planejado inválido, ou nota encerrada sem data de encerramento (ou com data ilegível). |
+
+`Desvio_SLA_Meses` é o desvio numérico (negativo = adiantado) que os KPIs somam;
+dentro da tolerância ele vai zerado de propósito, porque o KPI de atraso
+acumulado mede passivo e não folga.
+
+**Datas ISO não passam pelo `dayfirst` do pandas.** `sla.mes_encerramento`
+resolve `YYYY-MM-DD` por regex antes de chamar o pandas:
+`pd.to_datetime("2026-08-03", dayfirst=True)` devolve **8 de março**, não 3 de
+agosto. Enquanto essa conversão era feita direto no `avaliar_prazo_sap`, todo
+encerramento com dia ≤ 12 entrava na auditoria com mês e dia trocados.
 
 ## Auditoria e Logs de Alterações
 
