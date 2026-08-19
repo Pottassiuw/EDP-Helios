@@ -212,6 +212,19 @@ export interface SugestaoDetetive {
   Possivel_Nota_Mae: string;
 }
 
+export function normalizarConjunto(texto: unknown): string {
+  if (texto == null) return '';
+  return String(texto)
+    .replace(/[\n\r\t]/g, ' ')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s*-\s*/g, ' - ')
+    .replace(/\s*\/\s*/g, ' / ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toUpperCase();
+}
+
 const PALAVRAS_PROIBIDAS = ['SUBSTITUIDA', 'SUBSTITUÍDA', 'SUBST.', 'SUBST ', 'CANCELADA'];
 
 export function varrerVinculos(registros: NotaInput[]): SugestaoDetetive[] {
@@ -221,7 +234,7 @@ export function varrerVinculos(registros: NotaInput[]): SugestaoDetetive[] {
   for (const r of registros) {
     const nStr = String(r.Numero_Nota);
     todasNotas.add(nStr);
-    dictConj[nStr] = String(r['Conjunto'] ?? '').trim().toUpperCase();
+    dictConj[nStr] = normalizarConjunto(r['Conjunto']);
   }
 
   const ehOrfa = (r: NotaInput): boolean => {
@@ -244,7 +257,7 @@ export function varrerVinculos(registros: NotaInput[]): SugestaoDetetive[] {
     if (/\bFILHAS\s*[:\s]/i.test(texto)) continue;
 
     const nums = [...texto.matchAll(/\b\d{6,9}\b/g)].map((m) => m[0]);
-    const conjOrfa = String(row['Conjunto'] ?? '').trim().toUpperCase();
+    const conjOrfa = normalizarConjunto(row['Conjunto']);
 
     for (const num of nums) {
       if (todasNotas.has(num) && num !== String(row.Numero_Nota)) {

@@ -27,8 +27,41 @@ from input_module import config, db
 from input_module.db import carregar_dados, carregar_projeto_construcao
 
 
+import unicodedata
+
 meses_pt_rev = {"jan": 1, "fev": 2, "mar": 3, "abr": 4, "maio": 5, "jun": 6,
                 "jul": 7, "ago": 8, "set": 9, "out": 10, "nov": 11, "dez": 12}
+
+
+def normalizar_conjunto(texto: object) -> str:
+    """
+    Padroniza nomes de conjuntos para cruzamentos de dados (PROCV / Map), eliminando:
+    - Quebras de linha e múltiplos espaços
+    - Espaçamento inconsistente em hífens e barras (ex: ' - ', '-', ' -', '- ')
+    - Variações de acentos (NFKD -> ASCII)
+    """
+    if pd.isna(texto) or texto is None:
+        return "-"
+    s = str(texto).strip()
+    if not s or s in ["-", "nan", "None", "NAN", "NONE", "<NA>"]:
+        return "-"
+    s = s.replace("\n", " ").replace("\r", " ").replace("\t", " ")
+    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("utf-8")
+    s = re.sub(r'\s*-\s*', ' - ', s)
+    s = re.sub(r'\s*/\s*', ' / ', s)
+    return " ".join(s.split()).upper().strip()
+
+
+def limpar_exibicao_conjunto(texto: object) -> str:
+    """Limpa quebras de linha e espaços múltiplos do Conjunto preservando a grafia."""
+    if pd.isna(texto) or texto is None:
+        return "-"
+    s = str(texto).strip()
+    if not s or s in ["-", "nan", "None", "NAN", "NONE", "<NA>"]:
+        return "-"
+    s = s.replace("\n", " ").replace("\r", " ").replace("\t", " ")
+    s = re.sub(r'\s*-\s*', ' - ', s)
+    return " ".join(s.split()).strip()
 
 
 def normalizar_prioridade_sap(val):
@@ -36,7 +69,6 @@ def normalizar_prioridade_sap(val):
         return None
     val_str = str(val).strip().lower()
     
-    import unicodedata
     val_str = ''.join(c for c in unicodedata.normalize('NFD', val_str) if unicodedata.category(c) != 'Mn')
     
     if val_str.startswith("1"): return "Emergente"
@@ -247,6 +279,10 @@ def avaliar_prazo_sap(row):
 def enriquecer_dados():
     # 3.1. Carrega a base bruta (notas cadastradas) do SQLite
     df = carregar_dados()
+
+    # Tratamento de limpeza do Conjunto (remove quebras de linha e múltiplos espaços)
+    if 'Conjunto' in df.columns:
+        df['Conjunto'] = df['Conjunto'].apply(limpar_exibicao_conjunto)
 
     # Tratamento de segurança para garantir que o Status Anterior seja numérico/texto legível
     if 'Status_Anterior' in df.columns:
@@ -524,7 +560,7 @@ def enriquecer_dados():
 
             df_custo = df_custo_raw[[col_chave_excel, col_valor_excel, chi_col, ci_col, ocor_col]].copy()
             df_custo.columns = ['chave', 'valor', 'chi_b', 'ci_b', 'ocor_b']
-            df_custo['chave'] = df_custo['chave'].astype(str).str.strip().str.upper()
+            df_custo['chave'] = df_custo['chave'].apply(normalizar_conjunto)
 
             def limpar_numero_br(valor):
                 if pd.isna(valor): return 0.0
@@ -546,7 +582,7 @@ def enriquecer_dados():
 
             dict_dec_prog = {}
             if col_m_excel:
-                dict_dec_prog = dict(zip(df_custo_raw[col_chave_excel].astype(str).str.strip().str.upper(), df_custo_raw[col_m_excel].fillna(0.0)))
+                dict_dec_prog = dict(zip(df_custo_raw[col_chave_excel].apply(normalizar_conjunto), df_custo_raw[col_m_excel].fillna(0.0)))
 
             dict_sazonal = {}
             try:
@@ -558,7 +594,7 @@ def enriquecer_dados():
                 print(f"Sazonalidade não carregada: {e_saz}")
 
             if 'Conjunto' in df.columns:
-                chave_busca = df['Conjunto'].astype(str).str.strip().str.upper()
+                chave_busca = df['Conjunto'].apply(normalizar_conjunto)
                 quantidade_g2 = pd.to_numeric(df['Planejado_DDPM'], errors='coerce').fillna(0.0)
 
                 # A quantidade planejada atua como multiplicador das métricas unitárias
@@ -610,14 +646,14 @@ def enriquecer_dados():
             col_k_excel = df_ganhos.columns[10]
 
             df_ganhos['chave_composta'] = (
-                df_ganhos[col_c_excel].astype(str).str.strip().str.upper() + "_" +
+                df_ganhos[col_c_excel].apply(normalizar_conjunto) + "_" +
                 df_ganhos[col_b_excel].astype(str).str.strip().str.upper()
             )
 
             dict_ganhos = dict(zip(df_ganhos['chave_composta'], df_ganhos[col_k_excel].fillna(0.0)))
 
             chave_busca_sistema = (
-                df['Conjunto'].astype(str).str.strip().str.upper() + "_" +
+                df['Conjunto'].apply(normalizar_conjunto) + "_" +
                 df['CJ_Aneel'].astype(str).str.strip().str.upper()
             )
 
