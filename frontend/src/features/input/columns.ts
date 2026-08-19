@@ -86,7 +86,6 @@ export const COLUNAS_COLAGEM = [
   'Nota_Mae',
   'Observacao',
   'Status_Nota',
-  'Prioridade_Nota',
   'Planejado_DDPM',
   'Conjunto',
   'Circuito',

@@ -580,21 +580,35 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
       "Modular",
       "Total_planejado_modular",
     ]);
+
+    // Para Planejado_DDPM: filhas com conjunto diferente da mãe não entram na soma
+    const filhasValidas = (item.filhas ?? []).filter((f) => {
+      if (c.key === "Planejado_DDPM") {
+        const cjMae = String(r.Conjunto ?? "").trim().toLowerCase();
+        const cjFilha = String(f.Conjunto ?? "").trim().toLowerCase();
+        return cjMae === cjFilha && cjMae !== "" && cjMae !== "-";
+      }
+      return true;
+    });
+
     const deveSomarHierarquia =
-      item.temFilhas && !estaExpandido && COLUNAS_SOMA_HIERARQUICA.has(c.key);
+      item.temFilhas &&
+      !estaExpandido &&
+      COLUNAS_SOMA_HIERARQUICA.has(c.key) &&
+      (c.key !== "Planejado_DDPM" || filhasValidas.length > 0);
 
     let valorExibicao = v;
     let tooltipSoma: string | undefined = undefined;
 
     if (deveSomarHierarquia) {
       const valorProprio = Number(v) || 0;
-      const somaFilhas = (item.filhas ?? []).reduce(
+      const somaFilhas = filhasValidas.reduce(
         (acc, f) => acc + (Number(valor(f, c.key)) || 0),
         0,
       );
       const somaTotal = valorProprio + somaFilhas;
       valorExibicao = somaTotal;
-      tooltipSoma = `Soma consolidada do grupo: ${formatarNumero(somaTotal, 2)} (Mãe: ${formatarNumero(valorProprio, 2)} + ${item.qtdFilhas} ${item.qtdFilhas === 1 ? 'filha' : 'filhas'}: ${formatarNumero(somaFilhas, 2)})`;
+      tooltipSoma = `Soma consolidada do grupo: ${formatarNumero(somaTotal, 2)} (Mãe: ${formatarNumero(valorProprio, 2)} + ${filhasValidas.length} ${filhasValidas.length === 1 ? 'filha' : 'filhas'}: ${formatarNumero(somaFilhas, 2)})`;
     }
 
     const tentarEditar = (): void => {
@@ -638,7 +652,7 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
         ) : c.numeric ? (
           formatarNumero(valorExibicao)
         ) : (
-            valorExibicao !== null && valorExibicao !== undefined && valorExibicao !== ""
+            valorExibicao !== null && valorExibicao !== undefined && valorExibicao !== "" && (c.key !== "Ordem" || String(valorExibicao).trim().toUpperCase() !== "FORA SAP")
               ? String(valorExibicao)
               : "-"
         )}

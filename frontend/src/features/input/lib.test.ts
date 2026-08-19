@@ -90,7 +90,7 @@ describe('varrerVinculos (Detetive de Notas)', () => {
   it('faz parse de colagem TSV incluindo coluna Nota_Mae e ignora cabecalhos', async () => {
     const { parseColagemTsv } = await import('./lib');
     const { COLUNAS_COLAGEM } = await import('./columns');
-    const tsv = '16958288\t14118256\tObservacao teste\t00 Pendente\tProgramável\t1.5\tPOSTES\tGUA-01\t045RL00000001\tjul-2026\t14/08/2026\t-';
+    const tsv = '16958288\t14118256\tObservacao teste\t00 Pendente\t1.5\tPOSTES\tGUA-01\t045RL00000001\tjul-2026\t14/08/2026\t-';
     const resultado = parseColagemTsv(tsv, COLUNAS_COLAGEM);
     expect(resultado).toHaveLength(1);
     expect(resultado[0].Numero_Nota).toBe(16958288);

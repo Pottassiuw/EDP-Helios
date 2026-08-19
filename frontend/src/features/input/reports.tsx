@@ -21,11 +21,15 @@ import { MultiSelect } from './filters';
 import { Bot, Info, Loader2, Mail, RefreshCw } from 'lucide-react';
 import { anoEncerramento, calcularSLA } from './reports-lib';
 
-/** Cores do "semáforo" (porte de Input/app.py:1132-1139). */
+/** Cores do "semáforo" e indicadores de aderência. */
 const CORES_AUDITORIA: Record<string, string> = {
-  '🟢 Adiantado': 'var(--green-3)',
-  '🔵 No Prazo': 'var(--blue)',
-  '🔴 Com Atraso': 'var(--red)',
+  '🟢 No Prazo': 'var(--green)',
+  '🔵 Adiantado': 'var(--blue)',
+  '🟠 Executado com atraso': 'var(--amber)',
+  '🔴 Pendente Atrasado': 'var(--red)',
+  '🟢 Adiantado': 'var(--blue)',
+  '🔵 No Prazo': 'var(--green)',
+  '🔴 Com Atraso': 'var(--amber)',
   '🟣 Fora do Plano': 'var(--indigo)',
   '⚠️ Passível de Encerramento': 'var(--amber)',
   '⚪ Em Andamento (No Prazo)': 'var(--text-dim)',
@@ -52,11 +56,11 @@ const COLUNAS_AUDITORIA: ColunaDef[] = [
 
 const FILTROS_RAPIDOS = [
   '(Nenhum)',
-  '🔵 No Prazo',
-  '🟢 Adiantado',
-  '🔴 Com Atraso',
+  '🟢 No Prazo',
+  '🔵 Adiantado',
+  '🟠 Executado com atraso',
+  '🔴 Pendente Atrasado',
   '⚠️ Passível de Encerramento',
-  '⏳ Pendente Atrasado',
   'Em Andamento',
   'Encerradas',
   'Ordem Executada (SAP)',
@@ -232,14 +236,14 @@ export function Reports({
       r = r.filter((n) => n.Status_Nota === '99 Encerrado');
     } else if (rapido === 'Ordem Executada (SAP)') {
       r = r.filter((n) => n.Ordem_Executada === 'SIM');
-    } else if (rapido === '🔵 No Prazo') {
-      r = r.filter((n) => n.Auditoria_Cronograma === '🔵 No Prazo' || n.Status_SLA === 'No Prazo');
-    } else if (rapido === '🟢 Adiantado') {
-      r = r.filter((n) => n.Auditoria_Cronograma === '🟢 Adiantado' || n.Status_SLA === 'Adiantado');
-    } else if (rapido === '🔴 Com Atraso') {
-      r = r.filter((n) => n.Auditoria_Cronograma === '🔴 Com Atraso' || n.Status_SLA === 'Atrasado');
-    } else if (rapido === '⏳ Pendente Atrasado') {
-      r = r.filter((n) => n.Status_SLA === 'Pendente Atrasado');
+    } else if (rapido === '🟢 No Prazo') {
+      r = r.filter((n) => n.Auditoria_Cronograma === '🟢 No Prazo' || n.Auditoria_Cronograma === '🔵 No Prazo' || n.Status_SLA === 'No Prazo');
+    } else if (rapido === '🔵 Adiantado') {
+      r = r.filter((n) => n.Auditoria_Cronograma === '🔵 Adiantado' || n.Auditoria_Cronograma === '🟢 Adiantado' || n.Status_SLA === 'Adiantado');
+    } else if (rapido === '🟠 Executado com atraso') {
+      r = r.filter((n) => n.Auditoria_Cronograma === '🟠 Executado com atraso' || n.Auditoria_Cronograma === '🔴 Com Atraso' || n.Status_SLA === 'Atrasado');
+    } else if (rapido === '🔴 Pendente Atrasado') {
+      r = r.filter((n) => n.Auditoria_Cronograma === '🔴 Pendente Atrasado' || n.Status_SLA === 'Pendente Atrasado');
     }
 
     if (fAnos.length) r = r.filter((n) => fAnos.includes(String(anoEncerramento(n['Encerram.por data']) ?? '')));
@@ -389,32 +393,32 @@ export function Reports({
     dot: string;
   }> = [
     {
-      label: 'Adiantadas',
-      qtd: kpisSLA.adiantadasQtd,
-      filtro: '🟢 Adiantado',
+      label: 'No Prazo (+1m)',
+      qtd: kpisSLA.noPrazoQtd,
+      filtro: '🟢 No Prazo',
       corBadge: 'bg-green/10 text-green border-green/30 hover:bg-green/20',
       dot: '🟢',
     },
     {
-      label: 'No Prazo (+1m)',
-      qtd: kpisSLA.noPrazoQtd,
-      filtro: '🔵 No Prazo',
-      corBadge: 'bg-primary/10 text-primary border-primary/30 hover:bg-primary/20',
+      label: 'Adiantadas',
+      qtd: kpisSLA.adiantadasQtd,
+      filtro: '🔵 Adiantado',
+      corBadge: 'bg-blue-500/10 text-blue-500 border-blue-500/30 hover:bg-blue-500/20',
       dot: '🔵',
     },
     {
-      label: 'Com Atraso (≥2m)',
+      label: 'Executado com Atraso',
       qtd: kpisSLA.comAtrasoQtd,
-      filtro: '🔴 Com Atraso',
-      corBadge: 'bg-red/10 text-red border-red/30 hover:bg-red/20',
-      dot: '🔴',
+      filtro: '🟠 Executado com atraso',
+      corBadge: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/20',
+      dot: '🟠',
     },
     {
       label: 'Pendentes Atrasadas',
       qtd: kpisSLA.pendentesAtrasadas,
-      filtro: '⏳ Pendente Atrasado',
-      corBadge: 'bg-amber/10 text-amber border-amber/30 hover:bg-amber/20',
-      dot: '⏳',
+      filtro: '🔴 Pendente Atrasado',
+      corBadge: 'bg-red/10 text-red border-red/30 hover:bg-red/20',
+      dot: '🔴',
     },
     {
       label: 'Passíveis Encerramento',

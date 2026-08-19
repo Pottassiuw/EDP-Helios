@@ -51,15 +51,14 @@ interface ColagemPlanilhaProps {
 const LINHA_EM_BRANCO = (dataAtual: string): Record<string, string> => ({
   Numero_Nota: '',
   Nota_Mae: '-',
-  Status_Nota: '00 Pendente',
-  Prioridade_Nota: 'Programável',
-  Planejado_DDPM: '0',
-  Conjunto: '-',
-  Circuito: '-',
-  Local_Instalacao: '-',
-  Mes_Execucao_Planejado: '-',
-  Data_Envio_Projeto: dataAtual,
   Observacao: '',
+  Status_Nota: '00 Pendente',
+  Planejado_DDPM: '0',
+  Conjunto: '',
+  Circuito: '',
+  Local_Instalacao: '',
+  Mes_Execucao_Planejado: '',
+  Data_Envio_Projeto: dataAtual,
   Check: '-',
 });
 
@@ -305,7 +304,16 @@ export function ColagemPlanilha({
                 <TableRow className="hover:bg-transparent">
                   <TableHead className="w-10 text-center font-mono text-[10px] text-text-mute font-bold">#</TableHead>
                   {colunasColagem.map((c) => {
-                    const obrigatorio = c === 'Numero_Nota';
+                    const CAMPOS_OBRIGATORIOS = new Set([
+                      'Numero_Nota',
+                      'Status_Nota',
+                      'Planejado_DDPM',
+                      'Conjunto',
+                      'Circuito',
+                      'Local_Instalacao',
+                      'Mes_Execucao_Planejado',
+                    ]);
+                    const obrigatorio = CAMPOS_OBRIGATORIOS.has(c);
                     const destaque = c === 'Nota_Mae';
                     return (
                       <TableHead
@@ -316,7 +324,7 @@ export function ColagemPlanilha({
                       >
                         <div className="flex items-center gap-1">
                           <span>{rotulos[c] ?? c}</span>
-                          {obrigatorio && <span className="text-red font-bold">*</span>}
+                          {obrigatorio && <span className="text-red font-bold" title="Campo obrigatório">*</span>}
                         </div>
                       </TableHead>
                     );

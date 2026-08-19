@@ -92,7 +92,7 @@ describe('calcularSLA', () => {
     }));
     expect(r.statusSLA).toBe('Adiantado');
     expect(r.desvio).toBe(-2);
-    expect(r.textoDesvio).toBe('Antecipado (2m)');
+    expect(r.textoDesvio).toBe('Adiantado (2m)');
   });
 
   it('nota executada depois do planejado fica Atrasado', () => {
@@ -101,7 +101,7 @@ describe('calcularSLA', () => {
     }));
     expect(r.statusSLA).toBe('Atrasado');
     expect(r.desvio).toBe(2);
-    expect(r.textoDesvio).toBe('Atrasado (2m)');
+    expect(r.textoDesvio).toBe('Executado com atraso (2m)');
   });
 
   it('aceita data de encerramento no formato brasileiro DD/MM/YYYY', () => {
@@ -117,5 +117,14 @@ describe('calcularSLA', () => {
       Mes_Execucao_Planejado: 'jan-2026', Status_Nota: '99 Encerrado', 'Encerram.por data': '2026-01-15',
     }));
     expect(r.statusSLA).toBe('No Prazo');
+  });
+
+  it('nota com Encerram.por data preenchida conta como executada mesmo sem status 99', () => {
+    const r = calcularSLA(criarNota({
+      Mes_Execucao_Planejado: 'jul-2026', Status_Nota: '10 Em planejamento', 'Encerram.por data': '09/04/2026',
+    }));
+    expect(r.statusSLA).toBe('Adiantado');
+    expect(r.desvio).toBe(-3);
+    expect(r.textoDesvio).toBe('Adiantado (3m)');
   });
 });

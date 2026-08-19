@@ -1153,7 +1153,7 @@ def test_auditoria_cronograma(engine_isolado):
     _sqlite_iw28()
     _sqlite_iw38()
     df = engine.enriquecer_dados()
-    assert df.iloc[0]["Auditoria_Cronograma"] == "🟢 Adiantado"
+    assert df.iloc[0]["Auditoria_Cronograma"] == "🔵 Adiantado"
 
 
 def test_engine_totais_numericos_e_modular(engine_isolado):

@@ -840,7 +840,8 @@ if __name__ == "__main__":
         df_para_ordens = pd.read_excel(caminho_completo_iw28)
 
         if "Ordem" in df_para_ordens.columns:
-            orders_unicas = sorted(list({str(int(o)) for o in df_para_ordens["Ordem"].dropna() if str(o).strip() not in ["", "0", "0.0", "nan", "None"]}))
+            ordens_num = pd.to_numeric(df_para_ordens["Ordem"], errors='coerce').dropna()
+            orders_unicas = sorted(list({str(int(o)) for o in ordens_num if int(o) > 0}))
             if orders_unicas:
                 print(f"Auditando {len(orders_unicas)} ordens únicas na IW38...")
                 sap.execute_iw38(orders_unicas, LAYOUT_IW38, os.path.dirname(CAMINHO_EXPORT_ORDEM), ARQUIVO_NOME_IW38)

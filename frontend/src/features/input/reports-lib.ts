@@ -14,14 +14,20 @@ export interface SLADados {
 
 export function anoEncerramento(v: Celula | undefined): number | null {
   if (v === null || v === undefined || v === '-' || v === '') return null;
-  const d = typeof v === 'number' ? new Date(v) : new Date(String(v));
+  const strVal = String(v).trim();
+  const matchBR = strVal.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (matchBR) return Number(matchBR[3]);
+  const matchISO = strVal.match(/^(\d{4})[-/](\d{1,2})/);
+  if (matchISO) return Number(matchISO[1]);
+  const d = typeof v === 'number' ? new Date(v) : new Date(strVal);
   return Number.isNaN(d.getTime()) ? null : d.getFullYear();
 }
 
 export function calcularSLA(n: NotaInput): SLADados {
   const planejadoVal = n.Mes_Execucao_Planejado;
   const realVal = n['Encerram.por data'];
-  const executada = n.Ordem_Executada === 'SIM' || String(n.Status_Nota ?? '').startsWith('99');
+  const hasRealDate = Boolean(realVal && realVal !== '-' && realVal !== '' && realVal !== 'None' && realVal !== 'nan');
+  const executada = n.Ordem_Executada === 'SIM' || String(n.Status_Nota ?? '').startsWith('99') || hasRealDate;
 
   if (!planejadoVal || planejadoVal === '-' || planejadoVal === '') {
     return { nota: n, statusSLA: 'Sem Planejamento', desvio: null, textoDesvio: 'Sem Planejamento' };
@@ -48,43 +54,43 @@ export function calcularSLA(n: NotaInput): SLADados {
     if (!realVal || realVal === '-' || realVal === '') {
       return { nota: n, statusSLA: 'Dados Insuficientes', desvio: null, textoDesvio: 'Sem Data Encerramento' };
     }
-    const d = typeof realVal === 'number' ? new Date(realVal) : new Date(String(realVal));
-    if (Number.isNaN(d.getTime())) {
-      const strVal = String(realVal).trim();
-      const matchISO = strVal.match(/^(\d{4})-(\d{2})-(\d{2})/);
-      const matchBR = strVal.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
-      if (matchISO) {
-        anoReal = Number(matchISO[1]);
-        mesReal = Number(matchISO[2]);
-      } else if (matchBR) {
-        anoReal = Number(matchBR[3]);
-        mesReal = Number(matchBR[2]);
+    const strVal = String(realVal).trim();
+    const matchBR = strVal.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    const matchISO = strVal.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+    if (matchBR) {
+      anoReal = Number(matchBR[3]);
+      mesReal = Number(matchBR[2]);
+    } else if (matchISO) {
+      anoReal = Number(matchISO[1]);
+      mesReal = Number(matchISO[2]);
+    } else {
+      const d = typeof realVal === 'number' ? new Date(realVal) : new Date(strVal);
+      if (!Number.isNaN(d.getTime())) {
+        anoReal = d.getFullYear();
+        mesReal = d.getMonth() + 1;
       } else {
         return { nota: n, statusSLA: 'Dados Insuficientes', desvio: null, textoDesvio: 'Data Encerramento Inválida' };
       }
-    } else {
-      anoReal = d.getFullYear();
-      mesReal = d.getMonth() + 1;
     }
   }
 
   const desvio = (anoReal - anoPlan) * 12 + (mesReal - mesPlanParsed);
 
   if (isPending) {
-    if (desvio > 0) {
-      return { nota: n, statusSLA: 'Pendente Atrasado', desvio, textoDesvio: `Atrasado pendente (${desvio}m)` };
+    if (desvio > 1) {
+      return { nota: n, statusSLA: 'Pendente Atrasado', desvio, textoDesvio: `Pendente Atrasado (${desvio}m)` };
     }
-    return { nota: n, statusSLA: 'Pendente No Prazo', desvio: 0, textoDesvio: 'Pendente (No Prazo)' };
+    return { nota: n, statusSLA: 'Pendente No Prazo', desvio: desvio <= 0 ? 0 : desvio, textoDesvio: 'Pendente (No Prazo)' };
   } else {
+    if (desvio < 0) {
+      return { nota: n, statusSLA: 'Adiantado', desvio, textoDesvio: `Adiantado (${Math.abs(desvio)}m)` };
+    }
     if (desvio === 0) {
       return { nota: n, statusSLA: 'No Prazo', desvio: 0, textoDesvio: 'No Prazo' };
     }
     if (desvio === 1) {
       return { nota: n, statusSLA: 'No Prazo', desvio: 1, textoDesvio: 'No Prazo (+1m tolerância)' };
     }
-    if (desvio < 0) {
-      return { nota: n, statusSLA: 'Adiantado', desvio, textoDesvio: `Antecipado (${Math.abs(desvio)}m)` };
-    }
-    return { nota: n, statusSLA: 'Atrasado', desvio, textoDesvio: `Atrasado (${desvio}m)` };
+    return { nota: n, statusSLA: 'Atrasado', desvio, textoDesvio: `Executado com atraso (${desvio}m)` };
   }
 }

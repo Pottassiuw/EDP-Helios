@@ -239,11 +239,11 @@ def avaliar_prazo_sap(row):
         if ano_planejado > hoje.year:
             return "🟣 Fora do Plano"
 
-        # --- NOVA REGRA 2: NOTAS NÃO ENCERRADAS (AVALIAÇÃO DE ATRASO) ---
+        # --- REGRA 2: NOTAS NÃO ENCERRADAS (AVALIAÇÃO DE ATRASO) ---
         if not is_99:
             desvio_hoje = (hoje.year - ano_planejado) * 12 + (hoje.month - mes_planejado)
             if desvio_hoje > 1:
-                return "🔴 Com Atraso"
+                return "🔴 Pendente Atrasado"
             else:
                 return "⚪ Em Andamento (No Prazo)"
 
@@ -260,15 +260,16 @@ def avaliar_prazo_sap(row):
         ano_real = dt_real.year
 
         # 3. COMPARAÇÃO MATEMÁTICA DO DESVIO
-        # Notas adiantadas sempre marcadas como Adiantado.
-        # Notas com atraso de até 1 mês são consideradas No Prazo (tolerância).
+        # Notas adiantadas sempre marcadas como Adiantado (Azul).
+        # Notas com atraso de até 1 mês são consideradas No Prazo (Verde).
+        # Notas executadas com atraso >= 2 meses são Executado com atraso (Laranja).
         desvio_meses = (ano_real - ano_planejado) * 12 + (mes_real - mes_planejado)
         if desvio_meses < 0:
-            return "🟢 Adiantado"
+            return "🔵 Adiantado"
         elif desvio_meses <= 1:
-            return "🔵 No Prazo"
+            return "🟢 No Prazo"
         else:
-            return "🔴 Com Atraso"
+            return "🟠 Executado com atraso"
     except:
         return "⚠️ Erro na Análise"
 
@@ -796,6 +797,8 @@ def enriquecer_dados():
         axis=1,
     )
 
+    if 'Ordem' in df.columns:
+        df['Ordem'] = df['Ordem'].replace("Fora SAP", "-")
     df["Auditoria_Cronograma"] = df.apply(avaliar_prazo_sap, axis=1)
     return df
 
