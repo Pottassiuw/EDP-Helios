@@ -25,7 +25,7 @@ export interface CoffeeNota {
 
 export interface CoffeeJob {
   id?: string;
-  tipo?: "consulta" | "geracao" | "atualizacao_sap" | string;
+  tipo?: "consulta" | "geracao" | "atualizacao_sap" | "consulta_leitura" | string;
   estado: "rodando" | "concluido" | "interrompido";
   total: number;
   feitas: number;
@@ -38,6 +38,9 @@ export interface CoffeeJob {
   /** Só presente em jobs de consulta avulsa/operação: quantas notas terminaram
    * em cada etapa do quadro. */
   por_etapa?: Partial<Record<'pronta' | 'aguardando_sap' | 'processando' | 'ignorada', number>>;
+  /** Só presente em jobs `consulta_leitura`: o resultado somente-leitura
+   * de cada nota consultada. */
+  resultados?: ConsultaLoteItem[];
   iniciado_em: string;
   atualizado_em?: string;
 }
@@ -66,6 +69,16 @@ export interface CoffeeOperacaoQuadro {
   itens: CoffeeOperacaoItem[];
   operacoes_ativas: CoffeeJob[];
   contagens: Record<OperacaoEtapa, number>;
+}
+
+export interface ConsultaLoteItem {
+  pk: number;
+  id_sap: number | null;
+  classificacao: string | null;
+  ja_na_operacao: boolean;
+  elegivel: boolean;
+  local_instalacao: string | null;
+  erro: string | null;
 }
 
 export interface CoffeeLog {

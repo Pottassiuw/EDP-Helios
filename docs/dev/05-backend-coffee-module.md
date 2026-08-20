@@ -227,6 +227,7 @@ Router `/api/coffee` (prefixo). Mapeamento para o frontend
 |---|---|---|
 | `GET /operacao` | Retorna cards, contagens e snapshots dos jobs ativos da fila persistida. | `operacao/use-coffee-operacao.ts` |
 | `POST /operacao/consultar` | Cria cards na Fila e inicia consulta em lote. | `operacao/coffee-operacao.tsx` |
+| `POST /operacao/consultar-lote` | Consulta somente leitura em lote (não enfileira, não escreve em `notas_coffee` nem `coffee_fila_operacao`) — mesma lógica de `GET /consultar/{id}`, em job. | `operacao/use-consulta-leitura.ts` |
 | `POST /operacao/gerar` | Valida cards Prontos, inicia geração e os marca Processando. | `operacao/coffee-operacao.tsx` |
 | `POST /operacao/atualizar-sap` | Reconsulta cards Aguardando SAP. | `operacao/coffee-operacao.tsx` |
 | `POST /operacao/remover` | Remove cards da operação; exige justificativa. | `operacao/coffee-operacao.tsx` |
