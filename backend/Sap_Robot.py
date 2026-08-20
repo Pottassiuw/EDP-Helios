@@ -650,26 +650,29 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                     tbl = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2")
                     try:
                         tbl.verticalScrollbar.position = 0
-                    except:
+                    except Exception:
                         pass
                     time.sleep(0.2)
 
                     try:
                         tbl.getAbsoluteRow(0).Selected = True
-                    except:
+                    except Exception:
                         pass
 
                     try:
                         session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-QSMNUM[0,0]").setFocus()
-                    except:
+                    except Exception:
                         pass
 
+                    excluido = False
                     try:
                         session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/btnLOESCHEN").press()
+                        excluido = True
                     except Exception as btn_err:
-                        log_debug(f"Nota {nota} - btnLOESCHEN falhou: {btn_err}. Tentando tecla de atalho Shift+F2...")
+                        log_debug(f"Nota {nota} - btnLOESCHEN falhou: {btn_err}. Tentando tecla de atalho Shift+F2 (sendVKey 14)...")
                         try:
                             session.findById("wnd[0]").sendVKey(14)
+                            excluido = True
                         except Exception as vkey_err:
                             log_debug(f"Nota {nota} - sendVKey(14) falhou: {vkey_err}")
 
@@ -680,14 +683,29 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                             wnd1 = session.findById("wnd[1]")
                             try:
                                 wnd1.findById("usr/btnSPOP-OPTION1").press()
-                            except:
+                            except Exception:
                                 try:
                                     wnd1.findById("usr/btnBUTTON_1").press()
-                                except:
+                                except Exception:
                                     wnd1.sendVKey(0)
                             time.sleep(0.5)
                         except Exception as pop_err:
                             log_debug(f"Nota {nota} - Aviso popup exclusao: {pop_err}")
+
+                    # Fallback: Se o SAP proibir a exclusão física da linha 0 (ex: medida encerrada/bloqueada pelo SAP), zera a quantidade da linha 0
+                    if not excluido:
+                        try:
+                            log_debug(f"Nota {nota} - Aplicando fallback: zerando quantidade da linha 0 original no SAP...")
+                            campo_qtd_0 = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-QSMNUM[0,0]")
+                            campo_qtd_0.setFocus()
+                            shell.SendKeys("^a")
+                            time.sleep(0.1)
+                            shell.SendKeys("{BACKSPACE}")
+                            time.sleep(0.1)
+                            shell.SendKeys("0")
+                            session.findById("wnd[0]").sendVKey(0)
+                        except Exception as zero_err:
+                            log_debug(f"Nota {nota} - Falha no fallback de zerar linha 0: {zero_err}")
 
                 log_debug(f"Nota {nota} - Valor alterado com sucesso para '{str_qtd}'")
             except Exception as e:
