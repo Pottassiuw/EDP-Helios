@@ -2,7 +2,7 @@
 node_modules/
 .venv/
 backend/venv/
-
+monitor_update.ps1
 # Credenciais do robô SAP (nunca versionar login/senha reais)
 backend/credenciais.json
 
