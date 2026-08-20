@@ -133,7 +133,7 @@ export function InputNotaInspector({
             <SheetTitle className="flex items-center gap-2">
               <span>Nota SAP</span> <span className="font-mono">#{nota?.Numero_Nota ?? '—'}</span>
               {oculta && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-sans font-semibold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-sans font-medium bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
                   <EyeOff size={11} />
                   Oculta
                 </span>

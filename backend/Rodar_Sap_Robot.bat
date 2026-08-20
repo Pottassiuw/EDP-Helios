@@ -15,15 +15,8 @@ if not defined PYTHON_EXE (
     exit /b 1
 )
 
-if not exist "%~dp0credenciais.json" (
-    echo [ERRO] backend\credenciais.json nao encontrado.
-    echo Copie credenciais.json.example para credenciais.json e preencha LOGIN_SAP/SENHA_SAP.
-    pause
-    exit /b 1
-)
-
 set PYTHONIOENCODING=utf-8
-"!PYTHON_EXE!" "%~dp0Sap_Robot.py"
+"!PYTHON_EXE!" "%~dp0Sap_Robot.py" %*
 
 echo.
 echo --- Robo finalizado (codigo de saida: !ERRORLEVEL!) ---

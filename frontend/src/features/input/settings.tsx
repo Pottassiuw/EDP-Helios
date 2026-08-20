@@ -16,7 +16,7 @@ function Cartao({ titulo, eyebrow, children }: { titulo: string; eyebrow?: strin
     <Card className="border border-line bg-surface shadow-sm">
       <CardHeader className="pb-3">
         {eyebrow && <Eyebrow className="text-xs tracking-wider">{eyebrow}</Eyebrow>}
-        <CardTitle className="text-base font-semibold text-foreground">{titulo}</CardTitle>
+        <CardTitle className="text-base font-medium text-foreground">{titulo}</CardTitle>
       </CardHeader>
       <CardContent>{children}</CardContent>
     </Card>
@@ -32,6 +32,8 @@ export function Settings({ dados }: { dados: InputDataset }): React.JSX.Element 
   const [linhasEmail, setLinhasEmail] = React.useState<[string, string][] | null>(null);
   const [sincronizando, setSincronizando] = React.useState(false);
   const [sincronizandoSap, setSincronizandoSap] = React.useState(false);
+  const [loginSap, setLoginSap] = React.useState('');
+  const [senhaSap, setSenhaSap] = React.useState('');
 
   const responsaveis = useQuery({ queryKey: ['input-resp'], queryFn: InputApi.responsaveis });
   const emailsQuery = useQuery({ queryKey: ['input-emails-resp'], queryFn: InputApi.obterEmailsResponsaveis });
@@ -51,7 +53,8 @@ export function Settings({ dados }: { dados: InputDataset }): React.JSX.Element 
 
   function dispararSap(): void {
     setSincronizandoSap(true);
-    const p = InputApi.syncSap().finally(() => setSincronizandoSap(false));
+    const credenciais = loginSap.trim() && senhaSap ? { login_sap: loginSap.trim(), senha_sap: senhaSap } : undefined;
+    const p = InputApi.syncSap(credenciais).finally(() => setSincronizandoSap(false));
     toast.promise(p, {
       loading: 'Iniciando extração SAP em background...',
       success: 'Extração SAP iniciada em background.',
@@ -101,25 +104,38 @@ export function Settings({ dados }: { dados: InputDataset }): React.JSX.Element 
       </Cartao>
 
       <Cartao eyebrow="Automação SAP" titulo="Extração de Bases SAP (Sap Robot)">
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex flex-col gap-1 max-w-xl">
-            <span className="text-xs text-text-dim">
-              Dispara a extração automatizada das bases IW28, IW38 e IW66 no SAP GUI em segundo plano e atualiza as bases locais.
-            </span>
-            <span className="text-[11.5px] text-text-mute">
-              Nota: Requer SAP GUI ativo e credenciais configuradas em <code className="font-mono text-foreground">credenciais.json</code>.
-            </span>
+        <div className="flex flex-col gap-3">
+          <span className="text-xs text-text-dim max-w-xl">
+            Dispara a extração automatizada das bases IW28, IW38 e IW66 no SAP GUI em segundo plano e atualiza as bases locais.
+            Requer SAP GUI ativo. Informe seu usuário e senha do SAP abaixo — cada engenheiro loga com as próprias credenciais.
+          </span>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Input
+              value={loginSap}
+              onChange={(e) => setLoginSap(e.target.value)}
+              placeholder="Usuário SAP"
+              autoComplete="username"
+              className="w-40 h-9 text-xs bg-bg-2 border-line font-medium"
+            />
+            <Input
+              type="password"
+              value={senhaSap}
+              onChange={(e) => setSenhaSap(e.target.value)}
+              placeholder="Senha SAP"
+              autoComplete="current-password"
+              className="w-40 h-9 text-xs bg-bg-2 border-line font-medium"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 text-xs"
+              disabled={sincronizandoSap}
+              onClick={dispararSap}
+            >
+              <Bot className={`mr-1.5 h-3.5 w-3.5 ${sincronizandoSap ? 'animate-spin' : ''}`} />
+              {sincronizandoSap ? 'Executando...' : 'Executar Robô SAP'}
+            </Button>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-9 text-xs"
-            disabled={sincronizandoSap}
-            onClick={dispararSap}
-          >
-            <Bot className={`mr-1.5 h-3.5 w-3.5 ${sincronizandoSap ? 'animate-spin' : ''}`} />
-            {sincronizandoSap ? 'Executando...' : 'Executar Robô SAP'}
-          </Button>
         </div>
       </Cartao>
 
@@ -146,7 +162,7 @@ export function Settings({ dados }: { dados: InputDataset }): React.JSX.Element 
 
       <Cartao eyebrow="Mapeamento Operacional" titulo="Responsáveis por Conjunto / Regional">
         <p className="text-xs text-text-dim mb-3">
-          Mapeia os engenheiros responsáveis pelas notas de cada conjunto/regional. Para atribuir mais de um engenheiro na mesma área, separe os nomes por vírgula (ex: <code className="font-mono text-foreground font-semibold">Fabricio, Danilo</code>).
+          Mapeia os engenheiros responsáveis pelas notas de cada conjunto/regional. Para atribuir mais de um engenheiro na mesma área, separe os nomes por vírgula (ex: <code className="font-mono text-foreground font-medium">Fabricio, Danilo</code>).
         </p>
         <div className="flex flex-col gap-2 mb-4">
           {linhas.map(([conjunto, pessoa], i) => (
@@ -206,7 +222,7 @@ export function Settings({ dados }: { dados: InputDataset }): React.JSX.Element 
               <Input
                 value={pessoa}
                 placeholder="Nome do Engenheiro (ex: James)"
-                className="w-56 h-9 text-xs bg-bg-2 border-line font-semibold"
+                className="w-56 h-9 text-xs bg-bg-2 border-line font-medium"
                 onChange={(e) => {
                   const c = [...linhasEmailsAtuais] as [string, string][];
                   c[i] = [e.target.value, email];
@@ -272,7 +288,7 @@ export function Settings({ dados }: { dados: InputDataset }): React.JSX.Element 
               <div key={b.arquivo} className="flex gap-3 items-center justify-between p-3 rounded-md bg-bg-2/40 border border-line text-xs flex-wrap">
                 <div className="flex items-center gap-2.5">
                   <div className={`h-2 w-2 rounded-full ${b.encontrada ? 'bg-green' : 'bg-red'}`} />
-                  <span className="font-semibold text-foreground">{b.nome}</span>
+                  <span className="font-medium text-foreground">{b.nome}</span>
                   <span className="font-mono text-text-mute">({b.arquivo})</span>
                 </div>
                 <div className="flex items-center gap-2">

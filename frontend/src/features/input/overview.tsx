@@ -14,7 +14,6 @@ import {
   Trash2,
   X,
   Loader2,
-  RefreshCw,
   Folder,
   List,
 } from 'lucide-react';
@@ -227,13 +226,17 @@ export function Overview({
       const maeObj = dados.registros.find((r) => r.Numero_Nota === numMae);
       if (maeObj && deducao > 0) {
         const medAtual = Number(maeObj.Planejado_DDPM) || 0;
-        const novaMed = Math.max(0, medAtual - deducao);
-        lista.push({
-          numeroMae: numMae,
-          medidaAtual: medAtual,
-          deducao,
-          novaMedida: novaMed,
-        });
+        // IMPEDE QUE A NOTA MÃE FIQUE COM MEDIDA 0 NO REGISTRO
+        // Se a dedução for maior ou igual à medida atual, não permite zerar a mãe
+        const novaMed = medAtual - deducao > 0 ? medAtual - deducao : medAtual;
+        if (medAtual - deducao > 0) {
+          lista.push({
+            numeroMae: numMae,
+            medidaAtual: medAtual,
+            deducao,
+            novaMedida: novaMed,
+          });
+        }
       }
     }
     return lista;
@@ -491,26 +494,82 @@ export function Overview({
     }
   }
 
-  async function confirmarExclusao(justificativa: string): Promise<void> {
+  const retornoMaesExclusao = React.useMemo(() => {
+    if (selecionados.size === 0) return [];
+    const mapa = new Map<number, { medidaAtual: number; somaRetorno: number; novaMedida: number }>();
+    for (const num of selecionados) {
+      const nota = dados.registros.find((r) => r.Numero_Nota === num);
+      if (nota && nota.Nota_Mae && String(nota.Nota_Mae).trim() !== '-' && String(nota.Nota_Mae).trim() !== '') {
+        const numMae = Number(nota.Nota_Mae);
+        if (Number.isFinite(numMae)) {
+          const mae = dados.registros.find((r) => r.Numero_Nota === numMae);
+          const medFilha = Number(nota.Planejado_DDPM) || 0;
+          if (mae && medFilha > 0) {
+            const medAtual = Number(mae.Planejado_DDPM) || 0;
+            const item = mapa.get(numMae) ?? {
+              medidaAtual: medAtual,
+              somaRetorno: 0,
+              novaMedida: medAtual,
+            };
+            item.somaRetorno += medFilha;
+            item.novaMedida = item.medidaAtual + item.somaRetorno;
+            mapa.set(numMae, item);
+          }
+        }
+      }
+    }
+    return Array.from(mapa.entries()).map(([numeroMae, info]) => ({
+      numeroMae,
+      ...info,
+    }));
+  }, [selecionados, dados.registros]);
+
+  async function confirmarExclusao(justificativa: string, somarAMae: boolean = true): Promise<void> {
     if (selecionados.size === 0) return;
     const numeros = Array.from(selecionados);
     const setExcluir = new Set(numeros);
+    const maesAjustar = (somarAMae && retornoMaesExclusao.length > 0) ? [...retornoMaesExclusao] : [];
     setSelecionados(new Set());
     setModalExclusao(false);
 
-    // Otimista: remove do cache do React Query instantaneamente (0ms!)
+    // Otimista: remove do cache do React Query e atualiza a medida da mãe instantaneamente (0ms!)
     qc.setQueryData<InputDataset>(INPUT_DADOS_KEY, (antigo) => {
       if (!antigo) return antigo;
+      const mapaMaes = new Map(maesAjustar.map((m) => [m.numeroMae, m.novaMedida]));
       return {
         ...antigo,
-        registros: antigo.registros.filter((r) => !setExcluir.has(r.Numero_Nota)),
+        registros: antigo.registros
+          .filter((r) => !setExcluir.has(r.Numero_Nota))
+          .map((r) => {
+            if (mapaMaes.has(r.Numero_Nota)) {
+              return { ...r, Planejado_DDPM: mapaMaes.get(r.Numero_Nota)! };
+            }
+            return r;
+          }),
       };
     });
 
     setSalvando(true);
     try {
       const res = await InputApi.excluir(numeros, justificativa);
-      toast.success(`${res.excluidas} nota(s) excluída(s) com sucesso.`);
+      if (maesAjustar.length > 0) {
+        try {
+          const updatesMae = maesAjustar.map((m) => ({
+            Numero_Nota: m.numeroMae,
+            Planejado_DDPM: m.novaMedida,
+          }));
+          await InputApi.editar(updatesMae);
+          toast.success(
+            `${res.excluidas} nota(s) excluída(s) e medida somada de volta a ${updatesMae.length} Nota(s) Mãe!`
+          );
+        } catch {
+          toast.warning(
+            `${res.excluidas} nota(s) excluída(s), mas falhou ao somar medida de volta à Nota Mãe.`
+          );
+        }
+      } else {
+        toast.success(`${res.excluidas} nota(s) excluída(s) com sucesso.`);
+      }
       void recarregar();
     } catch (e) {
       toast.error('Erro ao excluir notas', {
@@ -597,6 +656,7 @@ export function Overview({
         aberto={modalExclusao}
         notas={Array.from(selecionados)}
         busy={salvando}
+        filhasInfo={retornoMaesExclusao}
         onConfirmar={confirmarExclusao}
         onCancelar={() => setModalExclusao(false)}
       />
@@ -634,37 +694,6 @@ export function Overview({
           >
             <FileSpreadsheet className="h-3.5 w-3.5 text-text-dim" />
             Inserir em Massa
-          </Button>
-
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-9 px-3 text-xs"
-            disabled={dados.meta.sap?.estado === 'executando'}
-            onClick={() => {
-              toast.promise(
-                (async () => {
-                  await InputApi.syncSap();
-                })(),
-                {
-                  loading: 'Iniciando extração do SAP...',
-                  success: 'Sincronização SAP rodando em background!',
-                  error: 'Erro ao iniciar SAP',
-                }
-              );
-            }}
-          >
-            {dados.meta.sap?.estado === 'executando' ? (
-              <>
-                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                Sincronizando...
-              </>
-            ) : (
-              <>
-                <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-                Sincronizar SAP
-              </>
-            )}
           </Button>
 
           {onIrParaRateio && (
@@ -857,7 +886,7 @@ export function Overview({
         <React.Fragment>
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold flex items-center justify-between">
+              <CardTitle className="text-sm font-medium flex items-center justify-between">
                 <span>Edição em Lote — Selecione as notas abaixo e defina os novos valores:</span>
                 <span className="font-mono text-xs font-normal text-text-mute">
                   {selecionados.size} nota(s) marcada(s)
@@ -1032,12 +1061,12 @@ export function Overview({
         <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 p-3.5 bg-surface border border-accent/60 rounded-xl shadow-2xl animate-in slide-in-from-bottom-5">
           <div className="flex items-center gap-2 pr-2 border-r border-line">
             <span className="flex h-2.5 w-2.5 rounded-full bg-accent animate-pulse" />
-            <span className="text-xs font-semibold text-foreground">
+            <span className="text-xs font-medium text-foreground">
               {edicoes.size} nota(s) alterada(s)
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <Button size="sm" disabled={salvando} onClick={salvarEdicoes} className="gap-1.5 h-8 text-xs font-semibold">
+            <Button size="sm" disabled={salvando} onClick={salvarEdicoes} className="gap-1.5 h-8 text-xs font-medium">
               {salvando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
               Salvar Alterações
             </Button>

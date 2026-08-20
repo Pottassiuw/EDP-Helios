@@ -580,6 +580,38 @@ def proximo_id_cronologia(df: pd.DataFrame) -> int:
     return int(pd.to_numeric(df["ID_Cronologia"], errors="coerce").max()) + 1
 
 
+def verificar_notas_existentes(numeros: list[int]) -> list[int]:
+    """Verifica diretamente no SQLite se números de notas já existem, sem carregar todo o DataFrame."""
+    if not numeros:
+        return []
+    conn = get_db_connection()
+    try:
+        placeholders = ",".join("?" for _ in numeros)
+        rows = conn.execute(
+            f"SELECT Numero_Nota FROM notas WHERE Numero_Nota IN ({placeholders})",
+            numeros,
+        ).fetchall()
+        return [int(r[0]) for r in rows if r[0] is not None]
+    except Exception:
+        return []
+    finally:
+        conn.close()
+
+
+def obter_proximo_id_cronologia_banco() -> int:
+    """Obtém o próximo ID_Cronologia diretamente via MAX no banco SQLite."""
+    conn = get_db_connection()
+    try:
+        max_id = conn.execute(
+            "SELECT MAX(CAST(ID_Cronologia AS INTEGER)) FROM notas"
+        ).fetchone()[0]
+        return (int(max_id) + 1) if max_id is not None else 1
+    except Exception:
+        return 1
+    finally:
+        conn.close()
+
+
 def carregar_logs() -> pd.DataFrame:
     """Carrega todos os registros da tabela de log de alterações."""
     conn = get_db_connection()
@@ -1367,6 +1399,152 @@ def carregar_base_dataframe(nome_tabela: str) -> pd.DataFrame | None:
     return None
 
 
+def sincronizar_status_sap_para_notas(usuario: str = "Robô SAP") -> dict:
+    """Sincroniza o status do SAP (da tabela base_iw28) diretamente para a tabela notas (e notas_ramal).
+
+    Identifica todas as notas cujo status no SAP diverge do status no banco de dados local.
+    Atualiza `Status_Nota` para o novo status do SAP, armazena o status anterior em `Status_Anterior`,
+    e grava um registro detalhado em `log_alteracoes` contendo (Numero_Nota, Usuario, Data_Hora, 'Status_Nota', Valor_Antigo, Valor_Novo).
+    """
+    realizar_backup()
+    conn = get_db_connection()
+    try:
+        tabelas = [t[0] for t in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+        if "base_iw28" not in tabelas:
+            return {"atualizadas": 0, "mensagem": "Tabela base_iw28 não encontrada no banco."}
+
+        df_iw28 = pd.read_sql("SELECT * FROM base_iw28", conn)
+        if df_iw28.empty:
+            return {"atualizadas": 0, "mensagem": "Tabela base_iw28 está vazia."}
+
+        col_nota_sap = "Nota" if "Nota" in df_iw28.columns else "Numero_Nota"
+        col_st_sap = "Status usuário" if "Status usuário" in df_iw28.columns else "Status_Usuario"
+
+        if col_nota_sap not in df_iw28.columns or col_st_sap not in df_iw28.columns:
+            return {"atualizadas": 0, "mensagem": "Colunas necessárias não encontradas em base_iw28."}
+
+        df_iw28["_n_int"] = pd.to_numeric(df_iw28[col_nota_sap], errors="coerce")
+        df_iw28 = df_iw28.dropna(subset=["_n_int"])
+        df_iw28["_n_int"] = df_iw28["_n_int"].astype(int)
+
+        mapa_sap = dict(zip(df_iw28["_n_int"], df_iw28[col_st_sap]))
+
+        agora = datetime.datetime.now()
+        logs = []
+        updates_notas = []
+        updates_ramal = []
+
+        # Processa tabela notas
+        colunas_notas = {c[1] for c in conn.execute("PRAGMA table_info(notas)").fetchall()}
+        df_notas = pd.read_sql("SELECT Numero_Nota, Status_Nota, Status_Anterior FROM notas", conn)
+
+        for _, row in df_notas.iterrows():
+            n = int(row["Numero_Nota"])
+            if n not in mapa_sap:
+                continue
+
+            st_sap_raw = mapa_sap[n]
+            if pd.isna(st_sap_raw) or str(st_sap_raw).strip() in ("", "-", "nan", "None"):
+                continue
+
+            st_sap_int = status_para_int(st_sap_raw)
+            if st_sap_int is None or st_sap_int == 0:
+                continue
+
+            st_banco_raw = row["Status_Nota"]
+            st_banco_int = status_para_int(st_banco_raw)
+
+            if st_sap_int != st_banco_int:
+                st_antigo_txt = STATUS_MAP.get(st_banco_int, str(st_banco_int) if st_banco_int is not None else "-")
+                st_novo_txt = STATUS_MAP.get(st_sap_int, str(st_sap_int))
+
+                logs.append((n, usuario, agora, "Status_Nota", str(st_antigo_txt), str(st_novo_txt)))
+                if "Status_Anterior" in colunas_notas:
+                    updates_notas.append((st_sap_int, st_banco_int, n))
+                else:
+                    updates_notas.append((st_sap_int, n))
+
+        # Processa tabela notas_ramal se existir
+        if "notas_ramal" in tabelas:
+            colunas_ramal = {c[1] for c in conn.execute("PRAGMA table_info(notas_ramal)").fetchall()}
+            df_ramal = pd.read_sql("SELECT Numero_Nota, Status_Nota, Status_Anterior FROM notas_ramal", conn)
+            for _, row in df_ramal.iterrows():
+                n = int(row["Numero_Nota"])
+                if n not in mapa_sap:
+                    continue
+
+                st_sap_raw = mapa_sap[n]
+                if pd.isna(st_sap_raw) or str(st_sap_raw).strip() in ("", "-", "nan", "None"):
+                    continue
+
+                st_sap_int = status_para_int(st_sap_raw)
+                if st_sap_int is None or st_sap_int == 0:
+                    continue
+
+                st_banco_raw = row["Status_Nota"]
+                st_banco_int = status_para_int(st_banco_raw)
+
+                if st_sap_int != st_banco_int:
+                    st_antigo_txt = STATUS_MAP.get(st_banco_int, str(st_banco_int) if st_banco_int is not None else "-")
+                    st_novo_txt = STATUS_MAP.get(st_sap_int, str(st_sap_int))
+
+                    logs.append((n, usuario, agora, "Status_Nota", str(st_antigo_txt), str(st_novo_txt)))
+                    if "Status_Anterior" in colunas_ramal:
+                        updates_ramal.append((st_sap_int, st_banco_int, n))
+                    else:
+                        updates_ramal.append((st_sap_int, n))
+
+        if updates_notas or updates_ramal:
+            conn.execute("BEGIN IMMEDIATE")
+
+            if logs:
+                conn.executemany(
+                    "INSERT INTO log_alteracoes (Numero_Nota, Usuario, Data_Hora, Campo_Alterado, Valor_Antigo, Valor_Novo) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    logs,
+                )
+
+            if updates_notas:
+                if "Status_Anterior" in colunas_notas:
+                    conn.executemany(
+                        "UPDATE notas SET Status_Nota = ?, Status_Anterior = ? WHERE Numero_Nota = ?",
+                        updates_notas,
+                    )
+                else:
+                    conn.executemany(
+                        "UPDATE notas SET Status_Nota = ? WHERE Numero_Nota = ?",
+                        updates_notas,
+                    )
+
+            if updates_ramal:
+                if "Status_Anterior" in colunas_ramal:
+                    conn.executemany(
+                        "UPDATE notas_ramal SET Status_Nota = ?, Status_Anterior = ? WHERE Numero_Nota = ?",
+                        updates_ramal,
+                    )
+                else:
+                    conn.executemany(
+                        "UPDATE notas_ramal SET Status_Nota = ? WHERE Numero_Nota = ?",
+                        updates_ramal,
+                    )
+
+            conn.commit()
+
+        total_alteradas = len(updates_notas) + len(updates_ramal)
+        return {
+            "atualizadas": total_alteradas,
+            "notas_principais": len(updates_notas),
+            "notas_ramal": len(updates_ramal),
+            "mensagem": f"{total_alteradas} nota(s) tiveram seus status sincronizados com o SAP e registrados no histórico de logs."
+        }
+    except Exception as e:
+        conn.rollback()
+        print(f"Erro ao sincronizar status do SAP com o banco: {e}")
+        raise
+    finally:
+        conn.close()
+
+
 
 # ==============================================================================
 # EDIÇÃO COM DIFF (lógica server-side que substitui a UI do Streamlit)
@@ -1443,6 +1621,19 @@ def aplicar_edicoes(linhas: list, usuario: str) -> dict:
                 if novo != antigo:
                     mudancas[campo] = _valor_para_coluna(campo, linha[campo])
                     logs.append((numero, usuario, agora, campo, antigo, novo))
+            if "Planejado_DDPM" in mudancas and float(mudancas["Planejado_DDPM"] or 0) <= 0.0:
+                tem_filhas = conn.execute(
+                    "SELECT 1 FROM notas WHERE Nota_Mae = ? OR Nota_Mae = ? LIMIT 1",
+                    (str(numero), str(int(numero))),
+                ).fetchone()
+                if tem_filhas:
+                    # Impede que a nota mãe tenha medida 0 no registro
+                    del mudancas["Planejado_DDPM"]
+                    logs = [
+                        l
+                        for l in logs
+                        if not (l[0] == numero and l[3] == "Planejado_DDPM")
+                    ]
             if not mudancas:
                 continue
             if "Status_Nota" in mudancas and "Status_Anterior" in colunas_no_banco:
@@ -1500,6 +1691,7 @@ def obter_versao_dataset() -> str:
     mesmo se o log de arquivos — que é best-effort — não tiver gravado; sem
     isso o navegador receberia 304 e seguiria servindo a base antiga.
     """
+    ENGINE_REVISAO = "2026.08.19.v3"
     conn = get_db_connection()
     try:
         max_alt = conn.execute("SELECT MAX(Data_Hora) FROM log_alteracoes").fetchone()[0]
@@ -1509,7 +1701,7 @@ def obter_versao_dataset() -> str:
         schema = conn.execute("PRAGMA schema_version").fetchone()[0]
     finally:
         conn.close()
-    return f"{max_alt}|{qtd_alt}|{max_arq}|{qtd_notas}|{schema}"
+    return f"{ENGINE_REVISAO}|{max_alt}|{qtd_alt}|{max_arq}|{qtd_notas}|{schema}"
 
 
 # ==============================================================================

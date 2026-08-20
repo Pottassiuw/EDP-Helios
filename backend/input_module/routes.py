@@ -412,6 +412,11 @@ def _processar_upload_base(nome_arquivo: str, caminho: str) -> bool:
     o chamador usa isso para decidir se registra o import em log_arquivos."""
     try:
         _importar_base_para_sqlite(nome_arquivo, caminho)
+        if nome_arquivo == "Gerada_base_IW28.XLSX":
+            try:
+                db.sincronizar_status_sap_para_notas(usuario="Sincronização SAP")
+            except Exception as ex_st:
+                print(f"Aviso: sincronização de status IW28 -> notas falhou: {ex_st}")
         return True
     except Exception as e:
         print(f"Aviso: Não foi possível importar {nome_arquivo} para o SQLite nativo: {e}")
@@ -474,7 +479,23 @@ def _exigir_sqlite_realinhado(nome_arquivo: str, caminho: str, causa: Exception)
              "acione o suporte antes de usar os dados desta base.")
 
 
-def _rotina_sap_background():
+def _credenciais_sap_do_payload(payload: Optional[dict]) -> Optional[dict]:
+    """Extrai login_sap/senha_sap do corpo da requisição, se ambos vierem preenchidos.
+
+    Cada engenheiro loga com o próprio usuário SAP — por isso as credenciais vêm do
+    request, não de um credenciais.json compartilhado. Se algum campo faltar, retorna
+    None e o robô cai no fallback (credenciais.json), preservando a execução agendada
+    via Rodar_Sap_Robot.bat, que não passa por esta rota."""
+    if not payload:
+        return None
+    login = str(payload.get("login_sap") or "").strip()
+    senha = str(payload.get("senha_sap") or "")
+    if not login or not senha:
+        return None
+    return {"login_sap": login, "senha_sap": senha}
+
+
+def _rotina_sap_background(credenciais_sap: Optional[dict] = None):
     import subprocess
     import os
     import sys
@@ -488,7 +509,20 @@ def _rotina_sap_background():
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
         env["INPUT_DB_PATH"] = db.obter_caminho_banco()
-        subprocess.run([python_exe, script_path], check=True, env=env)
+        if credenciais_sap:
+            # Só vive no ambiente deste subprocesso — nunca gravado em disco/log.
+            env["LOGIN_SAP"] = credenciais_sap["login_sap"]
+            env["SENHA_SAP"] = credenciais_sap["senha_sap"]
+        res = subprocess.run(
+            [python_exe, script_path],
+            check=True,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+        if res.stdout:
+            print(res.stdout)
 
         # Assim que termina, atualiza o SQLite com os arquivos gerados; só
         # registra em log_arquivos (e portanto bumpa a versão do dataset) os
@@ -503,8 +537,17 @@ def _rotina_sap_background():
             if _processar_upload_base(nome, caminho):
                 db.salvar_log_arquivo(nome, "robo-sap", agora, "Sync SAP")
 
+        try:
+            db.sincronizar_status_sap_para_notas(usuario="Robô SAP")
+        except Exception as e_sync:
+            print(f"Aviso: Erro ao sincronizar status pós extração SAP: {e_sync}")
+
         engine.invalidar_cache()
         engine.invalidar_status_bases()
+    except subprocess.CalledProcessError as cpe:
+        msg = (cpe.stdout or cpe.stderr or str(cpe)).strip()
+        print(f"Erro na execução em background do SAP: {msg}")
+        raise RuntimeError(msg) from cpe
     except Exception as e:
         print(f"Erro na execução em background do SAP: {e}")
         raise
@@ -515,15 +558,25 @@ def _rotina_sap_background():
 def sync_sap(tasks: BackgroundTasks, x_user: Optional[str] = Header(default="Sistema", alias="X-User"), payload: dict = Body(None)):
     """Inicia a extração SAP em background."""
     garantir_banco()
+    credenciais_sap = _credenciais_sap_do_payload(payload)
     try:
         estado = sap_sync.reservar()
     except sap_sync.SapSyncEmAndamento as exc:
         raise HTTPException(status_code=409, detail=str(exc))
-    tasks.add_task(sap_sync.executar, _rotina_sap_background)
+    tasks.add_task(sap_sync.executar, lambda: _rotina_sap_background(credenciais_sap))
     return {
         "mensagem": "Sincronização SAP iniciada em background.",
         "sap": estado,
     }
+
+
+@router.post("/bases/sincronizar-status-sap")
+def sincronizar_status_sap(x_user: Optional[str] = Header(default="Sistema", alias="X-User")):
+    """Sincroniza imediatamente os status das notas locais com a base_iw28 do SAP."""
+    garantir_banco()
+    res = db.sincronizar_status_sap_para_notas(usuario=f"Sync Manual ({x_user})")
+    engine.invalidar_cache()
+    return res
 
 
 @router.get("/bases/sync-sap/status")
@@ -531,6 +584,13 @@ def sync_sap_status():
     """Estado exclusivo da execução SAP, sem inferir estado por outra operação."""
     garantir_banco()
     return {"sap": sap_sync.estado()}
+
+
+@router.post("/bases/sync-sap/reset")
+def sync_sap_reset():
+    """Reseta a trava de execução do SAP."""
+    sap_sync.resetar_estado()
+    return {"mensagem": "Estado de sincronização SAP resetado com sucesso.", "sap": sap_sync.estado()}
 
 
 @router.post("/bases/{nome_arquivo}")

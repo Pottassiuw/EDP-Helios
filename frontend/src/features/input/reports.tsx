@@ -21,11 +21,15 @@ import { MultiSelect } from './filters';
 import { Bot, Info, Loader2, Mail, RefreshCw } from 'lucide-react';
 import { anoEncerramento, calcularSLA } from './reports-lib';
 
-/** Cores do "semáforo" (porte de Input/app.py:1132-1139). */
+/** Cores do "semáforo" e indicadores de aderência. */
 const CORES_AUDITORIA: Record<string, string> = {
-  '🟢 Adiantado': 'var(--green-3)',
-  '🔵 No Prazo': 'var(--blue)',
-  '🔴 Com Atraso': 'var(--red)',
+  '🟢 No Prazo': 'var(--green)',
+  '🔵 Adiantado': 'var(--blue)',
+  '🟠 Executado com atraso': 'var(--amber)',
+  '🔴 Pendente Atrasado': 'var(--red)',
+  '🟢 Adiantado': 'var(--blue)',
+  '🔵 No Prazo': 'var(--green)',
+  '🔴 Com Atraso': 'var(--amber)',
   '🟣 Fora do Plano': 'var(--indigo)',
   '⚠️ Passível de Encerramento': 'var(--amber)',
   '⚪ Em Andamento (No Prazo)': 'var(--text-dim)',
@@ -52,11 +56,11 @@ const COLUNAS_AUDITORIA: ColunaDef[] = [
 
 const FILTROS_RAPIDOS = [
   '(Nenhum)',
-  '🔵 No Prazo',
-  '🟢 Adiantado',
-  '🔴 Com Atraso',
+  '🟢 No Prazo',
+  '🔵 Adiantado',
+  '🟠 Executado com atraso',
+  '🔴 Pendente Atrasado',
   '⚠️ Passível de Encerramento',
-  '⏳ Pendente Atrasado',
   'Em Andamento',
   'Encerradas',
   'Ordem Executada (SAP)',
@@ -90,13 +94,13 @@ function Rosca({ fatias }: { fatias: FatiaRosca[] }): React.JSX.Element {
         style={{ background: backgroundConic }}
       >
         <div className="w-[76px] h-[76px] rounded-full bg-surface flex flex-col items-center justify-center border border-line shadow-xs">
-          <span className="text-[10px] text-text-mute uppercase tracking-wider font-semibold">Total</span>
-          <span className="text-[15px] font-mono font-bold text-text">{total}</span>
+          <span className="text-[10px] text-text-mute uppercase tracking-wider font-medium">Total</span>
+          <span className="text-[15px] font-mono font-medium text-text">{total}</span>
         </div>
       </div>
 
       <div className="flex flex-col gap-[6px] flex-1 max-h-[140px] overflow-y-auto pr-[4px]">
-        <span className="text-[11px] font-semibold text-text-dim uppercase tracking-wider font-sans border-b border-line-2 pb-[3px]">
+        <span className="text-[11px] font-medium text-text-dim uppercase tracking-wider font-sans border-b border-line-2 pb-[3px]">
           Distribuição dos Prazos
         </span>
         {fatias.map((f) => {
@@ -232,14 +236,14 @@ export function Reports({
       r = r.filter((n) => n.Status_Nota === '99 Encerrado');
     } else if (rapido === 'Ordem Executada (SAP)') {
       r = r.filter((n) => n.Ordem_Executada === 'SIM');
-    } else if (rapido === '🔵 No Prazo') {
-      r = r.filter((n) => n.Auditoria_Cronograma === '🔵 No Prazo' || n.Status_SLA === 'No Prazo');
-    } else if (rapido === '🟢 Adiantado') {
-      r = r.filter((n) => n.Auditoria_Cronograma === '🟢 Adiantado' || n.Status_SLA === 'Adiantado');
-    } else if (rapido === '🔴 Com Atraso') {
-      r = r.filter((n) => n.Auditoria_Cronograma === '🔴 Com Atraso' || n.Status_SLA === 'Atrasado');
-    } else if (rapido === '⏳ Pendente Atrasado') {
-      r = r.filter((n) => n.Status_SLA === 'Pendente Atrasado');
+    } else if (rapido === '🟢 No Prazo') {
+      r = r.filter((n) => n.Auditoria_Cronograma === '🟢 No Prazo' || n.Auditoria_Cronograma === '🔵 No Prazo' || n.Status_SLA === 'No Prazo');
+    } else if (rapido === '🔵 Adiantado') {
+      r = r.filter((n) => n.Auditoria_Cronograma === '🔵 Adiantado' || n.Auditoria_Cronograma === '🟢 Adiantado' || n.Status_SLA === 'Adiantado');
+    } else if (rapido === '🟠 Executado com atraso') {
+      r = r.filter((n) => n.Auditoria_Cronograma === '🟠 Executado com atraso' || n.Auditoria_Cronograma === '🔴 Com Atraso' || n.Status_SLA === 'Atrasado');
+    } else if (rapido === '🔴 Pendente Atrasado') {
+      r = r.filter((n) => n.Auditoria_Cronograma === '🔴 Pendente Atrasado' || n.Status_SLA === 'Pendente Atrasado');
     }
 
     if (fAnos.length) r = r.filter((n) => fAnos.includes(String(anoEncerramento(n['Encerram.por data']) ?? '')));
@@ -389,32 +393,32 @@ export function Reports({
     dot: string;
   }> = [
     {
-      label: 'Adiantadas',
-      qtd: kpisSLA.adiantadasQtd,
-      filtro: '🟢 Adiantado',
+      label: 'No Prazo (+1m)',
+      qtd: kpisSLA.noPrazoQtd,
+      filtro: '🟢 No Prazo',
       corBadge: 'bg-green/10 text-green border-green/30 hover:bg-green/20',
       dot: '🟢',
     },
     {
-      label: 'No Prazo (+1m)',
-      qtd: kpisSLA.noPrazoQtd,
-      filtro: '🔵 No Prazo',
-      corBadge: 'bg-primary/10 text-primary border-primary/30 hover:bg-primary/20',
+      label: 'Adiantadas',
+      qtd: kpisSLA.adiantadasQtd,
+      filtro: '🔵 Adiantado',
+      corBadge: 'bg-blue-500/10 text-blue-500 border-blue-500/30 hover:bg-blue-500/20',
       dot: '🔵',
     },
     {
-      label: 'Com Atraso (≥2m)',
+      label: 'Executado com Atraso',
       qtd: kpisSLA.comAtrasoQtd,
-      filtro: '🔴 Com Atraso',
-      corBadge: 'bg-red/10 text-red border-red/30 hover:bg-red/20',
-      dot: '🔴',
+      filtro: '🟠 Executado com atraso',
+      corBadge: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/20',
+      dot: '🟠',
     },
     {
       label: 'Pendentes Atrasadas',
       qtd: kpisSLA.pendentesAtrasadas,
-      filtro: '⏳ Pendente Atrasado',
-      corBadge: 'bg-amber/10 text-amber border-amber/30 hover:bg-amber/20',
-      dot: '⏳',
+      filtro: '🔴 Pendente Atrasado',
+      corBadge: 'bg-red/10 text-red border-red/30 hover:bg-red/20',
+      dot: '🔴',
     },
     {
       label: 'Passíveis Encerramento',
@@ -508,17 +512,54 @@ export function Reports({
     let r: Status10Registro[] = [];
 
     if (st10Remoto && st10Remoto.length > 0) {
-      r = st10Remoto;
+      r = st10Remoto.filter((n) => {
+        const stSap = String(n.Status_Usuario ?? '').trim();
+        const stNota = String(n.Status_Nota ?? '').trim();
+        if (stSap.startsWith('51') || stSap.startsWith('50') || stSap.startsWith('99') || stSap.startsWith('55')) return false;
+        if (stNota.startsWith('51') || stNota.startsWith('50') || stNota.startsWith('99') || stNota.startsWith('55')) return false;
+
+        const mesPlan = String(n.Mes_Execucao_Planejado ?? '');
+        const anoMatch = mesPlan.match(/\b(19\d\d|20\d\d|9999)\b/);
+        if (anoMatch) {
+          const ano = parseInt(anoMatch[1], 10);
+          if (ano > 2026 || ano === 9999) return false;
+        }
+        return true;
+      });
     } else {
       r = registrosBase
-        .filter((n) => String(n.Status_Nota ?? '').startsWith('10'))
+        .filter((n) => {
+          const stFinal = String(n.Status_Final ?? '').trim();
+          const stNota = String(n.Status_Nota ?? '').trim();
+          const stSap = String(n.Export_status ?? '').trim();
+
+          // Exclui notas que já estão em 51, 50, 99, 55 no SAP
+          if (stSap.startsWith('51') || stSap.startsWith('50') || stSap.startsWith('99') || stSap.startsWith('55')) {
+            return false;
+          }
+          if (stFinal.startsWith('51') || stFinal.startsWith('50') || stFinal.startsWith('99') || stFinal.startsWith('55')) {
+            return false;
+          }
+
+          const eh10 = stFinal.startsWith('10') || stSap === '10' || (stFinal === 'Fora SAP' && stNota.startsWith('10')) || stNota.toUpperCase().includes('PLANEJAMENTO');
+          if (!eh10) return false;
+
+          // Filtra anos inválidos / sentinelas / futuros distantes (2027, 9999)
+          const mesPlan = String(n.Mes_Execucao_Planejado ?? '');
+          const anoMatch = mesPlan.match(/\b(19\d\d|20\d\d|9999)\b/);
+          if (anoMatch) {
+            const ano = parseInt(anoMatch[1], 10);
+            if (ano > 2026 || ano === 9999) return false;
+          }
+          return true;
+        })
         .map((n) => {
           const fisico = Number(n.Planejado_DDPM) || 0;
           const mod = Number(n.Modular) || 0;
           return {
             Numero_Nota: n.Numero_Nota,
             Ordem: n.Ordem,
-            Status_Nota: n.Status_Nota,
+            Status_Nota: n.Status_Final ?? n.Status_Nota,
             Status_Usuario: n.Status_Usuário_Ordem,
             Conjunto: n.Conjunto,
             Local_Instalacao: n.Local_Instalacao,
@@ -708,7 +749,7 @@ export function Reports({
             {/* Bloco de KPIs e Gráficos */}
             <Card className="lg:col-span-2 bg-surface border border-line flex flex-col justify-between">
               <CardHeader className="py-[10px] px-[16px] border-b border-line flex flex-row items-center justify-between">
-                <CardTitle className="text-[13px] uppercase font-semibold text-text-dim tracking-wider">
+                <CardTitle className="text-[13px] uppercase font-medium text-text-dim tracking-wider">
                   Métricas de Aderência ao Plano
                 </CardTitle>
 
@@ -725,7 +766,7 @@ export function Reports({
                   </DialogTrigger>
                   <DialogContent className="max-w-[540px] bg-surface border-line p-[20px] rounded-[10px]">
                     <DialogHeader>
-                      <DialogTitle className="text-[14px] font-bold text-text flex items-center gap-2">
+                      <DialogTitle className="text-[14px] font-medium text-text flex items-center gap-2">
                         <Info className="h-4 w-4 text-primary" />
                         Guia de Critérios e Regras das Flags
                       </DialogTitle>
@@ -736,48 +777,48 @@ export function Reports({
                     <div className="flex flex-col gap-[10px] pt-[8px] text-[12px] font-sans">
                       <div className="bg-bg-2 border border-line-2 rounded-[6px] p-[10px] flex items-center justify-between text-[11.5px]">
                         <span className="text-text-dim">Tolerância Operacional Homologada:</span>
-                        <strong className="text-primary font-semibold">+1 mês (No Prazo)</strong>
+                        <strong className="text-primary font-medium">+1 mês (No Prazo)</strong>
                       </div>
                       <div className="flex flex-col gap-[6px]">
                         <div className="flex items-start gap-[8px] bg-bg-2/50 p-[8px] rounded-[6px] border border-line-2/40">
                           <span className="text-[14px]">🟢</span>
                           <div>
-                            <strong className="text-text font-semibold">Adiantado:</strong>
+                            <strong className="text-text font-medium">Adiantado:</strong>
                             <p className="text-text-mute text-[11px]">Encerramento SAP realizado antes do mês planejado.</p>
                           </div>
                         </div>
                         <div className="flex items-start gap-[8px] bg-bg-2/50 p-[8px] rounded-[6px] border border-line-2/40">
                           <span className="text-[14px]">🔵</span>
                           <div>
-                            <strong className="text-text font-semibold">No Prazo (+1m):</strong>
+                            <strong className="text-text font-medium">No Prazo (+1m):</strong>
                             <p className="text-text-mute text-[11px]">Concluído no mês ou até 1 mês após (dentro da tolerância).</p>
                           </div>
                         </div>
                         <div className="flex items-start gap-[8px] bg-bg-2/50 p-[8px] rounded-[6px] border border-line-2/40">
                           <span className="text-[14px]">🔴</span>
                           <div>
-                            <strong className="text-text font-semibold">Com Atraso (≥2m):</strong>
+                            <strong className="text-text font-medium">Com Atraso (≥2m):</strong>
                             <p className="text-text-mute text-[11px]">Concluído com 2 ou mais meses além do planejado.</p>
                           </div>
                         </div>
                         <div className="flex items-start gap-[8px] bg-bg-2/50 p-[8px] rounded-[6px] border border-line-2/40">
                           <span className="text-[14px]">⏳</span>
                           <div>
-                            <strong className="text-text font-semibold">Pendente Atrasado:</strong>
+                            <strong className="text-text font-medium">Pendente Atrasado:</strong>
                             <p className="text-text-mute text-[11px]">Nota aberta cujo mês planejado já expirou há mais de 1 mês.</p>
                           </div>
                         </div>
                         <div className="flex items-start gap-[8px] bg-bg-2/50 p-[8px] rounded-[6px] border border-line-2/40">
                           <span className="text-[14px]">⚠️</span>
                           <div>
-                            <strong className="text-text font-semibold">Passível de Encerramento:</strong>
+                            <strong className="text-text font-medium">Passível de Encerramento:</strong>
                             <p className="text-text-mute text-[11px]">Ordem executada em campo no SAP aguardando encerramento da nota.</p>
                           </div>
                         </div>
                         <div className="flex items-start gap-[8px] bg-bg-2/50 p-[8px] rounded-[6px] border border-line-2/40">
                           <span className="text-[14px]">⏱️</span>
                           <div>
-                            <strong className="text-text font-semibold">Atraso Acumulado:</strong>
+                            <strong className="text-text font-medium">Atraso Acumulado:</strong>
                             <p className="text-text-mute text-[11px]">Soma total dos meses de desvio real positivo para controle do passivo.</p>
                           </div>
                         </div>
@@ -822,7 +863,7 @@ export function Reports({
                         onClick={() => setRapido(ativo ? '(Nenhum)' : p.filtro)}
                         className={`flex items-center gap-[5px] px-[9px] py-[3px] rounded-full border text-[11px] font-medium font-sans transition-all cursor-pointer ${
                           ativo
-                            ? 'ring-2 ring-primary ring-offset-1 ring-offset-surface font-semibold ' + p.corBadge
+                            ? 'ring-2 ring-primary ring-offset-1 ring-offset-surface font-medium ' + p.corBadge
                             : p.corBadge
                         }`}
                         title={`Filtrar por ${p.label}`}
@@ -839,7 +880,7 @@ export function Reports({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-[14px] border-t border-line pt-[12px]">
                   {/* Gráfico de Rosca */}
                   <div className="flex flex-col gap-[6px]">
-                    <span className="text-[11px] font-semibold text-text-dim uppercase tracking-wider font-sans">
+                    <span className="text-[11px] font-medium text-text-dim uppercase tracking-wider font-sans">
                       Proporção de Status
                     </span>
                     {fatias.length > 0 ? (
@@ -853,7 +894,7 @@ export function Reports({
 
                   {/* Distribuição dos Desvios em Meses */}
                   <div className="flex flex-col gap-[6px]">
-                    <span className="text-[11px] font-semibold text-text-dim uppercase tracking-wider font-sans border-b border-line-2 pb-[3px]">
+                    <span className="text-[11px] font-medium text-text-dim uppercase tracking-wider font-sans border-b border-line-2 pb-[3px]">
                       Distribuição dos Desvios (Meses)
                     </span>
                     <div className="flex flex-col gap-[5px] max-h-[120px] overflow-y-auto pr-[4px]">
@@ -892,13 +933,13 @@ export function Reports({
             {/* Bloco de Filtros da Auditoria & SLA */}
             <Card className="bg-surface border border-line">
               <CardHeader className="py-[10px] px-[16px] border-b border-line">
-                <CardTitle className="text-[13px] uppercase font-semibold text-text-dim tracking-wider">
+                <CardTitle className="text-[13px] uppercase font-medium text-text-dim tracking-wider">
                   Filtros da Auditoria
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-[14px] flex flex-col gap-[9px]">
                 <div className="flex flex-col gap-[4px]">
-                  <span className="text-[10.5px] font-semibold text-text-mute uppercase tracking-wider">
+                  <span className="text-[10.5px] font-medium text-text-mute uppercase tracking-wider">
                     Filtro Rápido
                   </span>
                   <div className="flex flex-wrap gap-[4px]">
@@ -908,7 +949,7 @@ export function Reports({
                         onClick={() => setRapido(f)}
                         className={`px-[7px] py-[3px] rounded-[5px] border text-[10.5px] font-medium transition-colors cursor-pointer ${
                           rapido === f
-                            ? 'border-primary bg-primary/10 text-primary font-semibold'
+                            ? 'border-primary bg-primary/10 text-primary font-medium'
                             : 'border-line-2 bg-bg-2 text-text-dim hover:bg-surface-3'
                         }`}
                       >
@@ -919,7 +960,7 @@ export function Reports({
                 </div>
 
                 <div className="flex flex-col gap-[4px] mt-[1px]">
-                  <span className="text-[10.5px] font-semibold text-text-mute uppercase tracking-wider">
+                  <span className="text-[10.5px] font-medium text-text-mute uppercase tracking-wider">
                     Ano de Encerramento (SAP)
                   </span>
                   <MultiSelect
@@ -931,7 +972,7 @@ export function Reports({
                 </div>
 
                 <div className="flex flex-col gap-[4px]">
-                  <span className="text-[10.5px] font-semibold text-text-mute uppercase tracking-wider">
+                  <span className="text-[10.5px] font-medium text-text-mute uppercase tracking-wider">
                     Mês Planejado
                   </span>
                   <MultiSelect
@@ -943,7 +984,7 @@ export function Reports({
                 </div>
 
                 <div className="flex flex-col gap-[4px]">
-                  <span className="text-[10.5px] font-semibold text-text-mute uppercase tracking-wider">
+                  <span className="text-[10.5px] font-medium text-text-mute uppercase tracking-wider">
                     Resultado da Auditoria
                   </span>
                   <MultiSelect
@@ -955,7 +996,7 @@ export function Reports({
                 </div>
 
                 <div className="flex flex-col gap-[4px]">
-                  <span className="text-[10.5px] font-semibold text-text-mute uppercase tracking-wider">
+                  <span className="text-[10.5px] font-medium text-text-mute uppercase tracking-wider">
                     Status de SLA
                   </span>
                   <MultiSelect
@@ -974,7 +1015,7 @@ export function Reports({
                 </div>
 
                 <div className="flex flex-col gap-[4px]">
-                  <span className="text-[10.5px] font-semibold text-text-mute uppercase tracking-wider">
+                  <span className="text-[10.5px] font-medium text-text-mute uppercase tracking-wider">
                     Regional
                   </span>
                   <MultiSelect
@@ -990,7 +1031,7 @@ export function Reports({
 
           {/* Tabela Unificada de Aderência ao Plano */}
           <div className="flex flex-col gap-[6px] flex-1 min-h-[300px]">
-            <span className="text-[12px] font-semibold text-text-dim uppercase tracking-wider font-sans ml-[4px]">
+            <span className="text-[12px] font-medium text-text-dim uppercase tracking-wider font-sans ml-[4px]">
               Detalhamento de Aderência ao Plano ({auditadas.length})
             </span>
             <NotesTable registros={auditadas} colunas={COLUNAS_AUDITORIA} altura={380} />
@@ -1005,7 +1046,7 @@ export function Reports({
             {/* Bloco de KPIs e Gráficos de Barra Financeiros */}
             <Card className="lg:col-span-2 bg-surface border border-line flex flex-col justify-between">
               <CardHeader className="py-[12px] px-[16px] border-b border-line">
-                <CardTitle className="text-[13px] uppercase font-semibold text-text-dim tracking-wider">
+                <CardTitle className="text-[13px] uppercase font-medium text-text-dim tracking-wider">
                   Consolidação dos Custos Planejados e Realizados
                 </CardTitle>
               </CardHeader>
@@ -1052,7 +1093,7 @@ export function Reports({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-[24px] border-t border-line pt-[16px]">
                   {/* Progress bars por Regional */}
                   <div>
-                    <h4 className="text-[12px] font-semibold text-text-dim uppercase tracking-wider mb-[10px] font-sans border-b border-line-2 pb-[4px]">
+                    <h4 className="text-[12px] font-medium text-text-dim uppercase tracking-wider mb-[10px] font-sans border-b border-line-2 pb-[4px]">
                       Orçamento Modular por Regional
                     </h4>
                     <div className="flex flex-col gap-[10px] max-h-[160px] overflow-y-auto pr-[4px]">
@@ -1085,7 +1126,7 @@ export function Reports({
 
                   {/* Progress bars por Status */}
                   <div>
-                    <h4 className="text-[12px] font-semibold text-text-dim uppercase tracking-wider mb-[10px] font-sans border-b border-line-2 pb-[4px]">
+                    <h4 className="text-[12px] font-medium text-text-dim uppercase tracking-wider mb-[10px] font-sans border-b border-line-2 pb-[4px]">
                       Orçamento Modular por Status
                     </h4>
                     <div className="flex flex-col gap-[10px] max-h-[160px] overflow-y-auto pr-[4px]">
@@ -1124,13 +1165,13 @@ export function Reports({
             {/* Bloco de Filtros Financeiros */}
             <Card className="bg-surface border border-line">
               <CardHeader className="py-[12px] px-[16px] border-b border-line">
-                <CardTitle className="text-[13px] uppercase font-semibold text-text-dim tracking-wider">
+                <CardTitle className="text-[13px] uppercase font-medium text-text-dim tracking-wider">
                   Filtros Financeiros
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-[16px] flex flex-col gap-[12px]">
                 <div className="flex flex-col gap-[4px]">
-                  <span className="text-[11px] font-semibold text-text-mute uppercase tracking-wider">
+                  <span className="text-[11px] font-medium text-text-mute uppercase tracking-wider">
                     Mês Planejado
                   </span>
                   <MultiSelect
@@ -1142,7 +1183,7 @@ export function Reports({
                 </div>
 
                 <div className="flex flex-col gap-[4px]">
-                  <span className="text-[11px] font-semibold text-text-mute uppercase tracking-wider">
+                  <span className="text-[11px] font-medium text-text-mute uppercase tracking-wider">
                     Regional
                   </span>
                   <MultiSelect
@@ -1154,7 +1195,7 @@ export function Reports({
                 </div>
 
                 <div className="flex flex-col gap-[4px]">
-                  <span className="text-[11px] font-semibold text-text-mute uppercase tracking-wider">
+                  <span className="text-[11px] font-medium text-text-mute uppercase tracking-wider">
                     Status de Nota
                   </span>
                   <MultiSelect
@@ -1170,7 +1211,7 @@ export function Reports({
 
           {/* Tabela de Detalhamento de Custos */}
           <div className="flex flex-col gap-[6px] flex-1 min-h-[300px]">
-            <span className="text-[12px] font-semibold text-text-dim uppercase tracking-wider font-sans ml-[4px]">
+            <span className="text-[12px] font-medium text-text-dim uppercase tracking-wider font-sans ml-[4px]">
               Detalhamento de Custos ({registrosFinancas.length})
             </span>
             <NotesTable
@@ -1206,7 +1247,7 @@ export function Reports({
                 <Mail size={18} />
               </div>
               <div>
-                <h4 className="text-[13px] font-semibold text-text">Relatório Analítico de Engenharia (Status 10)</h4>
+                <h4 className="text-[13px] font-medium text-text">Relatório Analítico de Engenharia (Status 10)</h4>
                 <p className="text-[11.5px] text-text-mute">
                   Extrai notas e ordens diretamente do SAP (IW28 + IW38), cruza com custos modulares e gera resumo no Outlook.
                 </p>
@@ -1260,7 +1301,7 @@ export function Reports({
             {/* Bloco de KPIs e Gráficos de Prioridade */}
             <Card className="lg:col-span-2 bg-surface border border-line flex flex-col justify-between">
               <CardHeader className="py-[12px] px-[16px] border-b border-line">
-                <CardTitle className="text-[13px] uppercase font-semibold text-text-dim tracking-wider">
+                <CardTitle className="text-[13px] uppercase font-medium text-text-dim tracking-wider">
                   Métricas do Backlog (Status 10)
                 </CardTitle>
               </CardHeader>
@@ -1307,7 +1348,7 @@ export function Reports({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-[24px] border-t border-line pt-[16px]">
                   {/* Progress bars por Regional (Valor) */}
                   <div>
-                    <h4 className="text-[12px] font-semibold text-text-dim uppercase tracking-wider mb-[10px] font-sans border-b border-line-2 pb-[4px]">
+                    <h4 className="text-[12px] font-medium text-text-dim uppercase tracking-wider mb-[10px] font-sans border-b border-line-2 pb-[4px]">
                       Orçamento do Backlog por Regional
                     </h4>
                     <div className="flex flex-col gap-[10px] max-h-[160px] overflow-y-auto pr-[4px]">
@@ -1340,7 +1381,7 @@ export function Reports({
 
                   {/* Progress bars por Prioridade (Qtd) */}
                   <div>
-                    <h4 className="text-[12px] font-semibold text-text-dim uppercase tracking-wider mb-[10px] font-sans border-b border-line-2 pb-[4px]">
+                    <h4 className="text-[12px] font-medium text-text-dim uppercase tracking-wider mb-[10px] font-sans border-b border-line-2 pb-[4px]">
                       Notas por Prioridade
                     </h4>
                     <div className="flex flex-col gap-[10px] max-h-[160px] overflow-y-auto pr-[4px]">
@@ -1384,13 +1425,13 @@ export function Reports({
             {/* Bloco de Filtros do Backlog */}
             <Card className="bg-surface border border-line">
               <CardHeader className="py-[12px] px-[16px] border-b border-line">
-                <CardTitle className="text-[13px] uppercase font-semibold text-text-dim tracking-wider">
+                <CardTitle className="text-[13px] uppercase font-medium text-text-dim tracking-wider">
                   Filtros do Backlog
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-[16px] flex flex-col gap-[12px]">
                 <div className="flex flex-col gap-[4px]">
-                  <span className="text-[11px] font-semibold text-text-mute uppercase tracking-wider">
+                  <span className="text-[11px] font-medium text-text-mute uppercase tracking-wider">
                     Mês Planejado
                   </span>
                   <MultiSelect
@@ -1405,7 +1446,7 @@ export function Reports({
                 </div>
 
                 <div className="flex flex-col gap-[4px]">
-                  <span className="text-[11px] font-semibold text-text-mute uppercase tracking-wider">
+                  <span className="text-[11px] font-medium text-text-mute uppercase tracking-wider">
                     Regional
                   </span>
                   <MultiSelect
@@ -1420,7 +1461,7 @@ export function Reports({
                 </div>
 
                 <div className="flex flex-col gap-[4px]">
-                  <span className="text-[11px] font-semibold text-text-mute uppercase tracking-wider">
+                  <span className="text-[11px] font-medium text-text-mute uppercase tracking-wider">
                     Prioridade
                   </span>
                   <MultiSelect
@@ -1440,7 +1481,7 @@ export function Reports({
           {/* Tabela do Backlog (Status 10 Enriquecida) */}
           <div className="flex flex-col gap-[6px] flex-1 min-h-[300px]">
             <div className="flex justify-between items-center px-1">
-              <span className="text-[12px] font-semibold text-text-dim uppercase tracking-wider font-sans">
+              <span className="text-[12px] font-medium text-text-dim uppercase tracking-wider font-sans">
                 Notas de Backlog em Planejamento ({registrosPlanejamento.length})
               </span>
               {status10Query.isFetching && (

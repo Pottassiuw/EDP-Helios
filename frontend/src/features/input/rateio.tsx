@@ -474,8 +474,8 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
       {/* Cabeçalho da Seção de Rateio */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <span className="text-[11px] font-bold uppercase tracking-wider text-accent font-mono">Automação SAP · IW66 / IW28</span>
-          <h2 className="text-xl font-bold text-foreground">Rateio de Medidas Físicas</h2>
+          <span className="text-[11px] font-medium uppercase tracking-wider text-accent font-mono">Automação SAP · IW66 / IW28</span>
+          <h2 className="text-xl font-medium text-foreground">Rateio de Medidas Físicas</h2>
           <p className="text-xs text-text-dim mt-0.5">
             Distribuição e balanceamento de medidas físicas (km / un) entre grupos hierárquicos e gravação no SAP.
           </p>
@@ -522,7 +522,7 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
             onClick={() => setModoTeste(true)}
             className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
               modoTeste
-                ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 shadow-2xs font-semibold'
+                ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 shadow-2xs font-medium'
                 : 'text-text-mute hover:text-foreground'
             }`}
           >
@@ -534,7 +534,7 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
             onClick={() => setModoTeste(false)}
             className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
               !modoTeste
-                ? 'bg-red/15 text-red border border-red/30 shadow-2xs font-semibold'
+                ? 'bg-red/15 text-red border border-red/30 shadow-2xs font-medium'
                 : 'text-text-mute hover:text-foreground'
             }`}
           >
@@ -576,7 +576,7 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
                 <div className="flex items-center gap-3 flex-1 min-w-[320px]">
                   <div className="flex flex-col gap-1 flex-1">
                     <div className="flex items-center justify-between">
-                      <Label htmlFor="select-mae" className="text-xs font-semibold text-foreground">
+                      <Label htmlFor="select-mae" className="text-xs font-medium text-foreground">
                         Selecionar Nota Mãe:
                       </Label>
                       <span className="text-[11px] font-mono text-text-mute">
@@ -654,7 +654,7 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
                     <div className="p-3.5 bg-surface border border-line rounded-xl shadow-2xs flex flex-col justify-between">
                       <span className="text-[11px] text-text-mute font-medium uppercase font-mono tracking-wider">Nota Mãe</span>
                       <div className="flex items-baseline gap-2 mt-1">
-                        <span className="font-mono text-base font-bold text-foreground">#{maeSelecionada}</span>
+                        <span className="font-mono text-base font-medium text-foreground">#{maeSelecionada}</span>
                         <span className="text-[10.5px] px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-medium">
                           {filhasDaMae.length} {filhasDaMae.length === 1 ? 'filha' : 'filhas'}
                         </span>
@@ -664,7 +664,7 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
                     <div className="p-3.5 bg-surface border border-line rounded-xl shadow-2xs flex flex-col justify-between">
                       <span className="text-[11px] text-text-mute font-medium uppercase font-mono tracking-wider">Conjunto / Regional</span>
                       <div className="mt-1">
-                        <span className="font-semibold text-foreground text-xs">{maeRowDetails.Conjunto}</span>
+                        <span className="font-medium text-foreground text-xs">{maeRowDetails.Conjunto}</span>
                         <span className="text-text-mute text-xs ml-1.5">({maeRowDetails.Regional})</span>
                       </div>
                     </div>
@@ -672,7 +672,7 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
                     <div className="p-3.5 bg-surface border border-line rounded-xl shadow-2xs flex flex-col justify-between">
                       <span className="text-[11px] text-text-mute font-medium uppercase font-mono tracking-wider">Local de Instalação</span>
                       <div className="mt-1 flex items-center justify-between">
-                        <span className="font-mono font-semibold text-foreground text-xs">{maeRowDetails.Local_Instalacao}</span>
+                        <span className="font-mono font-medium text-foreground text-xs">{maeRowDetails.Local_Instalacao}</span>
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-2 text-text-mute border border-line">
                           {maeRowDetails.Status_Nota}
                         </span>
@@ -682,7 +682,7 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
                     <div className="p-3.5 bg-surface border border-line rounded-xl shadow-2xs flex flex-col justify-between">
                       <span className="text-[11px] text-text-mute font-medium uppercase font-mono tracking-wider">Medida Alvo vs SAP</span>
                       <div className="mt-1 flex items-baseline gap-2">
-                        <span className="font-mono text-xs font-bold text-primary">{maeRowDetails.Planejado_DDPM} {undMae}</span>
+                        <span className="font-mono text-xs font-medium text-primary">{maeRowDetails.Planejado_DDPM} {undMae}</span>
                         <span className="text-[11px] text-text-mute font-mono">SAP: {maeRowDetails.Medida_SAP}</span>
                       </div>
                     </div>
@@ -692,7 +692,7 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
                   <div className="flex items-center justify-between gap-3 flex-wrap bg-surface-2/70 border border-line px-3.5 py-2.5 rounded-xl">
                     <div className="flex items-center gap-2">
                       <Sparkles size={14} className="text-primary" />
-                      <span className="text-xs font-semibold text-foreground">Ações de Distribuição Rápida:</span>
+                      <span className="text-xs font-medium text-foreground">Ações de Distribuição Rápida:</span>
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
                       <Button
@@ -727,25 +727,25 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
                     <table className="w-full border-collapse text-xs text-left">
                       <thead>
                         <tr className="bg-surface-2 border-b border-line text-text-mute font-mono text-[10.5px] uppercase tracking-wider">
-                          <th className="py-2.5 px-3 font-semibold w-16">Tipo</th>
-                          <th className="py-2.5 px-3 font-semibold">Nº Nota</th>
-                          <th className="py-2.5 px-3 font-semibold">Local Instalação</th>
-                          <th className="py-2.5 px-3 font-semibold text-right">Planejado DDPM</th>
-                          <th className="py-2.5 px-3 font-semibold">Medida Atual SAP</th>
-                          <th className="py-2.5 px-3 font-semibold text-center">Status</th>
-                          <th className="py-2.5 px-3 font-semibold w-48 text-right">Nova Medida ({undMae})</th>
-                          <th className="py-2.5 px-3 font-semibold w-28 text-center">Ajuste</th>
+                          <th className="py-2.5 px-3 font-medium w-16">Tipo</th>
+                          <th className="py-2.5 px-3 font-medium">Nº Nota</th>
+                          <th className="py-2.5 px-3 font-medium">Local Instalação</th>
+                          <th className="py-2.5 px-3 font-medium text-right">Planejado DDPM</th>
+                          <th className="py-2.5 px-3 font-medium">Medida Atual SAP</th>
+                          <th className="py-2.5 px-3 font-medium text-center">Status</th>
+                          <th className="py-2.5 px-3 font-medium w-48 text-right">Nova Medida ({undMae})</th>
+                          <th className="py-2.5 px-3 font-medium w-28 text-center">Ajuste</th>
                         </tr>
                       </thead>
                       <tbody>
                         {/* Linha da Mãe */}
                         <tr className="border-b border-line bg-primary/5 hover:bg-primary/10 transition-colors">
                           <td className="py-2 px-3">
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-sans font-bold bg-primary text-primary-foreground">
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-sans font-medium bg-primary text-primary-foreground">
                               MÃE
                             </span>
                           </td>
-                          <td className="py-2 px-3 font-mono font-bold text-foreground">{maeRowDetails.Numero_Nota}</td>
+                          <td className="py-2 px-3 font-mono font-medium text-foreground">{maeRowDetails.Numero_Nota}</td>
                           <td className="py-2 px-3 font-mono text-text-dim">{maeRowDetails.Local_Instalacao}</td>
                           <td className="py-2 px-3 text-right font-mono font-medium">{maeRowDetails.Planejado_DDPM}</td>
                           <td className="py-2 px-3 font-mono text-text-dim">{maeRowDetails.Medida_SAP}</td>
@@ -765,7 +765,7 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
                                 const v = parseFloat(e.target.value) || 0;
                                 setNovasMedidasHier((prev) => ({ ...prev, [maeRowDetails.Numero_Nota]: v }));
                               }}
-                              className="h-8 py-0 px-2 text-right text-xs border-line font-mono font-semibold bg-surface w-36 ml-auto"
+                              className="h-8 py-0 px-2 text-right text-xs border-line font-mono font-medium bg-surface w-36 ml-auto"
                             />
                           </td>
                           <td className="py-2 px-3 text-center">
@@ -836,13 +836,13 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div className="p-3.5 bg-surface border border-line rounded-xl shadow-2xs">
                       <span className="text-[11px] text-text-mute font-medium">Total Alvo (Planejado DDPM)</span>
-                      <div className="text-base font-bold mt-1 font-mono text-foreground">
+                      <div className="text-base font-medium mt-1 font-mono text-foreground">
                         {valMaeTarget.toFixed(3)} {undMae}
                       </div>
                     </div>
                     <div className="p-3.5 bg-surface border border-line rounded-xl shadow-2xs">
                       <span className="text-[11px] text-text-mute font-medium">Soma Distribuída Atual</span>
-                      <div className="text-base font-bold mt-1 font-mono text-foreground">
+                      <div className="text-base font-medium mt-1 font-mono text-foreground">
                         {somaFilhas.toFixed(3)} {undMae}
                       </div>
                     </div>
@@ -850,7 +850,7 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
                       somaFechada ? 'border-green/30 bg-green/5' : 'border-red/30 bg-red/5'
                     }`}>
                       <span className="text-[11px] text-text-mute font-medium">Diferença Restante</span>
-                      <div className={`text-base font-bold mt-1 font-mono flex items-center gap-1.5 ${
+                      <div className={`text-base font-medium mt-1 font-mono flex items-center gap-1.5 ${
                         somaFechada ? 'text-green' : 'text-red'
                       }`}>
                         {somaFechada ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
@@ -891,7 +891,7 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
                         variant="default"
                         onClick={executarNoSap}
                         disabled={loadingRobot || (!somaFechada && !forcarValidacao) || (undMae === 'un' && !unidadeCorreta)}
-                        className="font-semibold text-xs h-9 px-5 shadow-xs"
+                        className="font-medium text-xs h-9 px-5 shadow-xs"
                       >
                         {loadingRobot ? 'Processando no SAP GUI...' : !modoTeste ? '🚀 Gravar no SAP (Modo Real)' : '⚡ Simular no SAP (Teste)'}
                       </Button>
@@ -953,15 +953,15 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
                 <table className="w-full border-collapse text-xs text-left">
                   <thead>
                     <tr className="bg-surface-2 border-b border-line text-text-mute font-mono text-[10.5px] uppercase tracking-wider sticky top-0 z-10">
-                      <th className="py-2.5 px-3 font-semibold w-14 text-center">Corrigir?</th>
-                      <th className="py-2.5 px-3 font-semibold">Nº Nota</th>
-                      <th className="py-2.5 px-3 font-semibold">Conjunto</th>
-                      <th className="py-2.5 px-3 font-semibold">Local Instalação</th>
-                      <th className="py-2.5 px-3 font-semibold text-right">Planejado DDPM</th>
-                      <th className="py-2.5 px-3 font-semibold">Medida SAP</th>
-                      <th className="py-2.5 px-3 font-semibold">Nota Mãe</th>
-                      <th className="py-2.5 px-3 font-semibold w-24">Unidade</th>
-                      <th className="py-2.5 px-3 font-semibold w-36 text-right">Nova Medida</th>
+                      <th className="py-2.5 px-3 font-medium w-14 text-center">Corrigir?</th>
+                      <th className="py-2.5 px-3 font-medium">Nº Nota</th>
+                      <th className="py-2.5 px-3 font-medium">Conjunto</th>
+                      <th className="py-2.5 px-3 font-medium">Local Instalação</th>
+                      <th className="py-2.5 px-3 font-medium text-right">Planejado DDPM</th>
+                      <th className="py-2.5 px-3 font-medium">Medida SAP</th>
+                      <th className="py-2.5 px-3 font-medium">Nota Mãe</th>
+                      <th className="py-2.5 px-3 font-medium w-24">Unidade</th>
+                      <th className="py-2.5 px-3 font-medium w-36 text-right">Nova Medida</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1052,7 +1052,7 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
                     variant="default"
                     onClick={executarNoSap}
                     disabled={loadingRobot || selecionadasInd.size === 0 || (!individualValido && !forcarValidacao)}
-                    className="text-xs font-semibold h-9 px-5 shadow-xs"
+                    className="text-xs font-medium h-9 px-5 shadow-xs"
                   >
                     {loadingRobot ? 'Processando no SAP GUI...' : !modoTeste ? '🚀 Gravar Selecionadas no SAP' : '⚡ Simular Selecionadas no SAP'}
                   </Button>
@@ -1067,7 +1067,7 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
       {relatorio && (
         <div className="mt-4 border border-line rounded-xl bg-surface shadow-2xs overflow-hidden">
           <div className="px-4 py-3 border-b border-line bg-surface-2 flex items-center justify-between">
-            <span className="text-xs font-semibold text-foreground">Relatório de Execução do Robô SAP</span>
+            <span className="text-xs font-medium text-foreground">Relatório de Execução do Robô SAP</span>
             <span className="text-[11px] text-text-mute font-mono">{relatorio.length} nota(s) processada(s)</span>
           </div>
           <div className="p-3">

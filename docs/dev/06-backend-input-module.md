@@ -427,7 +427,7 @@ Router `/api/input` (prefixo). Todo endpoint de leitura/escrita chama
 | `POST /export` | Gera um `.xlsx` filtrado (linhas/colunas selecionadas) com nomes amigáveis. |
 | `GET /responsaveis`, `PUT /responsaveis` | Mapa Regional → responsável (JSON local). |
 | `GET /bases`, `GET /bases/{nome}/download`, `POST /bases/{nome}` | Lista/baixa/substitui as bases de apoio na rede (`config.BASES_APOIO`). O upload é atômico e só responde `200` se o import para o SQLite deu certo — ver "Upload atômico de bases" abaixo. |
-| `POST /bases/sync-sap` | Dispara a extração SAP em background — é o que o botão **"Sincronizar SAP"** do frontend chama (`InputApi.syncSap()`, ver [`03-frontend-input.md`](03-frontend-input.md)). Roda `Sap_Robot.py` num subprocesso, depois importa os três Excel gerados (IW28/IW38/IW66) para o SQLite via `_processar_upload_base` e invalida o cache do engine. |
+| `POST /bases/sync-sap` | Dispara a extração SAP em background — é o que o botão **"Executar Robô SAP"** em Configurações chama (`InputApi.syncSap()`, ver [`03-frontend-input.md`](03-frontend-input.md)). Aceita `{ login_sap, senha_sap }` opcional no corpo; se presente, repassa como variável de ambiente só para o subprocesso (nunca grava em disco/log) — se ausente, `Sap_Robot.py` cai no fallback `credenciais.json`. Roda `Sap_Robot.py` num subprocesso, depois importa os três Excel gerados (IW28/IW38/IW66) para o SQLite via `_processar_upload_base` e invalida o cache do engine. |
 | `GET /backups`, `GET /backups/{nome}/download` | Lista/baixa backups rotativos do banco de notas. |
 | `GET /ramal`, `POST /ramal/bulk`, `DELETE /ramal` | CRUD da tabela `notas_ramal` (obras de ramal, schema paralelo ao de `notas`). |
 | `POST /hierarquia`, `GET /hierarquia/{numero_nota}` | Vínculo nota-mãe/nota-filha (`Nota_Mae`), respeitando o bloqueio por nota e disparando o pós-escrita canônico. |
@@ -605,14 +605,24 @@ copy credenciais.json.example credenciais.json
 # edite credenciais.json com LOGIN_SAP/SENHA_SAP reais — nunca commitar esse arquivo
 ```
 
+`credenciais.json` só é obrigatório para a execução agendada/desatendida
+(abaixo). Quem dispara pelo app informa usuário/senha próprios a cada
+execução — não precisa desse arquivo.
+
 Duas formas de rodar:
 - **Clique duplo em `backend/Rodar_Sap_Robot.bat`** — checa venv/credenciais,
-  roda com o Python do venv, pausa no fim mostrando o resultado.
-- **Pelo app** — botão "Sincronizar SAP" do frontend chama `POST
+  roda com o Python do venv, pausa no fim mostrando o resultado. Sempre usa
+  `credenciais.json` (não passa por variável de ambiente).
+- **Pelo app** — botão "Executar Robô SAP" em Configurações chama `POST
   /api/input/bases/sync-sap`, que dispara `_rotina_sap_background` em
   background usando `sys.executable` (o mesmo Python do venv do backend, não
   o `python` genérico do PATH — precisa ser o venv com pywin32/pyperclip
-  instalados via `requirements-sap-robot.txt`).
+  instalados via `requirements-sap-robot.txt`). Se o request trouxer
+  `login_sap`/`senha_sap`, a rota injeta `LOGIN_SAP`/`SENHA_SAP` só no
+  ambiente desse subprocesso (nunca em disco); `Sap_Robot.py` lê essas
+  variáveis antes de tentar `credenciais.json` (Chapter 2 do script). Cada
+  engenheiro loga com o próprio usuário SAP dessa forma, mesmo com vários
+  usando o mesmo servidor.
 
 `requirements-sap-robot.txt` fica separado de `requirements.txt` porque
 `pywin32`/`pyperclip` são Windows-only e o backend web (FastAPI) não precisa
@@ -830,3 +840,31 @@ Na visualização hierárquica (`NotesTable` com `agruparGavetinhas=true`):
   - `POST /api/input/notificacoes/enviar-email`: dispara a criação de rascunhos no Outlook com anexo Excel (individual ou para todos com alterações).
   - `GET/PUT /api/input/responsaveis/emails`: gerenciamento dos endereços de e-mail dos engenheiros responsáveis.
 - **Frontend (`NotificacaoModal` & `Settings`):** Modal acessível no cabeçalho de **Logs** e **Gerenciar**, com preview das alterações, status por engenheiro, instrução de múltiplos responsáveis e botão de disparo com 1 clique.
+
+## Auditoria de Prazos, Datas SAP e Resolução ISO
+
+- **Parser Estrito de Encerramento (`parse_data_encerramento`):**
+  - Datas ISO `YYYY-MM-DD` (como `2026-08-03`) são resolvidas prioritariamente por regex antes da chamada ao Pandas. Isso elimina o risco de inversão entre dia e mês que ocorria quando o parser legado utilizava `pd.to_datetime(val, dayfirst=True)` indiscriminadamente sobre formatos mistos (evita que 03 de Agosto seja interpretado como 08 de Março).
+  - Datas em formato brasileiro `DD/MM/YYYY` mantêm interpretação com `dayfirst=True`.
+- **Extração e Comparação de Datas do SAP (`extrair_data_sap`):**
+  - Mapeamento dinâmico e tolerante a encoding das colunas da IW28 (`Descrio` / `Descrição`).
+  - Reconhecimento de padrões cronológicos na descrição da nota (`M04/2026`, `M04/24`, `04/2026`, `2026-04`).
+  - Comparação automatizada entre a data programada informada no SAP e o `Mes_Execucao_Planejado` (`Igual` vs `Divergente`).
+
+## Otimização de Performance no Cadastro de Notas
+
+- **Criação Rápida de Notas (`criar_notas` / `_preparar_novas`):**
+  - A verificação de duplicidade e o cálculo do próximo `ID_Cronologia` deixaram de carregar todo o DataFrame de 16.491 linhas na memória RAM.
+  - Agora utilizam helpers diretos em SQLite indexado (`verificar_notas_existentes` e `obter_proximo_id_cronologia_banco`), reduzindo o tempo de processamento para menos de 1ms por requisição.
+
+## Invalidação Dinâmica de Cache de Cliente (`ENGINE_REVISAO`)
+
+- A função `db.obter_versao_dataset()` inclui o token `ENGINE_REVISAO` na composição do hash de versão do dataset. Qualquer atualização no algoritmo de cálculo de SLAs, enriquecimento de ordens ou datas SAP invalida imediatamente o ETag HTTP (`W/"..."`), forçando a sincronização de dados frescos em todos os navegadores sem reter respostas `304 Not Modified`.
+
+## Relatório Analítico de Status 10 e Desvios de Custo
+
+- **Auditoria de Status 10:**
+  - Identifica notas encerradas no SAP (Status 10) no departamento, calculando postes planejados, total modular (R$) e custo real da ordem SAP (R$).
+  - Filtro e destaque automatizado de **desvios significativos de custo** entre o valor modular planejado e o custo real da ordem no SAP (> 15% e > R$ 5.000).
+  - Linha de totais gerais consolidada e formatação em moeda padrão brasileiro (`R$`).
+  - Disparo de e-mail analítico formatado diretamente pelo Outlook via `win32com.client`.

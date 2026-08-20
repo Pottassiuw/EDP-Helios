@@ -15,7 +15,7 @@ enquanto o usuário está com a tela aberta.
 | Arquivo | Responsabilidade |
 |---|---|
 | `frontend/src/features/input/input-section.tsx` | Casca da feature: cabeçalho, `SegTabs` das sub-abas (`INPUT_SUBS`), banners de aviso (dados desatualizados, importação inicial pendente, bases ausentes), roteamento condicional para o componente de cada sub-aba e renderização do bloco unificado de filtros avançados no topo. |
-| `frontend/src/features/input/overview.tsx` | Sub-aba "Visão Geral": absorveu a antiga sub-aba "Gerenciar" (`manage.tsx`, removida) como o modo interno `modo` (`visao`/`rapida`/`lote`/`colagem`) sobre `NotesTable`/`DataGrid`; abre `InputNotaInspector` por ação acessível e reúne os botões "Sincronizar SAP", "Inserir em Massa" e "Exportar Excel". Cadastro, notificação, exclusão e ocultação de notas viraram modais dedicados (`cadastro-modal.tsx`, `notificacao-modal.tsx`, `exclusao-modal.tsx`, `ocultacao-modal.tsx`) — não documentados em detalhe aqui ainda. |
+| `frontend/src/features/input/overview.tsx` | Sub-aba "Visão Geral": absorveu a antiga sub-aba "Gerenciar" (`manage.tsx`, removida) como o modo interno `modo` (`visao`/`rapida`/`lote`/`colagem`) sobre `NotesTable`/`DataGrid`; abre `InputNotaInspector` por ação acessível e reúne os botões "Inserir em Massa" e "Exportar Excel". "Sincronizar SAP" foi removido daqui — só existe em Configurações (ver "Sincronização SAP" abaixo). Cadastro, notificação, exclusão e ocultação de notas viraram modais dedicados (`cadastro-modal.tsx`, `notificacao-modal.tsx`, `exclusao-modal.tsx`, `ocultacao-modal.tsx`) — não documentados em detalhe aqui ainda. |
 | `frontend/src/features/input/ramal.tsx` | Equivalente a `manage.tsx` para a base "Ramal" (dataset separado, `useRamalData`), com um modo "Visão Geral" a mais (via `DataGrid`). |
 | `frontend/src/features/input/filters.tsx` | Componente `Filters`: busca global por número de nota, switch rápido para o ano de 2026 e filtros avançados por campo (texto, faixa numérica, multi-seleção), unificado no nível de `input-section.tsx` e compartilhado entre as abas. |
 | `frontend/src/features/input/empty-state.tsx` | Contrato compartilhado de estados vazios para base sem registros ou resultado sem correspondências após filtros, incluindo ação opcional de limpar filtros. |
@@ -288,12 +288,24 @@ O painel de Relatórios (`reports.tsx`) oferece 3 visões consolidadas:
 
 ## Sincronização SAP
 
-O botão "Sincronizar SAP" em `overview.tsx:58-66` chama
-`InputApi.syncSap()` (`POST /bases/sync-sap`, `api.ts:63`) dentro de um
-`toast.promise`, disparando a extração no backend em background (ver
-`06-backend-input-module.md` para o que o backend faz com esse
-endpoint). O botão não guarda estado de "rodando" — não fica desabilitado
-enquanto a sincronização está em andamento (ver "Pontos de atenção").
+O botão "Executar Robô SAP" mora em `settings.tsx` (card "Automação
+SAP", `dispararSap()`), não em `overview.tsx` — a Visão Geral não tem
+mais gatilho de sincronização SAP próprio. `dispararSap()` chama
+`InputApi.syncSap(credenciais?)` (`POST /bases/sync-sap`, `api.ts`)
+dentro de um `toast.promise`, disparando a extração no backend em
+background (ver `06-backend-input-module.md` para o que o backend faz
+com esse endpoint). O botão fica desabilitado (`sincronizandoSap`)
+enquanto a chamada está em voo.
+
+O card também tem dois campos — Usuário SAP e Senha SAP — preenchidos
+por sessão (não persistidos em `localStorage`, perdidos ao recarregar a
+página). Se ambos vierem preenchidos, `dispararSap()` manda
+`{ login_sap, senha_sap }` no corpo do POST; o backend repassa isso como
+variável de ambiente só para o subprocesso do `Sap_Robot.py`, nunca
+grava em disco/log. Cada engenheiro loga com o próprio usuário SAP dessa
+forma. Se os campos ficarem vazios, o backend cai no fallback antigo
+(`credenciais.json`), preservando a execução agendada via
+`Rodar_Sap_Robot.bat`, que não passa por essa rota.
 
 Como a sincronização roda em background e pode ser disparada por
 qualquer sessão, `use-input-sync.ts` mantém uma única query React Query por
@@ -392,3 +404,16 @@ o Input em si não guarda essa informação.
   com COFFEE/Carteira, então o campo "Mês de Execução Planejado" ainda
   mostra o trigger em Inter com o popup em mono quando usado dentro do
   Input.
+
+## Formulários de Cadastro de Notas (`CadastroModal` e `CadastroRamalModal`)
+
+- **Placeholders de Traço (`"-"`):** Os campos de texto (`Conjunto`, `Circuito`, `Local_Instalacao`, `Observacao`, `Check`) iniciam com campos limpos e exibem `placeholder="-"` (e `placeholder="Ex: 14118256"` no número da nota), dispensando a necessidade de o usuário apagar o caractere `-` manualmente ao digitar. Ao submeter, campos não preenchidos recebem automaticamente o valor padrão `"-"`.
+- **Seletor de Mês de Execução:** O campo `Mes_Execucao_Planejado` utiliza o componente `MesExecucaoPicker`, permitindo a seleção intuitiva dos meses do ano e sentinela neutro `—`.
+- **Resposta Otimista & Fechamento Imediato:** O modal é fechado imediatamente após o sucesso da chamada `InputApi.criar`, executando o refetch de revalidação de dados em segundo plano para não travar a experiência do usuário.
+
+## Gestão de Medidas na Exclusão de Notas Filhas (`ExclusaoModal`)
+
+- Ao excluir uma nota filha que possua vínculo com uma Nota Mãe ativa:
+  - O modal exibe um diálogo de confirmação perguntando se o usuário deseja **devolver/somar a medida planejada da nota filha de volta para a Nota Mãe**.
+  - Impede que a Nota Mãe seja deixada com medida zero indevidamente.
+  - Se confirmado, a medida da Nota Mãe é recalculada e atualizada no banco no mesmo fluxo de exclusão.

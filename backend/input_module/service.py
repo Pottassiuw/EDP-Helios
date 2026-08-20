@@ -35,13 +35,13 @@ def _registrar_conexao(resultado: str) -> None:
     """Log seguro da origem dos dados — sem caminho completo nem credenciais."""
     resumo = db.descrever_conexao()
     print(
-        f"ℹ️ [input] ambiente={resumo['ambiente']} tipo={resumo['tipo']} "
+        f"[input] ambiente={resumo['ambiente']} tipo={resumo['tipo']} "
         f"alvo={resumo['alvo']} database={resumo['database']} "
         f"status={resumo['status']} notas={resumo['qtd_notas']} "
         f"resolucao={resultado}"
     )
     if not config.em_producao():
-        print("⚠️ [input] Perfil LOCAL: escritas ficam apenas nesta máquina e "
+        print("[input] Perfil LOCAL: escritas ficam apenas nesta máquina e "
               "notas novas do banco da rede não aparecem até uma nova migração. "
               "Use EDP_PERFIL=producao no servidor do setor.")
 
@@ -77,7 +77,7 @@ class NotasDuplicadasErro(Exception):
     """Numero_Nota repetido no lote ou já existente no banco."""
 
 
-def _preparar_novas(notas: list[NovaNota], df_banco: pd.DataFrame,
+def _preparar_novas(notas: list[NovaNota], df_banco: pd.DataFrame | None,
                     origem: str) -> pd.DataFrame:
     """Valida duplicatas e completa Regional/ID_Cronologia (Input/app.py:640-728)."""
     numeros = [n.Numero_Nota for n in notas]
@@ -85,12 +85,19 @@ def _preparar_novas(notas: list[NovaNota], df_banco: pd.DataFrame,
     if repetidas_lote:
         raise NotasDuplicadasErro(
             "Notas duplicadas no próprio lote: " + ", ".join(sorted(repetidas_lote)))
-    existentes = set(df_banco["Numero_Nota"].tolist()) if not df_banco.empty else set()
+
+    if df_banco is not None and not df_banco.empty:
+        existentes = set(df_banco["Numero_Nota"].tolist())
+        base_id = db.proximo_id_cronologia(df_banco)
+    else:
+        existentes = set(db.verificar_notas_existentes(numeros))
+        base_id = db.obter_proximo_id_cronologia_banco()
+
     repetidas_banco = sorted(str(n) for n in numeros if n in existentes)
     if repetidas_banco:
         raise NotasDuplicadasErro(
             "Notas já existentes no banco: " + ", ".join(repetidas_banco))
-    base_id = db.proximo_id_cronologia(df_banco)
+
     linhas = []
     for i, nota in enumerate(notas):
         registro = nota.model_dump()
@@ -103,9 +110,10 @@ def _preparar_novas(notas: list[NovaNota], df_banco: pd.DataFrame,
     return pd.DataFrame(linhas)
 
 
-def criar_notas(notas: list[NovaNota], usuario: str, origem: str = "manual") -> int:
+def criar_notas(notas: list[NovaNota], usuario: str, origem: str = "manual",
+                df_banco: pd.DataFrame | None = None) -> int:
     """Insere notas novas no plano e registra no log de auditoria; levanta NotasDuplicadasErro em conflito."""
-    df_novas = _preparar_novas(notas, db.carregar_dados(), origem)
+    df_novas = _preparar_novas(notas, df_banco, origem)
     db.salvar_em_massa(df_novas)
 
     agora = datetime.datetime.now()

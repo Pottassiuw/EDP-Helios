@@ -134,7 +134,7 @@ export function Logs(): React.JSX.Element {
           <Button
             variant={filtroTipo === 'ocultacao' ? 'default' : 'outline'}
             size="sm"
-            className={`h-9 text-xs font-semibold gap-1.5 ${
+            className={`h-9 text-xs font-medium gap-1.5 ${
               filtroTipo === 'ocultacao'
                 ? 'bg-amber-600 hover:bg-amber-700 text-white'
                 : 'border-amber-500/40 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10'
@@ -162,16 +162,16 @@ export function Logs(): React.JSX.Element {
             <span className="px-2.5 py-1 rounded-full bg-surface-2 text-text-mute font-mono border border-line">
               Total: <strong className="text-foreground">{stats.total}</strong>
             </span>
-            <span className="px-2.5 py-1 rounded-full bg-green/15 text-green dark:text-green-2 font-mono font-semibold border border-green/30">
+            <span className="px-2.5 py-1 rounded-full bg-green/15 text-green dark:text-green-2 font-mono font-medium border border-green/30">
               + {stats.criacoes} criações
             </span>
-            <span className="px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 font-mono font-semibold border border-amber-500/30">
+            <span className="px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 font-mono font-medium border border-amber-500/30">
               {stats.ocultacoes} ocultações
             </span>
-            <span className="px-2.5 py-1 rounded-full bg-accent/15 text-accent font-mono font-semibold border border-accent/30">
+            <span className="px-2.5 py-1 rounded-full bg-accent/15 text-accent font-mono font-medium border border-accent/30">
               {stats.edicoes} edições
             </span>
-            <span className="px-2.5 py-1 rounded-full bg-red/15 text-red dark:text-red-2 font-mono font-semibold border border-red/30">
+            <span className="px-2.5 py-1 rounded-full bg-red/15 text-red dark:text-red-2 font-mono font-medium border border-red/30">
               {stats.exclusoes} exclusões
             </span>
           </div>
@@ -192,7 +192,7 @@ export function Logs(): React.JSX.Element {
             </div>
 
             {termosNotas.length > 1 && (
-              <span className="text-[11px] px-2.5 py-1 rounded-full bg-accent/15 text-accent font-mono font-semibold border border-accent/30">
+              <span className="text-[11px] px-2.5 py-1 rounded-full bg-accent/15 text-accent font-mono font-medium border border-accent/30">
                 {termosNotas.length} notas no filtro
               </span>
             )}
@@ -275,7 +275,7 @@ export function Logs(): React.JSX.Element {
                         criacao ? 'bg-green/5' : exclusao ? 'bg-red/5' : ocultacao ? 'bg-amber-500/5' : ''
                       }`}
                     >
-                      <td className="px-3 py-2.5 font-mono font-bold text-accent" style={{ color: "var(--accent, #3ecf8e)" }}>
+                      <td className="px-3 py-2.5 font-mono font-medium text-accent" style={{ color: "var(--accent, #3ecf8e)" }}>
                         {r.Numero_Nota}
                       </td>
                       <td className="px-3 py-2.5 text-foreground font-medium flex items-center gap-1.5">
@@ -287,22 +287,22 @@ export function Logs(): React.JSX.Element {
                       </td>
                       <td className="px-3 py-2.5">
                         {criacao ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-green/15 text-green dark:text-green-2 border border-green/30">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-green/15 text-green dark:text-green-2 border border-green/30">
                             <PlusCircle className="h-3 w-3 shrink-0" />
                             Criação de Nota
                           </span>
                         ) : exclusao ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-red/15 text-red dark:text-red-2 border border-red/30">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-red/15 text-red dark:text-red-2 border border-red/30">
                             <Trash2 className="h-3 w-3 shrink-0" />
                             Exclusão de Nota
                           </span>
                         ) : ocultacao ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
                             <EyeOff className="h-3 w-3 shrink-0" />
                             Ocultação de Nota
                           </span>
                         ) : (
-                          <span className="font-semibold text-foreground">
+                          <span className="font-medium text-foreground">
                             {r.Campo_Alterado}
                           </span>
                         )}
@@ -320,11 +320,11 @@ export function Logs(): React.JSX.Element {
                             {r.Valor_Novo || '—'}
                           </span>
                         ) : ocultacao ? (
-                          <span className="text-amber-600 dark:text-amber-400 font-semibold">
+                          <span className="text-amber-600 dark:text-amber-400 font-medium">
                             {r.Valor_Novo || '—'}
                           </span>
                         ) : (
-                          <span className="text-foreground font-semibold">
+                          <span className="text-foreground font-medium">
                             {r.Valor_Novo || '—'}
                           </span>
                         )}
@@ -393,7 +393,7 @@ export function Logs(): React.JSX.Element {
               />
             </div>
             {termosTimeline.length > 0 && (
-              <span className="text-[11px] px-2.5 py-1 rounded-full bg-accent/15 text-accent font-mono font-semibold border border-accent/30">
+              <span className="text-[11px] px-2.5 py-1 rounded-full bg-accent/15 text-accent font-mono font-medium border border-accent/30">
                 {logsTimelineFiltrados.length} evento(s) em {termosTimeline.length} nota(s)
               </span>
             )}
@@ -418,7 +418,7 @@ export function Logs(): React.JSX.Element {
                   <CardContent className="p-4 flex flex-col gap-2">
                     <div className="text-xs text-text-dim flex items-center justify-between flex-wrap gap-2">
                       <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold text-accent text-sm">
+                        <span className="font-mono font-medium text-accent text-sm">
                           Nota #{r.Numero_Nota}
                         </span>
                         <span className="font-mono text-text-dim text-[11px]">
@@ -434,7 +434,7 @@ export function Logs(): React.JSX.Element {
                     <div className="text-xs text-foreground mt-0.5">
                       {criacao ? (
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-green/15 text-green dark:text-green-2 border border-green/30">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-green/15 text-green dark:text-green-2 border border-green/30">
                             <PlusCircle className="h-3 w-3 shrink-0" />
                             Nota Inserida no Sistema
                           </span>
@@ -444,7 +444,7 @@ export function Logs(): React.JSX.Element {
                         </div>
                       ) : exclusao ? (
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-red/15 text-red dark:text-red-2 border border-red/30">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-red/15 text-red dark:text-red-2 border border-red/30">
                             <Trash2 className="h-3 w-3 shrink-0" />
                             Nota Excluída do Banco
                           </span>
@@ -459,7 +459,7 @@ export function Logs(): React.JSX.Element {
                             {r.Valor_Antigo || '—'}
                           </code>{' '}
                           para{' '}
-                          <code className="bg-green/10 text-green dark:text-green-2 px-1.5 py-0.5 rounded font-mono font-semibold">
+                          <code className="bg-green/10 text-green dark:text-green-2 px-1.5 py-0.5 rounded font-mono font-medium">
                             {r.Valor_Novo || '—'}
                           </code>
                         </div>

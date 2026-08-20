@@ -80,7 +80,7 @@ export function NotificacaoModal({ aberto, onFechar }: NotificacaoModalProps): R
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div>
               <Eyebrow className="text-xs tracking-wider text-accent">EDP-Helios • Comunicação Executiva</Eyebrow>
-              <DialogTitle className="text-lg font-bold text-foreground flex items-center gap-2">
+              <DialogTitle className="text-lg font-medium text-foreground flex items-center gap-2">
                 <Mail className="h-5 w-5 text-accent" />
                 <span>Notificação Diária aos Engenheiros</span>
               </DialogTitle>
@@ -112,20 +112,20 @@ export function NotificacaoModal({ aberto, onFechar }: NotificacaoModalProps): R
             {/* Cards de Resumo */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div className="p-3 bg-surface-2 rounded-lg border border-line flex flex-col gap-1">
-                <span className="text-[11px] uppercase tracking-wider text-text-mute font-semibold">Total de Alterações</span>
-                <span className="text-xl font-bold font-mono text-foreground">{resumo?.total_alteracoes ?? 0}</span>
+                <span className="text-[11px] uppercase tracking-wider text-text-mute font-medium">Total de Alterações</span>
+                <span className="text-xl font-medium font-mono text-foreground">{resumo?.total_alteracoes ?? 0}</span>
                 <span className="text-[11px] text-text-dim">Eventos registrados no log nesta data</span>
               </div>
 
               <div className="p-3 bg-surface-2 rounded-lg border border-line flex flex-col gap-1">
-                <span className="text-[11px] uppercase tracking-wider text-text-mute font-semibold">Notas Impactadas</span>
-                <span className="text-xl font-bold font-mono text-accent">{resumo?.total_notas_afetadas ?? 0}</span>
+                <span className="text-[11px] uppercase tracking-wider text-text-mute font-medium">Notas Impactadas</span>
+                <span className="text-xl font-medium font-mono text-accent">{resumo?.total_notas_afetadas ?? 0}</span>
                 <span className="text-[11px] text-text-dim">Notas distintas alteradas no plano</span>
               </div>
 
               <div className="p-3 bg-surface-2 rounded-lg border border-line flex flex-col gap-1">
-                <span className="text-[11px] uppercase tracking-wider text-text-mute font-semibold">Engenheiros com Alterações</span>
-                <span className={`text-xl font-bold font-mono ${totalComAlteracao > 0 ? 'text-green' : 'text-text-mute'}`}>
+                <span className="text-[11px] uppercase tracking-wider text-text-mute font-medium">Engenheiros com Alterações</span>
+                <span className={`text-xl font-medium font-mono ${totalComAlteracao > 0 ? 'text-green' : 'text-text-mute'}`}>
                   {totalComAlteracao} de {listaEngenheiros.length}
                 </span>
                 <span className="text-[11px] text-text-dim">
@@ -136,7 +136,7 @@ export function NotificacaoModal({ aberto, onFechar }: NotificacaoModalProps): R
 
             {/* Lista de Engenheiros */}
             <div className="flex flex-col gap-3">
-              <span className="text-xs font-semibold text-foreground uppercase tracking-wider">
+              <span className="text-xs font-medium text-foreground uppercase tracking-wider">
                 Status por Engenheiro Responsável:
               </span>
 
@@ -154,7 +154,7 @@ export function NotificacaoModal({ aberto, onFechar }: NotificacaoModalProps): R
                     <div className="p-3.5 flex items-center justify-between gap-3 flex-wrap">
                       <div className="flex items-center gap-3">
                         <div
-                          className={`h-9 w-9 rounded-full flex items-center justify-center font-bold text-xs ${
+                          className={`h-9 w-9 rounded-full flex items-center justify-center font-medium text-xs ${
                             temAlteracoes ? 'bg-accent/15 text-accent' : 'bg-surface-2 text-text-mute'
                           }`}
                         >
@@ -163,7 +163,7 @@ export function NotificacaoModal({ aberto, onFechar }: NotificacaoModalProps): R
 
                         <div className="flex flex-col gap-0.5">
                           <div className="flex items-center gap-2">
-                            <span className="text-sm font-semibold text-foreground">{eng.engenheiro}</span>
+                            <span className="text-sm font-medium text-foreground">{eng.engenheiro}</span>
                             <span className="text-xs text-text-dim font-mono">({eng.email || 'Sem e-mail cadastrado'})</span>
                           </div>
                           <div className="flex items-center gap-1.5 text-[11.5px] text-text-dim flex-wrap">
@@ -183,7 +183,7 @@ export function NotificacaoModal({ aberto, onFechar }: NotificacaoModalProps): R
                             <Button
                               size="sm"
                               variant="outline"
-                              className="h-8 text-xs font-semibold gap-1.5 border-line hover:bg-surface hover:border-accent"
+                              className="h-8 text-xs font-medium gap-1.5 border-line hover:bg-surface hover:border-accent"
                               disabled={enviando}
                               onClick={() => void enviarEmail(eng.engenheiro)}
                               title={`Gerar rascunho de e-mail no Outlook para ${eng.engenheiro}`}
@@ -230,12 +230,12 @@ export function NotificacaoModal({ aberto, onFechar }: NotificacaoModalProps): R
                             <tbody>
                               {eng.alteracoes.map((item, idx) => (
                                 <tr key={idx} className="border-b border-line/40 hover:bg-surface/50 transition-colors">
-                                  <td className="p-2 pl-3 font-mono font-semibold text-accent">{item.Numero_Nota}</td>
+                                  <td className="p-2 pl-3 font-mono font-medium text-accent">{item.Numero_Nota}</td>
                                   <td className="p-2 text-text-dim">{item.Regional}</td>
                                   <td className="p-2 text-text-dim">{item.Conjunto}</td>
                                   <td className="p-2">
                                     <span
-                                      className={`px-1.5 py-0.5 rounded text-[10.5px] font-semibold ${
+                                      className={`px-1.5 py-0.5 rounded text-[10.5px] font-medium ${
                                         item.Tipo_Evento.includes('Criação')
                                           ? 'bg-green/15 text-green'
                                           : item.Tipo_Evento.includes('Exclusão')
@@ -272,7 +272,7 @@ export function NotificacaoModal({ aberto, onFechar }: NotificacaoModalProps): R
 
           <Button
             size="sm"
-            className="h-9 px-4 text-xs font-semibold gap-1.5"
+            className="h-9 px-4 text-xs font-medium gap-1.5"
             disabled={enviando || totalComAlteracao === 0}
             onClick={() => void enviarEmail('__todos__')}
           >

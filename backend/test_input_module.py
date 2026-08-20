@@ -1153,7 +1153,7 @@ def test_auditoria_cronograma(engine_isolado):
     _sqlite_iw28()
     _sqlite_iw38()
     df = engine.enriquecer_dados()
-    assert df.iloc[0]["Auditoria_Cronograma"] == "🟢 Adiantado"
+    assert df.iloc[0]["Auditoria_Cronograma"] == "🔵 Adiantado"
 
 
 def test_engine_totais_numericos_e_modular(engine_isolado):
@@ -1339,6 +1339,19 @@ def test_get_sync(cliente):
     r = cliente.get("/api/input/sync")
     assert r.status_code == 200
     assert "ultima_alteracao" in r.json()
+
+
+def test_credenciais_sap_do_payload():
+    from input_module.routes import _credenciais_sap_do_payload
+
+    assert _credenciais_sap_do_payload(None) is None
+    assert _credenciais_sap_do_payload({}) is None
+    assert _credenciais_sap_do_payload({"login_sap": "joao"}) is None
+    assert _credenciais_sap_do_payload({"login_sap": "  ", "senha_sap": "x"}) is None
+    assert _credenciais_sap_do_payload({"login_sap": "joao", "senha_sap": ""}) is None
+    assert _credenciais_sap_do_payload({"login_sap": "  joao  ", "senha_sap": "segredo"}) == {
+        "login_sap": "joao", "senha_sap": "segredo",
+    }
 
 
 def test_notas_etag_304(banco_temporario):
@@ -3050,3 +3063,131 @@ def test_gerar_planilha_alteracoes_anexo():
         os.remove(caminho_xlsx)
     except Exception:
         pass
+
+
+def test_sincronizar_status_sap_para_notas(banco_temporario):
+    from input_module import db
+    # Cadastra notas no banco
+    db.salvar_em_massa(pd.DataFrame([
+        _nota(7001, Status_Nota="10 Em planejamento"),
+        _nota(7002, Status_Nota="51 Ordem Liberada"),
+        _nota(7003, Status_Nota="52 ADS e Viabilizado"),
+    ]))
+
+    # Cria base_iw28 simulando retorno do SAP onde 7001 foi para 51 e 7003 foi para 99
+    df_iw28 = pd.DataFrame([
+        {"Nota": 7001, "Status usuário": "51 Ordem Liberada"},
+        {"Nota": 7002, "Status usuário": "51 Ordem Liberada"},
+        {"Nota": 7003, "Status usuário": "99 Encerrado"},
+    ])
+    db.salvar_base_dataframe("base_iw28", df_iw28)
+
+    res = db.sincronizar_status_sap_para_notas(usuario="Robô SAP")
+    assert res["atualizadas"] == 2
+
+    # Verifica se notas foram atualizadas
+    df_banco = db.carregar_dados()
+    linha_7001 = df_banco[df_banco["Numero_Nota"] == 7001].iloc[0]
+    assert "51" in str(linha_7001["Status_Nota"])
+    assert "10" in str(linha_7001["Status_Anterior"])
+
+    linha_7003 = df_banco[df_banco["Numero_Nota"] == 7003].iloc[0]
+    assert "99" in str(linha_7003["Status_Nota"])
+    assert "52" in str(linha_7003["Status_Anterior"])
+
+    # Verifica se logs foram gerados
+    logs = db.carregar_logs()
+    logs_7001 = logs[logs["Numero_Nota"] == 7001]
+    assert len(logs_7001) >= 1
+    assert logs_7001.iloc[0]["Usuario"] == "Robô SAP"
+    assert logs_7001.iloc[0]["Campo_Alterado"] == "Status_Nota"
+    assert "10" in str(logs_7001.iloc[0]["Valor_Antigo"])
+    assert "51" in str(logs_7001.iloc[0]["Valor_Novo"])
+
+
+def test_endpoint_sincronizar_status_sap(cliente):
+    from input_module import db
+    db.salvar_em_massa(pd.DataFrame([
+        _nota(8001, Status_Nota="10 Em planejamento"),
+    ]))
+    db.salvar_base_dataframe("base_iw28", pd.DataFrame([
+        {"Nota": 8001, "Status usuário": "51 Ordem Liberada"},
+    ]))
+
+    resp = cliente.post("/api/input/bases/sincronizar-status-sap", headers={"X-User": "admin_teste"})
+    assert resp.status_code == 200
+    dados = resp.json()
+    assert dados["atualizadas"] >= 1
+
+    df_banco = db.carregar_dados()
+    linhas = df_banco[df_banco["Numero_Nota"] == 8001]
+    if not linhas.empty:
+        assert "51" in str(linhas.iloc[0]["Status_Nota"])
+
+
+def test_extrair_data_sap_e_comparacao(banco_temporario):
+    from input_module import db, engine
+    assert engine.extrair_data_sap("M08/2026-POSTE-GUR1302") == "ago-2026"
+    assert engine.extrair_data_sap("M04/24-REDE COMPACTA TRIF") == "abr-2024"
+    assert engine.extrair_data_sap("M00/0000-A PLANEJAR") == "-"
+    assert engine.extrair_data_sap(None) == "-"
+
+    # Testa enriquecimento do dataset completo
+    db.salvar_em_massa(pd.DataFrame([
+        _nota(9001, Mes_Execucao_Planejado="ago-2026"),
+        _nota(9002, Mes_Execucao_Planejado="2026-08-01"),
+        _nota(9003, Mes_Execucao_Planejado="jul-2026"),
+    ]))
+    db.salvar_base_dataframe("base_iw28", pd.DataFrame([
+        {"Nota": 9001, "Descrição": "M08/2026-POSTE-GUR1302", "Status usuário": "10 Aberto", "Data da nota": "2026-01-15"},
+        {"Nota": 9002, "Descrição": "M08/2026-POSTE-GUR1302", "Status usuário": "10 Aberto", "Data da nota": "2026-01-15"},
+        {"Nota": 9003, "Descrição": "M08/2026-POSTE-GUR1302", "Status usuário": "10 Aberto", "Data da nota": "2026-01-15"},
+    ]))
+
+    df = engine.get_dataset()
+    r9001 = df[df["Numero_Nota"] == 9001].iloc[0]
+    r9002 = df[df["Numero_Nota"] == 9002].iloc[0]
+    r9003 = df[df["Numero_Nota"] == 9003].iloc[0]
+
+    assert r9001["Data_programada_SAP"] == "ago-2026"
+    assert r9001["Comparacao_Data_SAP"] == "Igual"
+    assert r9002["Comparacao_Data_SAP"] == "Igual"
+    assert r9003["Comparacao_Data_SAP"] == "Divergente"
+
+
+def test_parse_data_encerramento_evita_bug_dayfirst_iso():
+    """Valida que datas ISO YYYY-MM-DD não sofrem inversão de dia/mês (bug de dayfirst=True)."""
+    import datetime
+    from input_module.engine import parse_data_encerramento, avaliar_prazo_sap
+
+    # 1. Validação de parse de data ISO e BR
+    dt_iso = parse_data_encerramento("2026-08-03")
+    assert dt_iso is not None
+    assert dt_iso.month == 8
+    assert dt_iso.day == 3
+    assert dt_iso.year == 2026
+
+    dt_br = parse_data_encerramento("03/08/2026")
+    assert dt_br is not None
+    assert dt_br.month == 8
+    assert dt_br.day == 3
+    assert dt_br.year == 2026
+
+    dt_iso_hora = parse_data_encerramento("2026-08-03 00:00:00")
+    assert dt_iso_hora is not None
+    assert dt_iso_hora.month == 8
+    assert dt_iso_hora.day == 3
+
+    # 2. Validação no avaliar_prazo_sap:
+    # Planejado para jul-2026 e encerrado em 2026-08-03 (agosto):
+    # Desvio = 1 mês de atraso (dentro da tolerância de 1 mês) -> "🟢 No Prazo"
+    # Se o bug do dayfirst ocorresse, viraria março-2026 e geraria falso "🔵 Adiantado"
+    row = {
+        "Status_Final": "99 Encerrado",
+        "Status_Nota": "99 Encerrado",
+        "Mes_Execucao_Planejado": "jul-2026",
+        "Encerram.por data": "2026-08-03",
+        "Ordem_Executada": "SIM",
+    }
+    resultado = avaliar_prazo_sap(row)
+    assert resultado == "🟢 No Prazo"

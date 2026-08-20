@@ -517,13 +517,13 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
               <button
                 type="button"
                 onClick={(e) => onOpenDetails(r, e.currentTarget)}
-                className="font-semibold text-foreground tracking-tight hover:text-accent hover:underline cursor-pointer text-left"
+                className="font-medium text-foreground tracking-tight hover:text-accent hover:underline cursor-pointer text-left"
                 title="Abrir detalhes e enriquecimento desta nota"
               >
                 {formatarNumero(v, 0, false)}
               </button>
             ) : (
-              <span className="font-semibold text-foreground tracking-tight">
+              <span className="font-medium text-foreground tracking-tight">
                 {formatarNumero(v, 0, false)}
               </span>
             )}
@@ -580,21 +580,35 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
       "Modular",
       "Total_planejado_modular",
     ]);
+
+    // Para Planejado_DDPM: filhas com conjunto diferente da mãe não entram na soma
+    const filhasValidas = (item.filhas ?? []).filter((f) => {
+      if (c.key === "Planejado_DDPM") {
+        const cjMae = String(r.Conjunto ?? "").trim().toLowerCase();
+        const cjFilha = String(f.Conjunto ?? "").trim().toLowerCase();
+        return cjMae === cjFilha && cjMae !== "" && cjMae !== "-";
+      }
+      return true;
+    });
+
     const deveSomarHierarquia =
-      item.temFilhas && !estaExpandido && COLUNAS_SOMA_HIERARQUICA.has(c.key);
+      item.temFilhas &&
+      !estaExpandido &&
+      COLUNAS_SOMA_HIERARQUICA.has(c.key) &&
+      (c.key !== "Planejado_DDPM" || filhasValidas.length > 0);
 
     let valorExibicao = v;
     let tooltipSoma: string | undefined = undefined;
 
     if (deveSomarHierarquia) {
       const valorProprio = Number(v) || 0;
-      const somaFilhas = (item.filhas ?? []).reduce(
+      const somaFilhas = filhasValidas.reduce(
         (acc, f) => acc + (Number(valor(f, c.key)) || 0),
         0,
       );
       const somaTotal = valorProprio + somaFilhas;
       valorExibicao = somaTotal;
-      tooltipSoma = `Soma consolidada do grupo: ${formatarNumero(somaTotal, 2)} (Mãe: ${formatarNumero(valorProprio, 2)} + ${item.qtdFilhas} ${item.qtdFilhas === 1 ? 'filha' : 'filhas'}: ${formatarNumero(somaFilhas, 2)})`;
+      tooltipSoma = `Soma consolidada do grupo: ${formatarNumero(somaTotal, 2)} (Mãe: ${formatarNumero(valorProprio, 2)} + ${filhasValidas.length} ${filhasValidas.length === 1 ? 'filha' : 'filhas'}: ${formatarNumero(somaFilhas, 2)})`;
     }
 
     const tentarEditar = (): void => {
@@ -629,7 +643,7 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
           <div className="flex items-center justify-between gap-1.5 w-full">
             <span>{formatarNumero(valorExibicao, 2)}</span>
             <span
-              className="inline-flex items-center px-1.5 py-0.2 text-[10px] font-mono font-bold bg-green/15 text-green dark:text-green-2 border border-green/30 rounded"
+              className="inline-flex items-center px-1.5 py-0.2 text-[10px] font-mono font-medium bg-green/15 text-green dark:text-green-2 border border-green/30 rounded"
               title={tooltipSoma}
             >
               Σ grupo
@@ -638,7 +652,7 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
         ) : c.numeric ? (
           formatarNumero(valorExibicao)
         ) : (
-            valorExibicao !== null && valorExibicao !== undefined && valorExibicao !== ""
+            valorExibicao !== null && valorExibicao !== undefined && valorExibicao !== "" && (c.key !== "Ordem" || String(valorExibicao).trim().toUpperCase() !== "FORA SAP")
               ? String(valorExibicao)
               : "-"
         )}
@@ -735,7 +749,7 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
               } else if (ehFilha) {
                 bgClasse = "border-l-[3px] border-l-blue-400 bg-surface-2 hover:bg-surface-2/80 font-medium";
               } else if (item.temFilhas) {
-                bgClasse = "border-l-[3px] border-l-green bg-green/5 hover:bg-green/12 font-semibold";
+                bgClasse = "border-l-[3px] border-l-green bg-green/5 hover:bg-green/12 font-medium";
               }
 
               return (

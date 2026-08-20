@@ -5,6 +5,8 @@ export interface ColunaDef {
   largura?: number;
   editavel?: boolean;
   opcoes?: 'status' | 'prioridade' | 'mes';
+  /** 0 nesta coluna significa "sem dado ainda", não um valor real — exclui da média (soma continua íntegra). */
+  ignorarZeroNaMedia?: boolean;
 }
 
 /** Colunas do painel na ordem especificada (Regional, Nº Nota, Nota Mãe, Observação, etc.). */
@@ -16,12 +18,13 @@ export const COLUNAS: ColunaDef[] = [
   { key: 'Conjunto', label: 'Conjunto', editavel: true },
   { key: 'Circuito', label: 'Circuito', editavel: true },
   { key: 'Local_Instalacao', label: 'Local Instalação', editavel: true, largura: 170 },
-  { key: 'Planejado_DDPM', label: 'Planejado', numeric: true, editavel: true },
+  { key: 'Planejado_DDPM', label: 'Planejado', numeric: true, editavel: true, ignorarZeroNaMedia: true },
   { key: 'Medida_SAP', label: 'Medida SAP' },
   { key: 'Medida_vs_Planejado', label: 'Medida vs Planejado' },
   { key: 'Mes_Execucao_Planejado', label: 'Mês Execução Planejado', editavel: true, opcoes: 'mes', largura: 170 },
-  { key: 'Data_Nota_SAP', label: 'Data Programada SAP', largura: 140 },
+  { key: 'Data_programada_SAP', label: 'Data Programada SAP', largura: 150 },
   { key: 'Comparacao_Data_SAP', label: 'Comparação Data SAP', largura: 150 },
+  { key: 'Data_Nota_SAP', label: 'Data Abertura Nota SAP', largura: 150 },
   { key: 'Data_Envio_Projeto', label: 'Data Envio Projeto', editavel: true },
   { key: 'Centro_Responsavel', label: 'Centro de Trabalho Responsável', largura: 210 },
   { key: 'Prioridade_Nota', label: 'Prioridade Nota', editavel: true, opcoes: 'prioridade' },
@@ -85,7 +88,6 @@ export const COLUNAS_COLAGEM = [
   'Nota_Mae',
   'Observacao',
   'Status_Nota',
-  'Prioridade_Nota',
   'Planejado_DDPM',
   'Conjunto',
   'Circuito',
