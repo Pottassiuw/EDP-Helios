@@ -336,6 +336,7 @@ def avaliar_prazo_sap(row):
 def enriquecer_dados():
     # 3.1. Carrega a base bruta (notas cadastradas) do SQLite
     df = carregar_dados()
+    df['Numero_Nota_str'] = pd.to_numeric(df['Numero_Nota'], errors='coerce').fillna(0).astype(int).astype(str).str.strip()
 
     # Tratamento de limpeza do Conjunto (remove quebras de linha e múltiplos espaços)
     if 'Conjunto' in df.columns:
@@ -868,7 +869,9 @@ def enriquecer_dados():
 
             grouped["Medida_SAP_Str"] = grouped.apply(_format_medida, axis=1)
             dict_medidas = dict(zip(grouped["Nota"], grouped["Medida_SAP_Str"]))
-            df["Medida_SAP"] = df["Numero_Nota"].astype(str).str.strip().map(dict_medidas).fillna("-")
+
+            num_nota_clean = pd.to_numeric(df["Numero_Nota"], errors='coerce').fillna(0).astype(int).astype(str).str.strip()
+            df["Medida_SAP"] = num_nota_clean.map(dict_medidas).fillna("-")
 
             # Agregação de Medidas das Filhas para Notas Mães
             # Em grupos hierárquicos no SAP (IW66), as medidas físicas ficam alocadas nas notas filhas.
@@ -912,8 +915,7 @@ def enriquecer_dados():
                     agg_maes['Medida_Agregada'] = agg_maes.apply(_format_medida, axis=1)
                     dict_agg = dict(zip(agg_maes['Nota_Mae_Limpa'], agg_maes['Medida_Agregada']))
 
-                    num_nota_str = df['Numero_Nota'].astype(str).str.strip()
-                    medida_agregada_col = num_nota_str.map(dict_agg).fillna('-')
+                    medida_agregada_col = num_nota_clean.map(dict_agg).fillna('-')
 
                     df['Medida_SAP'] = np.where(
                         (df['Medida_SAP'] == '-') & (medida_agregada_col != '-'),
@@ -958,8 +960,13 @@ def get_dataset(forcar: bool = False) -> pd.DataFrame:
     with _cache_lock:
         versao = db.obter_versao_dataset()
         expirado = time.time() - _cache["quando"] > _CACHE_TTL_SEGUNDOS
+        medidas_zeradas = (
+            _cache["df"] is not None
+            and "Medida_SAP" in _cache["df"].columns
+            and (_cache["df"]["Medida_SAP"] != "-").sum() == 0
+        )
         if (forcar or _cache["df"] is None or expirado
-                or _cache["versao"] != versao):
+                or _cache["versao"] != versao or medidas_zeradas):
             df_res = enriquecer_dados()
             colunas_existentes = [col for col in config.COLUNAS_PAINEL if col in df_res.columns]
             colunas_extras = [col for col in df_res.columns if col not in colunas_existentes]
