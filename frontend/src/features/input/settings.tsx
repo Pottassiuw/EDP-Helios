@@ -32,6 +32,8 @@ export function Settings({ dados }: { dados: InputDataset }): React.JSX.Element 
   const [linhasEmail, setLinhasEmail] = React.useState<[string, string][] | null>(null);
   const [sincronizando, setSincronizando] = React.useState(false);
   const [sincronizandoSap, setSincronizandoSap] = React.useState(false);
+  const [loginSap, setLoginSap] = React.useState('');
+  const [senhaSap, setSenhaSap] = React.useState('');
 
   const responsaveis = useQuery({ queryKey: ['input-resp'], queryFn: InputApi.responsaveis });
   const emailsQuery = useQuery({ queryKey: ['input-emails-resp'], queryFn: InputApi.obterEmailsResponsaveis });
@@ -51,7 +53,8 @@ export function Settings({ dados }: { dados: InputDataset }): React.JSX.Element 
 
   function dispararSap(): void {
     setSincronizandoSap(true);
-    const p = InputApi.syncSap().finally(() => setSincronizandoSap(false));
+    const credenciais = loginSap.trim() && senhaSap ? { login_sap: loginSap.trim(), senha_sap: senhaSap } : undefined;
+    const p = InputApi.syncSap(credenciais).finally(() => setSincronizandoSap(false));
     toast.promise(p, {
       loading: 'Iniciando extração SAP em background...',
       success: 'Extração SAP iniciada em background.',
@@ -101,25 +104,38 @@ export function Settings({ dados }: { dados: InputDataset }): React.JSX.Element 
       </Cartao>
 
       <Cartao eyebrow="Automação SAP" titulo="Extração de Bases SAP (Sap Robot)">
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex flex-col gap-1 max-w-xl">
-            <span className="text-xs text-text-dim">
-              Dispara a extração automatizada das bases IW28, IW38 e IW66 no SAP GUI em segundo plano e atualiza as bases locais.
-            </span>
-            <span className="text-[11.5px] text-text-mute">
-              Nota: Conecta-se automaticamente à sessão do SAP GUI aberta ou utiliza credenciais do sistema.
-            </span>
+        <div className="flex flex-col gap-3">
+          <span className="text-xs text-text-dim max-w-xl">
+            Dispara a extração automatizada das bases IW28, IW38 e IW66 no SAP GUI em segundo plano e atualiza as bases locais.
+            Requer SAP GUI ativo. Informe seu usuário e senha do SAP abaixo — cada engenheiro loga com as próprias credenciais.
+          </span>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Input
+              value={loginSap}
+              onChange={(e) => setLoginSap(e.target.value)}
+              placeholder="Usuário SAP"
+              autoComplete="username"
+              className="w-40 h-9 text-xs bg-bg-2 border-line font-medium"
+            />
+            <Input
+              type="password"
+              value={senhaSap}
+              onChange={(e) => setSenhaSap(e.target.value)}
+              placeholder="Senha SAP"
+              autoComplete="current-password"
+              className="w-40 h-9 text-xs bg-bg-2 border-line font-medium"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 text-xs"
+              disabled={sincronizandoSap}
+              onClick={dispararSap}
+            >
+              <Bot className={`mr-1.5 h-3.5 w-3.5 ${sincronizandoSap ? 'animate-spin' : ''}`} />
+              {sincronizandoSap ? 'Executando...' : 'Executar Robô SAP'}
+            </Button>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-9 text-xs"
-            disabled={sincronizandoSap}
-            onClick={dispararSap}
-          >
-            <Bot className={`mr-1.5 h-3.5 w-3.5 ${sincronizandoSap ? 'animate-spin' : ''}`} />
-            {sincronizandoSap ? 'Executando...' : 'Executar Robô SAP'}
-          </Button>
         </div>
       </Cartao>
 

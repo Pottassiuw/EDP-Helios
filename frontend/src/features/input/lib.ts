@@ -302,6 +302,7 @@ export function calcularSelecao(
 ): ResumoSelecao | null {
   if (!sel) return null;
   const nums: number[] = [];
+  const numsMedia: number[] = [];
   for (let r = sel.min.row; r <= sel.max.row; r++) {
     const reg = registros[r];
     if (!reg) continue;
@@ -311,12 +312,16 @@ export function calcularSelecao(
       const bruto = reg[col.key];
       if (bruto === null || bruto === undefined || bruto === '') continue;
       const n = Number(bruto);
-      if (Number.isFinite(n)) nums.push(n);
+      if (!Number.isFinite(n)) continue;
+      nums.push(n);
+      // 0 em coluna "sem dado ainda" (ex: Planejado_DDPM) não é um valor real; não deve puxar a média para baixo.
+      if (!(col.ignorarZeroNaMedia && n === 0)) numsMedia.push(n);
     }
   }
   if (nums.length === 0) return { soma: 0, media: 0, contagem: 0 };
   const soma = nums.reduce((a, b) => a + b, 0);
-  return { soma, media: soma / nums.length, contagem: nums.length };
+  const media = numsMedia.length > 0 ? numsMedia.reduce((a, b) => a + b, 0) / numsMedia.length : 0;
+  return { soma, media, contagem: nums.length };
 }
 
 /** Verifica se a nota está marcada como oculta (Check = 'Oculta', 'oculto', '[oculta]' ou Observação com '[OCULTA]'). */

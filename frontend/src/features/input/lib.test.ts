@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   varrerVinculos, ehNotaOculta, buscarNotasOcultas,
-  buscarPorTextoGlobal, indiceBuscaGlobal,
+  buscarPorTextoGlobal, indiceBuscaGlobal, calcularSelecao,
 } from './lib';
 import { filtrarRegistros } from './overview';
 import type { NotaInput } from './types';
+import type { ColunaDef } from './columns';
 
 describe('varrerVinculos (Detetive de Notas)', () => {
   it('detecta Nota Mãe no campo Observacao mesmo com Planejado > 0', () => {
@@ -286,5 +287,67 @@ describe('buscarPorTextoGlobal', () => {
 
     expect(primeira.map((r) => r.Numero_Nota)).toEqual([1]);
     expect(segunda.map((r) => r.Numero_Nota)).toEqual([2]);
+  });
+});
+
+describe('calcularSelecao', () => {
+  const colunas: ColunaDef[] = [
+    { key: 'Numero_Nota', label: 'Nº Nota', numeric: true },
+    { key: 'Planejado_DDPM', label: 'Planejado', numeric: true, ignorarZeroNaMedia: true },
+    { key: 'Observacao', label: 'Observação' },
+  ];
+
+  it('soma inclui os zeros, mas a média de coluna ignorarZeroNaMedia os exclui', () => {
+    const registros = [
+      nota({ Numero_Nota: 1, Planejado_DDPM: 1 }),
+      nota({ Numero_Nota: 2, Planejado_DDPM: 0 }), // nota sem planejamento ainda
+      nota({ Numero_Nota: 3, Planejado_DDPM: 0 }), // idem
+    ];
+
+    const resumo = calcularSelecao(registros, colunas, {
+      min: { col: 1, row: 0 },
+      max: { col: 1, row: 2 },
+    });
+
+    expect(resumo).toEqual({ soma: 1, media: 1, contagem: 3 });
+  });
+
+  it('seleção de uma única célula com valor 1 dá média 1, não fração', () => {
+    const registros = [nota({ Numero_Nota: 1, Planejado_DDPM: 1 })];
+
+    const resumo = calcularSelecao(registros, colunas, {
+      min: { col: 1, row: 0 },
+      max: { col: 1, row: 0 },
+    });
+
+    expect(resumo).toEqual({ soma: 1, media: 1, contagem: 1 });
+  });
+
+  it('coluna numérica sem a flag soma e faz média normalmente, zeros inclusos', () => {
+    const registros = [
+      nota({ Numero_Nota: 10 }),
+      nota({ Numero_Nota: 0 }),
+    ];
+
+    const resumo = calcularSelecao(registros, colunas, {
+      min: { col: 0, row: 0 },
+      max: { col: 0, row: 1 },
+    });
+
+    expect(resumo).toEqual({ soma: 10, media: 5, contagem: 2 });
+  });
+
+  it('todas as células da média zeradas (ignorarZeroNaMedia) retorna média 0 sem dividir por zero', () => {
+    const registros = [
+      nota({ Numero_Nota: 1, Planejado_DDPM: 0 }),
+      nota({ Numero_Nota: 2, Planejado_DDPM: 0 }),
+    ];
+
+    const resumo = calcularSelecao(registros, colunas, {
+      min: { col: 1, row: 0 },
+      max: { col: 1, row: 1 },
+    });
+
+    expect(resumo).toEqual({ soma: 0, media: 0, contagem: 2 });
   });
 });

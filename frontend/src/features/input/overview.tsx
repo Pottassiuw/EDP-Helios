@@ -696,7 +696,6 @@ export function Overview({
             Inserir em Massa
           </Button>
 
-
           {onIrParaRateio && (
             <Button
               variant="outline"
