@@ -797,6 +797,21 @@ def enriquecer_dados():
     if df_medidas_raw is not None:
         try:
             df_m = df_medidas_raw.copy()
+
+            # Normalização resiliente das colunas do IW66 (trata encoding do SQLite ex: Denominao / N de ordenao)
+            novas_cols = {}
+            for col in df_m.columns:
+                c_norm = unicodedata.normalize('NFKD', str(col)).encode('ascii', 'ignore').decode('utf-8').lower()
+                if 'denomina' in c_norm and 'conjunto' in c_norm:
+                    novas_cols[col] = 'Denominação do conjunto'
+                elif 'ordena' in c_norm:
+                    novas_cols[col] = 'Nº de ordenação'
+                elif 'texto' in c_norm and 'medida' in c_norm:
+                    novas_cols[col] = 'Texto medida'
+                elif 'descri' in c_norm:
+                    novas_cols[col] = 'Descrição'
+
+            df_m = df_m.rename(columns=novas_cols)
             df_m['Nota'] = df_m['Nota'].dropna().astype(int).astype(str).str.strip()
 
             _UN_DENOMS = {"POSTE", "TRANSFORMADOR", "TRANSF", "TRAFO", "SUBST", "CHAVE",
