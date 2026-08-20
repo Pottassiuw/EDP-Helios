@@ -67,18 +67,24 @@ export function Rateio({ dados, estadoFiltros, onClearFilters, recarregar }: Rat
     localStorage.setItem('sap_user', val);
   };
 
-  // Checa se há filtros ativos do painel restringindo a exibição
+  // Helper robusto para comparar valores divergentes de medição
+  const ehDivergente = React.useCallback((val: unknown): boolean => {
+    if (val === null || val === undefined) return false;
+    const str = String(val).trim().toLowerCase();
+    return str === 'não' || str === 'nao';
+  }, []);
+
+  // Checa se há filtros ativos de busca ou coluna no painel restringindo a exibição
   const temFiltrosAtivos = React.useMemo(() => {
     if (!estadoFiltros) return false;
     return (
       (estadoFiltros.busca ?? '').trim() !== '' ||
       (estadoFiltros.filtros ?? []).some((f) => (f.valores?.length ?? 0) > 0) ||
-      estadoFiltros.somente2026 ||
       Boolean(estadoFiltros.mostrarOcultas)
     );
   }, [estadoFiltros]);
 
-  // Base filtrada pelo estado de filtros (ex: somente2026)
+  // Base filtrada pelo estado de filtros (ex: busca, somente2026)
   const registrosBase = React.useMemo(() => {
     if (!estadoFiltros || ignorarFiltrosPainel) return dados.registros;
     return filtrarRegistros(dados.registros, estadoFiltros);
@@ -123,10 +129,8 @@ export function Rateio({ dados, estadoFiltros, onClearFilters, recarregar }: Rat
 
     filhasPorMae.forEach((filhas, maeId) => {
       const maeRow = dados.registros.find((r) => String(r.Numero_Nota) === maeId);
-      if (!maeRow) return;
-
-      const grupo = [maeRow, ...filhas];
-      const temDivergencia = grupo.some((r) => r.Medida_vs_Planejado === 'Não');
+      const grupo = maeRow ? [maeRow, ...filhas] : filhas;
+      const temDivergencia = grupo.some((r) => ehDivergente(r.Medida_vs_Planejado));
       if (temDivergencia) {
         maes.add(maeId);
       }
@@ -135,7 +139,7 @@ export function Rateio({ dados, estadoFiltros, onClearFilters, recarregar }: Rat
     return {
       notasMaesComDivergencia: Array.from(maes).sort((a, b) => Number(a) - Number(b)),
     };
-  }, [ativasComMae, dados.registros]);
+  }, [ativasComMae, dados.registros, ehDivergente]);
 
   // Lista de Mães com pendência
   const notasMaesUnicas = notasMaesComDivergencia;
@@ -322,8 +326,8 @@ export function Rateio({ dados, estadoFiltros, onClearFilters, recarregar }: Rat
 
   // 3. ABA DE REFERÊNCIA INDIVIDUAL
   const dfDivergentes = React.useMemo(() => {
-    return ativas.filter((r) => r.Medida_vs_Planejado === 'Não');
-  }, [ativas]);
+    return ativas.filter((r) => ehDivergente(r.Medida_vs_Planejado));
+  }, [ativas, ehDivergente]);
 
   const [buscaInd, setBuscaInd] = React.useState('');
   const [selecionadasInd, setSelecionadasInd] = React.useState<Set<number>>(new Set());
