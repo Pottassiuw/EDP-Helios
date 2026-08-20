@@ -1,16 +1,21 @@
 @echo off
-setlocal
+setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
-if not exist "venv\Scripts\python.exe" (
-    echo [ERRO] venv nao encontrado em backend\venv. Rode primeiro:
-    echo     python -m venv venv
-    echo     venv\Scripts\python.exe -m pip install -r requirements-sap-robot.txt
+set "PYTHON_EXE="
+if exist "%~dp0.venv\Scripts\python.exe" set "PYTHON_EXE=%~dp0.venv\Scripts\python.exe"
+if not defined PYTHON_EXE if exist "%~dp0venv\Scripts\python.exe" set "PYTHON_EXE=%~dp0venv\Scripts\python.exe"
+if not defined PYTHON_EXE if exist "%~dp0..\.venv\Scripts\python.exe" set "PYTHON_EXE=%~dp0..\.venv\Scripts\python.exe"
+
+if not defined PYTHON_EXE (
+    echo [ERRO] Ambiente virtual .venv nao encontrado no backend. Rode primeiro:
+    echo     python -m venv .venv
+    echo     .venv\Scripts\python.exe -m pip install -r requirements-sap-robot.txt
     pause
     exit /b 1
 )
 
-if not exist "credenciais.json" (
+if not exist "%~dp0credenciais.json" (
     echo [ERRO] backend\credenciais.json nao encontrado.
     echo Copie credenciais.json.example para credenciais.json e preencha LOGIN_SAP/SENHA_SAP.
     pause
@@ -18,8 +23,8 @@ if not exist "credenciais.json" (
 )
 
 set PYTHONIOENCODING=utf-8
-venv\Scripts\python.exe Sap_Robot.py
+"!PYTHON_EXE!" "%~dp0Sap_Robot.py"
 
 echo.
-echo --- Robo finalizado (codigo de saida: %ERRORLEVEL%) ---
+echo --- Robo finalizado (codigo de saida: !ERRORLEVEL!) ---
 pause

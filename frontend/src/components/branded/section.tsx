@@ -101,7 +101,7 @@ export function Banner({ tipo, className, children }: {
 }): React.JSX.Element {
   return (
     <div
-      role="status"
+      role={tipo === 'err' ? 'alert' : 'status'}
       className={cn(
         'flex items-center gap-[10px] rounded-app-sm border-l-[3px] px-[14px] py-[10px] text-[13px]',
         BANNER_TIPO[tipo],
@@ -115,7 +115,7 @@ export function Banner({ tipo, className, children }: {
 
 export interface SegTab<T extends string> {
   id: T;
-  rotulo: string;
+  rotulo: React.ReactNode;
 }
 
 /** Abas segmentadas com sublinhado. Envolve o ToggleGroup do shadcn para
@@ -132,7 +132,7 @@ export function SegTabs<T extends string>({ tabs, value, onChange, ariaLabel }: 
     <ToggleGroup
       type="single"
       value={value}
-      variant="outline"
+      variant="default"
       className="gap-[2px]! shadow-none!"
       aria-label={ariaLabel}
       onValueChange={(v) => { if (v) onChange(v as T); }}
@@ -141,7 +141,7 @@ export function SegTabs<T extends string>({ tabs, value, onChange, ariaLabel }: 
         <ToggleGroupItem
           key={t.id}
           value={t.id}
-          className="mr-4! ml-0! my-0! rounded-none! border-0! border-b-2! border-b-transparent! bg-transparent! px-[2px]! py-2! text-[13px] text-text-mute shadow-none! hover:text-text-dim data-[state=on]:border-b-accent! data-[state=on]:text-text!"
+          className="mr-4! ml-0! my-0! rounded-none! border-0! border-b-2! border-b-transparent! bg-transparent! hover:bg-transparent! px-[2px]! py-2! text-[13px] font-medium text-text-mute shadow-none! hover:text-text data-[state=on]:bg-transparent! data-[state=on]:border-b-accent! data-[state=on]:text-text!"
         >
           {t.rotulo}
         </ToggleGroupItem>

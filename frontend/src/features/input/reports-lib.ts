@@ -79,6 +79,9 @@ export function calcularSLA(n: NotaInput): SLADados {
     if (desvio === 0) {
       return { nota: n, statusSLA: 'No Prazo', desvio: 0, textoDesvio: 'No Prazo' };
     }
+    if (desvio === 1) {
+      return { nota: n, statusSLA: 'No Prazo', desvio: 1, textoDesvio: 'No Prazo (+1m tolerância)' };
+    }
     if (desvio < 0) {
       return { nota: n, statusSLA: 'Adiantado', desvio, textoDesvio: `Antecipado (${Math.abs(desvio)}m)` };
     }

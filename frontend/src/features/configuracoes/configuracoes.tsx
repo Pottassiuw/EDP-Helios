@@ -21,7 +21,7 @@ export function ConfiguracoesPage(): React.JSX.Element {
     <div className="h-full overflow-y-auto">
       <div className="mx-auto w-full max-w-2xl px-6 py-8 md:px-8">
         <div className="mb-6">
-          <PageHeader title="Configurações" subtitle="Aparência e preferências do EDP Verify." />
+          <PageHeader title="Configurações" subtitle="Aparência e preferências do EDP-Helios." />
         </div>
 
         <div className="flex flex-col gap-4">

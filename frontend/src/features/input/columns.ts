@@ -7,53 +7,53 @@ export interface ColunaDef {
   opcoes?: 'status' | 'prioridade' | 'mes';
 }
 
-/** Colunas do painel na ordem original (Input/app.py:172-179) com os rótulos
- *  amigáveis do export (Input/app.py:67-84 / config.py MAP_FILTROS). */
+/** Colunas do painel na ordem especificada (Regional, Nº Nota, Nota Mãe, Observação, etc.). */
 export const COLUNAS: ColunaDef[] = [
   { key: 'Regional', label: 'Regional' },
   { key: 'Numero_Nota', label: 'Nº Nota (ID)', numeric: true, largura: 110 },
-  { key: 'Ordem', label: 'Ordem SAP', largura: 120 },
+  { key: 'Nota_Mae', label: 'Nota Mãe', largura: 110 },
+  { key: 'Observacao', label: 'Observação', editavel: true, largura: 260 },
   { key: 'Conjunto', label: 'Conjunto', editavel: true },
   { key: 'Circuito', label: 'Circuito', editavel: true },
   { key: 'Local_Instalacao', label: 'Local Instalação', editavel: true, largura: 170 },
   { key: 'Planejado_DDPM', label: 'Planejado', numeric: true, editavel: true },
+  { key: 'Medida_SAP', label: 'Medida SAP' },
+  { key: 'Medida_vs_Planejado', label: 'Medida vs Planejado' },
   { key: 'Mes_Execucao_Planejado', label: 'Mês Execução Planejado', editavel: true, opcoes: 'mes', largura: 170 },
-  { key: 'Data_Nota_SAP', label: 'Data Nota SAP', largura: 120 },
+  { key: 'Data_Nota_SAP', label: 'Data Programada SAP', largura: 140 },
+  { key: 'Comparacao_Data_SAP', label: 'Comparação Data SAP', largura: 150 },
   { key: 'Data_Envio_Projeto', label: 'Data Envio Projeto', editavel: true },
-  { key: 'Centro_Responsavel', label: 'Centro Responsável' },
+  { key: 'Centro_Responsavel', label: 'Centro de Trabalho Responsável', largura: 210 },
   { key: 'Prioridade_Nota', label: 'Prioridade Nota', editavel: true, opcoes: 'prioridade' },
   { key: 'Status_Nota', label: 'Status Nota', editavel: true, opcoes: 'status', largura: 180 },
   { key: 'Cidade', label: 'Cidade' },
-  { key: 'Observacao', label: 'Observação', editavel: true, largura: 260 },
   { key: 'CJ_Aneel', label: 'Cj. Aneel' },
   { key: 'substacao_conjunto', label: 'Subestação Conj' },
-  { key: 'Conj.critico', label: 'Conj. Crítico' },
+  { key: 'Conj.critico', label: 'Conjunto Crítico' },
   { key: 'ranking', label: 'Ranking', numeric: true },
   { key: 'Check', label: 'Check', editavel: true },
   { key: 'Export_status', label: 'Export Status' },
   { key: 'Status_Final', label: 'Status Final' },
   { key: 'Status_Anterior', label: 'Status Anterior' },
+  { key: 'Ordem', label: 'Ordem', largura: 120 },
   { key: 'Status_Usuário_Ordem', label: 'Status Usuário Ordem' },
   { key: 'Status_Sistema', label: 'Status Sistema' },
   { key: 'Total_planejado_ordem', label: 'Total Planejado Ordem (R$)', numeric: true },
   { key: 'Total_real_ordem', label: 'Total Real Ordem (R$)', numeric: true },
   { key: 'Exec_percentagem_ordem', label: 'Exec %', numeric: true },
-  { key: 'Ordem_Executada', label: 'Ordem Exec.' },
+  { key: 'Ordem_Executada', label: 'Ordem Executada' },
   { key: 'Modular', label: 'Modular (R$)', numeric: true },
-  { key: 'Total_planejado_modular', label: 'Total Planejado Modular (R$)', numeric: true },
+  { key: 'Total_planejado_modular', label: 'Total Planejado Modular', numeric: true },
   { key: 'Regional_CSD', label: 'Regional CSD' },
   { key: 'N_Clientes_Conjunto', label: 'Nº Clientes Conjunto', numeric: true },
   { key: 'CHI', label: 'CHI', numeric: true },
-  { key: 'CI', label: 'CI', numeric: true },
+  { key: 'CI', label: 'CIH', numeric: true },
   { key: 'Ocorrencia', label: 'Ocorrências', numeric: true },
   { key: 'DEC', label: 'DEC', numeric: true },
   { key: 'FEC', label: 'FEC', numeric: true },
   { key: 'CHI_Conj', label: 'CHI Conjunto', numeric: true },
   { key: 'Equipamento_Protecao', label: 'DIS Proteção' },
   { key: 'DEC_PROG_CHI', label: 'DEC Prog. CHI', numeric: true },
-  { key: 'Medida_SAP', label: 'Medida SAP' },
-  { key: 'Medida_vs_Planejado', label: 'Medida vs Planejado' },
-  { key: 'Nota_Mae', label: 'Nota Mãe', numeric: true },
 ];
 
 export const ROTULOS: Record<string, string> =
@@ -79,7 +79,18 @@ export const FILTROS_MULTI = [
   'Circuito', 'Medida_SAP', 'Medida_vs_Planejado'
 ];
 
-/** Colunas da colagem em massa, na ordem (Input/app.py:674-679). */
-export const COLUNAS_COLAGEM = ['Numero_Nota', 'Status_Nota', 'Prioridade_Nota',
-  'Planejado_DDPM', 'Conjunto', 'Circuito', 'Local_Instalacao',
-  'Mes_Execucao_Planejado', 'Data_Envio_Projeto', 'Observacao', 'Check'];
+/** Colunas da colagem em massa, na ordem. */
+export const COLUNAS_COLAGEM = [
+  'Numero_Nota',
+  'Nota_Mae',
+  'Observacao',
+  'Status_Nota',
+  'Prioridade_Nota',
+  'Planejado_DDPM',
+  'Conjunto',
+  'Circuito',
+  'Local_Instalacao',
+  'Mes_Execucao_Planejado',
+  'Data_Envio_Projeto',
+  'Check',
+];

@@ -8,7 +8,16 @@ import re as _re
 import tempfile
 import threading
 from typing import Optional
-from input_module.status10_service import obter_resumo_status10, gerar_email_outlook_status10
+from input_module.status10_service import (
+    obter_resumo_status10,
+    gerar_email_outlook_status10,
+    extrair_sap_status10,
+)
+from input_module.notificacoes_service import (
+    obter_resumo_alteracoes_diarias,
+    gerar_email_outlook_engenheiro,
+    gerar_todos_emails_outlook,
+)
 
 import pandas as pd
 from fastapi import (APIRouter, BackgroundTasks, Depends, File, Header,
@@ -16,7 +25,7 @@ from fastapi import (APIRouter, BackgroundTasks, Depends, File, Header,
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from input_module import config, db, engine, metas, relatorios
+from input_module import config, db, engine, metas, relatorios, sap_sync
 from input_module.service import (NotasDuplicadasErro, NovaNota, criar_notas,
                                   garantir_banco, pos_escrita, resetar_migracao,
                                   executar_correcao_medidas)
@@ -30,8 +39,69 @@ def _df_para_registros(df: pd.DataFrame) -> list:
 
 @router.get("/me")
 def quem_sou_eu():
-    usuario = os.environ.get("USERNAME") or os.environ.get("USER") or "sistema"
-    return {"usuario": usuario}
+    return {"usuario": config.usuario_windows()}
+
+
+def usuario_atual(x_user: Optional[str] = Header(None)) -> str:
+    """Extrai o usuário do header X-User ou fallback para config.usuario_windows()."""
+    if x_user and x_user.strip():
+        return x_user.strip()
+    return config.usuario_windows()
+
+
+# ── Responsáveis e E-mails ───────────────────────────────────────────────────
+@router.get("/responsaveis")
+def obter_responsaveis():
+    garantir_banco()
+    return db.carregar_responsaveis()
+
+
+@router.put("/responsaveis")
+def gravar_responsaveis(novo: dict[str, str], usuario: str = Depends(usuario_atual)):
+    garantir_banco()
+    db.salvar_responsaveis(novo)
+    return {"ok": True}
+
+
+@router.get("/responsaveis/emails")
+def obter_emails_responsaveis():
+    garantir_banco()
+    return db.carregar_emails_responsaveis()
+
+
+@router.put("/responsaveis/emails")
+def gravar_emails_responsaveis(novo: dict[str, str], usuario: str = Depends(usuario_atual)):
+    garantir_banco()
+    db.salvar_emails_responsaveis(novo)
+    return {"ok": True}
+
+
+# ── Notificações Diárias aos Engenheiros ───────────────────────────────────────
+class PedidoNotificacao(BaseModel):
+    engenheiro: str = "__todos__"
+    data: Optional[str] = None
+
+
+@router.get("/notificacoes/resumo-diario")
+def notificacoes_resumo_diario(data: Optional[str] = None):
+    garantir_banco()
+    return obter_resumo_alteracoes_diarias(data_referencia=data)
+
+
+@router.post("/notificacoes/enviar-email")
+def notificacoes_enviar_email(pedido: PedidoNotificacao, usuario: str = Depends(usuario_atual)):
+    garantir_banco()
+    if pedido.engenheiro == "__todos__":
+        resultado = gerar_todos_emails_outlook(data_referencia=pedido.data, usuario=usuario)
+    else:
+        resultado = gerar_email_outlook_engenheiro(
+            engenheiro=pedido.engenheiro,
+            data_referencia=pedido.data,
+            usuario=usuario,
+        )
+    if not resultado.get("ok"):
+        raise HTTPException(400, detail=resultado.get("mensagem", "Falha ao gerar e-mail"))
+    return resultado
 
 
 @router.get("/notas")
@@ -55,6 +125,7 @@ def listar_notas(request: Request, response: Response):
             "colunas": config.COLUNAS_PAINEL,
             "versao": versao,
             "sincronizando": engine.esta_sincronizando_rede(),
+            "sap": sap_sync.estado(),
         },
     }
 
@@ -66,6 +137,7 @@ def sync():
         "ultima_alteracao": db.obter_data_ultima_alteracao(),
         "versao": db.obter_versao_dataset(),
         "sincronizando": engine.esta_sincronizando_rede(),
+        "sap": sap_sync.estado(),
     }
 
 
@@ -143,6 +215,7 @@ class LotePedido(BaseModel):
 
 class ExclusaoPedido(BaseModel):
     numeros: list[int]
+    motivo: Optional[str] = None
 
 
 class ExportPedido(BaseModel):
@@ -193,7 +266,7 @@ def criar_lote(pedido: LotePedido, tasks: BackgroundTasks,
 def excluir_notas(pedido: ExclusaoPedido, tasks: BackgroundTasks,
                   usuario: str = Depends(usuario_atual)):
     garantir_banco()
-    excluidas = db.deletar_notas(pedido.numeros, usuario=usuario)
+    excluidas = db.deletar_notas(pedido.numeros, usuario=usuario, motivo=pedido.motivo)
     if excluidas:
         pos_escrita(tasks)
     return {"excluidas": excluidas}
@@ -252,25 +325,12 @@ def exportar(pedido: ExportPedido):
     )
 
 
-# ── Tarefa 7: configuração (responsáveis, bases, backups, migração) ───────────
+# ── Tarefa 7: configuração (bases, backups, migração) ─────────────────────────
 def _achar_base(nome_arquivo: str) -> str:
     for caminho in config.BASES_APOIO.values():
         if os.path.basename(caminho) == nome_arquivo:
             return caminho
     raise HTTPException(404, f"Base '{nome_arquivo}' não é gerenciada pelo sistema.")
-
-
-@router.get("/responsaveis")
-def obter_responsaveis():
-    garantir_banco()
-    return db.carregar_responsaveis()
-
-
-@router.put("/responsaveis")
-def gravar_responsaveis(novo: dict[str, str], usuario: str = Depends(usuario_atual)):
-    garantir_banco()
-    db.salvar_responsaveis(novo)
-    return {"ok": True}
 
 
 @router.get("/bases")
@@ -326,6 +386,7 @@ def _importar_base_para_sqlite(nome_arquivo: str, caminho: str,
         "Indicador base conjunto - Limite Aneel.xlsx": "base_indicador_continuidade",
         "Gerada_base_IW28.XLSX": "base_iw28",
         "Gerada_custo_ord_IW38.XLSX": "base_iw38",
+        "Gerada_ord_IW38.XLSX": "base_iw38",
         "Gerada_medidas_IW66.XLSX": "base_iw66",
         "Clientes_Conjunto.xlsx": "base_clientes",
     }
@@ -446,6 +507,7 @@ def _rotina_sap_background():
         engine.invalidar_status_bases()
     except Exception as e:
         print(f"Erro na execução em background do SAP: {e}")
+        raise
 
 
 
@@ -453,8 +515,22 @@ def _rotina_sap_background():
 def sync_sap(tasks: BackgroundTasks, x_user: Optional[str] = Header(default="Sistema", alias="X-User"), payload: dict = Body(None)):
     """Inicia a extração SAP em background."""
     garantir_banco()
-    tasks.add_task(_rotina_sap_background)
-    return {"mensagem": "Sincronização SAP iniciada em background."}
+    try:
+        estado = sap_sync.reservar()
+    except sap_sync.SapSyncEmAndamento as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    tasks.add_task(sap_sync.executar, _rotina_sap_background)
+    return {
+        "mensagem": "Sincronização SAP iniciada em background.",
+        "sap": estado,
+    }
+
+
+@router.get("/bases/sync-sap/status")
+def sync_sap_status():
+    """Estado exclusivo da execução SAP, sem inferir estado por outra operação."""
+    garantir_banco()
+    return {"sap": sap_sync.estado()}
 
 
 @router.post("/bases/{nome_arquivo}")
@@ -693,11 +769,20 @@ def rateio_executar(
         raise HTTPException(500, f"Erro ao executar robô SAP: {e}")
 
 
-# ── Status 10 Relatório e E-mail ──────────────────────────────────────────────
+# ── Status 10 Relatório, Extração SAP e E-mail ────────────────────────────────
 @router.get("/status10/resumo")
 def status10_resumo():
     garantir_banco()
     return obter_resumo_status10()
+
+
+@router.post("/status10/extrair-sap")
+def status10_extrair_sap():
+    garantir_banco()
+    resultado = extrair_sap_status10()
+    if not resultado.get("ok", False):
+        raise HTTPException(500, detail=resultado.get("mensagem", "Erro na extração SAP"))
+    return resultado
 
 
 @router.post("/status10/enviar-email")

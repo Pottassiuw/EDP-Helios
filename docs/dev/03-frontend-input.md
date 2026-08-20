@@ -14,18 +14,20 @@ enquanto o usuário está com a tela aberta.
 
 | Arquivo | Responsabilidade |
 |---|---|
-| `frontend/src/features/input/input-section.tsx` | Casca da feature: cabeçalho, `SegTabs` das sub-abas (`INPUT_SUBS`), banners de aviso (dados desatualizados, importação inicial pendente, bases ausentes), roteamento condicional para o componente de cada sub-aba e renderização do bloco unificado de filtros avançados no topo para as sub-abas de Visão Geral e Gerenciar. |
-| `frontend/src/features/input/overview.tsx` | Sub-aba "Visão Geral": mantém a DataGrid somente-leitura e abre `InputNotaInspector` por ação acessível; também reúne os botões "Sincronizar SAP" e "Exportar Excel", o status de vínculos automáticos (`useAutoVinculos`) e o `HierarquiaCard`. |
-| `frontend/src/features/input/manage.tsx` | Sub-aba "Gerenciar": cinco modos (Edição Rápida, Edição em Lote, Exclusão, Cadastrar Nota, Colar Planilha) sobre a base principal, cada um operando via `NotesTable`. |
+| `frontend/src/features/input/input-section.tsx` | Casca da feature: cabeçalho, `SegTabs` das sub-abas (`INPUT_SUBS`), banners de aviso (dados desatualizados, importação inicial pendente, bases ausentes), roteamento condicional para o componente de cada sub-aba e renderização do bloco unificado de filtros avançados no topo. |
+| `frontend/src/features/input/overview.tsx` | Sub-aba "Visão Geral": absorveu a antiga sub-aba "Gerenciar" (`manage.tsx`, removida) como o modo interno `modo` (`visao`/`rapida`/`lote`/`colagem`) sobre `NotesTable`/`DataGrid`; abre `InputNotaInspector` por ação acessível e reúne os botões "Sincronizar SAP", "Inserir em Massa" e "Exportar Excel". Cadastro, notificação, exclusão e ocultação de notas viraram modais dedicados (`cadastro-modal.tsx`, `notificacao-modal.tsx`, `exclusao-modal.tsx`, `ocultacao-modal.tsx`) — não documentados em detalhe aqui ainda. |
 | `frontend/src/features/input/ramal.tsx` | Equivalente a `manage.tsx` para a base "Ramal" (dataset separado, `useRamalData`), com um modo "Visão Geral" a mais (via `DataGrid`). |
 | `frontend/src/features/input/filters.tsx` | Componente `Filters`: busca global por número de nota, switch rápido para o ano de 2026 e filtros avançados por campo (texto, faixa numérica, multi-seleção), unificado no nível de `input-section.tsx` e compartilhado entre as abas. |
+| `frontend/src/features/input/empty-state.tsx` | Contrato compartilhado de estados vazios para base sem registros ou resultado sem correspondências após filtros, incluindo ação opcional de limpar filtros. |
 | `frontend/src/features/input/reports.tsx` | Sub-aba "Relatórios" (Painel Executivo): Permite navegar entre três relatórios interativos: "Auditoria de Prazos" (KPIs, cronograma, gráfico de rosca SVG), "Visão Financeira (Custos)" (totais, regional e status em barras de progresso) e "Em Planejamento (Status 10)" (backlog de planejamento, priorização e distribuição regional). Todos usam filtros avançados via `MultiSelect` e exportação customizada para Excel. |
 | `frontend/src/features/input/reports-lib.ts` | Regras puras compartilhadas pela tela de relatórios para interpretar o ano de encerramento e calcular a aderência ao cronograma (SLA), isoladas da renderização para permitir testes focados. |
 | `frontend/src/features/input/rateio.tsx` | Sub-aba de rateio SAP: mantém o fluxo hierárquico/individual, validações e execução do robô; as regras puras de status, normalização de nota-mãe e unidade foram extraídas para `rateio-lib.ts`. |
 | `frontend/src/features/input/rateio-lib.ts` | Regras puras testáveis do rateio: identifica notas ativas, valida/normaliza notas-mãe e extrai quantidade/unidade de medidas SAP. |
 | `frontend/src/features/input/logs.tsx` | Sub-aba "Logs": três sub-abas (Alterações nas Notas, Bases de Apoio, Linha do Tempo), cada uma consumindo um endpoint próprio via `useQuery`. |
 | `frontend/src/features/input/settings.tsx` | Sub-aba "Configurações": nome do usuário (log de auditoria), responsáveis por conjunto, status/substituição das bases de apoio, lista de backups locais para download. |
-| `frontend/src/features/input/notes-table.tsx` | Tabela windowed (virtualização manual por `scrollTop`) usada nos modos editáveis/selecionáveis de `manage.tsx`/`ramal.tsx`: seleção por checkbox, edição inline por duplo clique, ordenação por coluna. Se recebe `bloqueios`/`onIniciarEdicao`, mostra um badge de cadeado na linha travada por outro usuário e intercepta o clique de edição para travar a nota antes de abrir a célula. |
+| `frontend/src/features/input/notes-table.tsx` | Tabela windowed (virtualização manual por `scrollTop`, `ALTURA_LINHA = 40`) usada dentro de `overview.tsx`/`ramal.tsx`: seleção por checkbox, edição inline por duplo clique, ordenação por coluna, suporte à navegação por teclado (Setas Cima/Baixo para focar linha, Esquerda/Direita para recolher/expandir gavetinhas e Enter para inspecionar) e proteção contra ciclos circulares na árvore de hierarquia mãe/filha. Se recebe `bloqueios`/`onIniciarEdicao`, mostra um badge de cadeado na linha travada por outro usuário e intercepta o clique de edição para travar a nota antes de abrir a célula. O indicador de gavetinha (Nota Mãe → Filhas) é um botão de 18×18px com chevron + contador mono (`×N`) na linha-mãe; as filhas recebem uma linha-guia de árvore (traço vertical + conector horizontal) em vez de um ícone por linha. |
+| `frontend/src/features/input/notes-table-skeleton.tsx` | `NotesTableSkeleton`: linhas-fantasma (`animate-pulse`) na largura aproximada das colunas reais, usada como estado de carregamento em `input-section.tsx` e `ramal.tsx` no lugar de um spinner genérico. |
+| `frontend/src/features/input/rateio.tsx` | Sub-aba "Rateio de Medidas": módulo dedicado para visualização e distribuição balanceada de medidas físicas (km / un) entre grupos hierárquicos de Notas Mães e Filhas com divergência, ações rápidas (Ratear Proporcionalmente, Concentrar na Mãe, Restaurar Original), conferência matemática de saldos e gravação direta no SAP via robô SAP. |
 | `frontend/src/features/input/use-bloqueios.ts` | `useBloqueios`: polling React Query de `GET /bloqueios` a cada 60s em repouso e 15s enquanto há edição com lock ativo. Sem cache em disco; devolve um `Map<Numero_Nota, Bloqueio>` e `recarregar` para invalidar imediatamente após travar/destravar. |
 | `frontend/src/features/input/hierarquia-card.tsx` | Card de vínculo manual de hierarquia (nota-mãe/notas-filhas): busca a hierarquia de uma nota, lista candidatas órfãs do mesmo conjunto e aplica o vínculo (`InputApi.vincularHierarquia`). |
 | `frontend/src/features/input/data-grid.tsx` | Grid somente-leitura estilo Excel sobre `react-datasheet-grid`: ordenação, redimensionamento/autofit de colunas por arraste, barra de status com soma/média/contagem da seleção e a ação de detalhes fixa criada por `stickyRightColumn`, fora de `COLUNAS` e da exportação. |
@@ -34,17 +36,39 @@ enquanto o usuário está com a tela aberta.
 | `frontend/src/features/input/use-input-sync.ts` | Fonte única de polling de `GET /sync` por aba Input montada: 60s em repouso e 3s somente quando `sincronizando=true`; detecta mudança de versão, invalida o dataset, expõe erro/retry ao cabeçalho e mantém o aviso de fechamento durante operação ativa. |
 | `frontend/src/features/input/network-sync-status.tsx` | Card apresentacional do cabeçalho para os quatro estados da rede: verificando, sincronizando, sincronizada e indisponível. |
 | `frontend/src/features/input/cache.ts` | Snapshots do dataset em IndexedDB via Dexie (tabela `snapshots`, uma linha por dataset: `input-dados`, `ramal-dados`). Best-effort: falha de IndexedDB equivale a cache vazio. |
-| `frontend/src/features/input/ui.ts` | Constantes de estilo compartilhadas: `CLASSE_SELECT_MONO` para `SelectContent` mono-styling, usada por `filters.tsx`, `manage.tsx` e `ramal.tsx`. Nota: `MesExecucaoPicker` (agora em `components/branded/`) declara sua própria instância internamente. |
-| `frontend/src/components/branded/mes-execucao-picker.tsx` | `MesExecucaoPicker`: dropdown do campo "Mês de Execução Planejado", movido para `components/branded/` para reutilização entre features (Input e futura integração COFFEE). |
+| `frontend/src/components/branded/mes-execucao-picker.tsx` | `MesExecucaoPicker`: dropdown do campo "Mês de Execução Planejado", movido para `components/branded/` para reutilização entre features (Input e futura integração COFFEE). Continua declarando sua própria fonte mono internamente (`CLASSE_SELECT_MONO` local) — não foi alterado pela revisão de consistência abaixo, por ser compartilhado com COFFEE/Carteira. |
 | `frontend/src/features/input/colagem-planilha.tsx` | `ColagemPlanilha`: bloco presentacional do modo "Colar Planilha" (cabeçalho de colunas + textarea + preview), reaproveitado por `manage.tsx` e `ramal.tsx`. |
+
+## Contrato de estado vazio e feedback dinâmico
+
+`empty-state.tsx` define o contrato tipado compartilhado por Visão Geral,
+Gerenciar e Ramal. `getInputEmptyState(sourceCount, visibleCount)` retorna
+exatamente `'dataset'` quando `sourceCount === 0`, `'filter'` quando a base tem
+registros mas `visibleCount === 0`, e `null` quando há linhas visíveis. Visão
+Geral e Gerenciar usam `dados.registros.length` como `sourceCount`; Ramal usa a
+quantidade da base Ramal antes de aplicar os filtros compartilhados.
+
+`InputEmptyStateProps` é uma união discriminada: `{ state: 'dataset';
+onClearFilters?: never }` ou `{ state: 'filter'; onClearFilters?: () => void }`.
+Assim, o estado de base realmente vazia nunca oferece uma ação de filtros. O
+estado filtrado mostra "Limpar filtros" somente quando o pai fornece o callback.
+`InputSection` é o dono dessa ação e redefine o estado para
+`FILTROS_INICIAIS`; os consumidores apenas a repassam. Quando o helper retorna
+`null`, as instâncias existentes de `NotesTable`/`DataGrid` continuam montadas
+sem alteração em seleção ou navegação por teclado.
+
+Feedback dinâmico usa o live region implícito do próprio papel, sem
+`aria-live` redundante: carregamento e sincronização usam `role="status"`;
+falhas de carregamento/backend e `Banner tipo="err"` usam `role="alert"`;
+`Banner tipo="ok"` usa `role="status"`.
 
 ## Fluxo: Overview e sub-navegação
 
-As seis sub-abas do módulo vivem em `INPUT_SUBS`
+As sub-abas do módulo vivem em `INPUT_SUBS`
 (`features/input/subs.ts`, módulo leve que o `app-sidebar.tsx` importa
-sem puxar a feature pro bundle inicial): Visão Geral, Gerenciar, Ramal,
+sem puxar a feature pro bundle inicial): Notas Gerais, Rateio de Medidas, Ramal,
 Relatórios, Logs e Configurações, renderizadas pelo `SegTabs`
-(`input-section.tsx:51`). O estado da aba ativa (`sub`/`setSub`) chega
+(`input-section.tsx:86`). O estado da aba ativa (`sub`/`setSub`) chega
 via props — quem decide e persiste a aba ativa é o componente pai, o
 mesmo padrão do hub COFFEE documentado em `02-frontend-coffee.md`.
 `InputSection` em si só busca os dados (`useInputData`,
@@ -219,6 +243,15 @@ Cada filtro adicionado renderiza um controle conforme o tipo (`tipoDoCampo`):
 
 O botão de limpar filtros zera a busca global, o seletor "Planejado 2026" e os filtros avançados ativos de uma só vez.
 
+A busca global mantém o texto do campo responsivo e propaga `estado.busca`
+após 300ms sem novas teclas, usando o helper tipado de
+`src/lib/debounce.ts`. `buscarPorTextoGlobal` (`lib.ts`) memoiza o índice pela
+identidade do array de registros: consultas numéricas continuam casando
+`Numero_Nota` ou `Nota_Mae`, enquanto consultas textuais verificam cada campo
+individualmente, sem criar correspondências artificiais entre campos vizinhos.
+Os filtros avançados, inclusive a negação `*termo*`, são aplicados depois da
+busca global e conservam a semântica anterior.
+
 ## Card de status das metas (settings.tsx)
 
 `Settings` mostra o card "Metas do Plano de Recomposição" acima dos
@@ -230,6 +263,28 @@ query já cacheada com `staleTime` de 60s) — **nunca** do
 `InputApi.sincronizarMetas()` dentro de um `toast.promise` e, no
 sucesso, invalida `['relatorios-dashboard']` via `useQueryClient` —
 o dashboard de Relatórios (se montado) refaz o fetch automaticamente.
+
+## Relatórios Executivos (reports.tsx)
+
+O painel de Relatórios (`reports.tsx`) oferece 3 visões consolidadas:
+
+1. **Aderência ao Plano (`prazos`)**:
+   - Consolidação unificada de auditoria de datas de encerramento SAP com índice de aderência ao plano/cronograma.
+   - **Regra de Tolerância (+1 mês)**: notas com encerramento até 1 mês após o planejado são contabilizadas como **No Prazo**. Notas concluídas antes são sempre **Adiantadas**, e com 2+ meses são **Com Atraso**.
+   - **Atraso Acumulado**: Exibe a métrica total somada de todos os meses em atraso real (inclusive o 1º mês) para gestão transparente de dívida temporal.
+   - **Guia de Flags**: Banner informativo integrado explicando as regras de cada status e tolerâncias.
+   - KPIs consolidados: Total Auditadas, Índice de Aderência (%), Atraso Acumulado (meses), Média de Desvio Real, Adiantadas, No Prazo (+1m), Com Atraso (≥2m), Pendentes Atrasadas e Passíveis de Encerramento.
+   - Gráfico de rosca de status geral lado a lado com barras de progresso de distribuição de desvios em meses.
+   - Filtros avançados combinados (Filtro Rápido, Ano de Encerramento, Mês Planejado, Resultado da Auditoria, Status SLA e Regional).
+   - Tabela e exportação Excel unificadas (`Aderencia_ao_Plano_{data}.xlsx`).
+2. **Visão Financeira (`financas`)**:
+   - Diferencia explicitamente **volume físico** (`Planejado_DDPM` em unidades/postes) de **valores monetários em R$** (`Total_planejado_modular`, `Total_planejado_ordem` e `Total_real_ordem`).
+   - Apresenta KPIs e barras de progresso por Regional e por Status em R$ Modular e unidades físicas.
+   - Tabela analítica completa com custos unitários modulares e ordens SAP.
+3. **Em Planejamento - Status 10 (`planejamento`)**:
+   - Integração com automação SAP: botão **"Extrair do SAP (Status 10)"** dispara a extração em lote no SAP GUI (`POST /api/input/status10/extrair-sap`) cruzando IW28 (status 10) e IW38 (custos de ordem).
+   - Botão **"Disparar E-mail Status 10"** abre rascunho formatado no Outlook para envio aos engenheiros.
+   - Tabela analítica detalhada com colunas enriquecidas (`Ordem`, `Status_Usuario`, `PEP`, `Custo_Plan`, `Modular`, `Modular_Obra`, `Criado_Por`, `Data_Nota`, etc.).
 
 ## Sincronização SAP
 
@@ -327,25 +382,13 @@ o Input em si não guarda essa informação.
   de edição em lote precisa lembrar de repetir esse mapeamento
   manualmente, não há um wrapper compartilhado que resolva isso uma
   vez.
-- `manage.tsx:124,132` — a exclusão em lote e o "desfazer" usam
-  `window.confirm` nativo, diferente do `ConfirmModal` (`AlertDialog`)
-  usado no módulo COFFEE pela Operação e por Concluídas (documentado em
-  `02-frontend-coffee.md`) para o mesmo tipo de ação destrutiva —
-  inconsistência de padrão de UI entre módulos, sem campo de
-  justificativa nem estilo consistente com o resto do app.
-- `overview.tsx:58-66` — o botão "Sincronizar SAP" não guarda estado de
-  "em andamento": nada impede múltiplos cliques disparando várias
-  sincronizações em paralelo no backend, diferente do botão "Exportar
-  Excel" logo ao lado, que usa `exportando` para se desabilitar
-  (`overview.tsx:25,67-70`).
-- `app.css` (bloco `.input-scope`) — os cards do módulo Input usam a
-  borda `--line` (hairline discreto) em vez de `--line-2` (usada em
-  todo o resto do app), e os `Select` internos renderizam em
-  `var(--font-mono)`. Escopado via classe `input-scope` na raiz de
-  `input-section.tsx` para não vazar para Coffee/Verificar. O mono nos
-  `Select` é um desvio deliberado do `DESIGN.md` (que reserva mono
-  para código) — decisão explícita para casar com a estética "grade de
-  dados" do Input. `MesExecucaoPicker` (agora em `components/branded/`)
-  já declara `CLASSE_SELECT_MONO` internamente; qualquer outro novo
-  `SelectContent` do módulo precisa lembrar de aplicá-la manualmente,
-  pois o conteúdo é portalado para fora de `.input-scope`.
+- `app.css` (bloco `.input-scope`) — os cards do módulo Input usam
+  `border-color: var(--line-2)`, igual ao resto do app. O `Select`
+  interno voltou à fonte padrão (Inter) em `filters.tsx`, `manage.tsx`
+  e `ramal.tsx` — a fonte mono (`CLASSE_SELECT_MONO`, revisão de
+  consistência visual) saiu tanto do CSS quanto de `ui.ts` (arquivo
+  removido). `MesExecucaoPicker` (`components/branded/`) é a única
+  exceção: mantém sua própria mono internamente por ser compartilhado
+  com COFFEE/Carteira, então o campo "Mês de Execução Planejado" ainda
+  mostra o trigger em Inter com o popup em mono quando usado dentro do
+  Input.

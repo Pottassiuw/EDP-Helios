@@ -58,6 +58,13 @@ function CelulaDetalhes({
 }
 
 function textoCelula(v: Celula | undefined, c: ColunaDef): string {
+  if (c.key === "Nota_Mae") {
+    const s = String(v ?? "").trim();
+    if (!s || s === "-" || s === "." || s === "0" || s === "0.0" || s.toLowerCase() === "none" || s.toLowerCase() === "nan") {
+      return "-";
+    }
+    return s.endsWith(".0") ? s.slice(0, -2) : s;
+  }
   if (!c.numeric) return String(v ?? "");
   return c.key === "Numero_Nota" || c.key === "ranking"
     ? formatarNumero(v ?? null, 0, false)
@@ -197,17 +204,90 @@ export function DataGrid({
     return Math.max(160, Math.min(altura, calculada));
   }, [registros.length, altura]);
 
-  const alternar = React.useCallback((campo: string) => {
-    const cont = wrapRef.current?.querySelector(".dsg-container") as HTMLElement | null;
-    scrollRef.current = cont ? { left: cont.scrollLeft, top: cont.scrollTop } : null;
+  const garantirSelecaoVisivel = React.useCallback(
+    (selection: SelecaoRetangulo | null) => {
+      if (!selection || !wrapRef.current) return;
+      const cont = wrapRef.current.querySelector(".dsg-container") as HTMLElement | null;
+      if (!cont) return;
 
-    setOrdem((o) => {
-      if (!o || o.campo !== campo) return { campo, asc: true };
-      if (o.asc) return { campo, asc: false };
-      return null;
-    });
-    setRemontar((n) => n + 1);
-  }, []);
+      const gutterWidth = 70;
+      const stickyRightWidth = onOpenDetails ? 44 : 0;
+      const margemSeguranca = 20;
+
+      // 1. Cálculo de colunas horizontais
+      const colWidths = colunas.map((c) => larguras[c.key] ?? c.largura ?? LARGURA_PADRAO);
+
+      const minCol = Math.max(0, Math.min(selection.min.col, colWidths.length - 1));
+      const maxCol = Math.max(0, Math.min(selection.max.col, colWidths.length - 1));
+
+      let selLeft = gutterWidth;
+      for (let i = 0; i < minCol; i++) {
+        selLeft += colWidths[i];
+      }
+      let selRight = selLeft;
+      for (let i = minCol; i <= maxCol; i++) {
+        selRight += colWidths[i];
+      }
+
+      const currentScrollLeft = cont.scrollLeft;
+      const clientWidth = cont.clientWidth;
+      const visibleLeft = currentScrollLeft + gutterWidth;
+      const visibleRight = currentScrollLeft + clientWidth - stickyRightWidth;
+
+      if (selRight > visibleRight - margemSeguranca) {
+        cont.scrollLeft = Math.max(0, selRight - clientWidth + stickyRightWidth + margemSeguranca);
+      } else if (selLeft < visibleLeft + margemSeguranca) {
+        cont.scrollLeft = Math.max(0, selLeft - gutterWidth - margemSeguranca);
+      }
+
+      // 2. Cálculo de linhas verticais
+      const selTop = selection.min.row * ALTURA_LINHA;
+      const selBottom = (selection.max.row + 1) * ALTURA_LINHA;
+
+      const currentScrollTop = cont.scrollTop;
+      const clientHeight = cont.clientHeight;
+      const headerHeight = 35;
+      const scrollbarHeight = 18;
+      const visibleTop = currentScrollTop;
+      const visibleBottom = currentScrollTop + clientHeight - headerHeight - scrollbarHeight;
+
+      if (selBottom > visibleBottom - margemSeguranca) {
+        cont.scrollTop = Math.max(0, selBottom - clientHeight + headerHeight + scrollbarHeight + margemSeguranca);
+      } else if (selTop < visibleTop + margemSeguranca) {
+        cont.scrollTop = Math.max(0, selTop - margemSeguranca);
+      }
+    },
+    [colunas, larguras, onOpenDetails],
+  );
+
+  const garantirColunaVisivel = React.useCallback(
+    (key: string) => {
+      const idx = colunas.findIndex((x) => x.key === key);
+      if (idx !== -1) {
+        garantirSelecaoVisivel({
+          min: { col: idx, row: 0 },
+          max: { col: idx, row: 0 },
+        });
+      }
+    },
+    [colunas, garantirSelecaoVisivel],
+  );
+
+  const alternar = React.useCallback(
+    (campo: string) => {
+      const cont = wrapRef.current?.querySelector(".dsg-container") as HTMLElement | null;
+      scrollRef.current = cont ? { left: cont.scrollLeft, top: cont.scrollTop } : null;
+
+      setOrdem((o) => {
+        if (!o || o.campo !== campo) return { campo, asc: true };
+        if (o.asc) return { campo, asc: false };
+        return null;
+      });
+      setRemontar((n) => n + 1);
+      garantirColunaVisivel(campo);
+    },
+    [garantirColunaVisivel],
+  );
 
   const onResizeDrag = React.useCallback((clientX: number) => {
     const rect = wrapRef.current?.getBoundingClientRect();
@@ -242,9 +322,11 @@ export function DataGrid({
   const ordenados = React.useMemo(() => ordenar(registros, ordem), [registros, ordem]);
 
   const aoSelecionar = React.useCallback(
-    (opts: { selection: SelecaoRetangulo | null }) =>
-      setResumo(calcularSelecao(ordenados, colunas, opts.selection)),
-    [ordenados, colunas],
+    (opts: { selection: SelecaoRetangulo | null }) => {
+      setResumo(calcularSelecao(ordenados, colunas, opts.selection));
+      garantirSelecaoVisivel(opts.selection);
+    },
+    [ordenados, colunas, garantirSelecaoVisivel],
   );
 
   const cols = React.useMemo(
@@ -280,18 +362,18 @@ export function DataGrid({
 
   const detailsColumn = React.useMemo<
     SimpleColumn<NotaInput, DetalhesColumnData> | undefined
-    >(() => (
+  >(() => (
     onOpenDetails
       ? {
-          title: <span className="sr-only">Detalhes</span>,
-          component: CelulaDetalhes,
-          columnData: { onOpenDetails },
-          basis: 44,
-          minWidth: 44,
-          maxWidth: 44,
-          grow: 0,
-          shrink: 0,
-        }
+        title: <span className="sr-only">Detalhes</span>,
+        component: CelulaDetalhes,
+        columnData: { onOpenDetails },
+        basis: 44,
+        minWidth: 44,
+        maxWidth: 44,
+        grow: 0,
+        shrink: 0,
+      }
       : undefined
   ), [onOpenDetails]);
 
