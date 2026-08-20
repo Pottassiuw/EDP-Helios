@@ -609,3 +609,83 @@ def test_falha_de_geracao_retorna_para_pronta(coffee_operation_tmp):
     item = db.listar_itens_operacao()[0]
     assert item["etapa"] == "pronta"
     assert item["erro"] == "timeout"
+
+
+def test_rota_consultar_lote_nao_toca_a_fila_operacional(operation_client):
+    resposta = operation_client.post(
+        "/api/coffee/operacao/consultar-lote",
+        json={"ids": [201]},
+    )
+    assert resposta.status_code == 200
+    job = _aguardar(resposta.json()["job_id"])
+    assert job["tipo"] == "consulta_leitura"
+    assert job["resultados"] == [{
+        "pk": 201,
+        "id_sap": None,
+        "classificacao": "nao_gerada",
+        "ja_na_operacao": False,
+        "elegivel": True,
+        "local_instalacao": None,
+        "erro": None,
+    }]
+    quadro = operation_client.get("/api/coffee/operacao").json()
+    assert quadro["itens"] == []
+
+
+def test_consulta_leitura_marca_nota_ja_na_operacao_como_nao_elegivel(
+    operation_client,
+):
+    operation_service.adicionar_entradas([201], "avulsa", "seed")
+    operation_service.aplicar_consulta(
+        201, _nota(201, None), "avulsa", "seed"
+    )
+    resposta = operation_client.post(
+        "/api/coffee/operacao/consultar-lote",
+        json={"ids": [201]},
+    )
+    job = _aguardar(resposta.json()["job_id"])
+    assert job["resultados"][0]["ja_na_operacao"] is True
+    assert job["resultados"][0]["elegivel"] is False
+
+
+def test_consulta_leitura_marca_sap_real_como_nao_elegivel(operation_client):
+    from coffee_module import client as client_module
+
+    def _com_sap(ident):
+        return _nota(int(ident), 17259425, alimentador="ABC01")
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(client_module, "buscar_nota", _com_sap)
+        resposta = operation_client.post(
+            "/api/coffee/operacao/consultar-lote",
+            json={"ids": [301]},
+        )
+        job = _aguardar(resposta.json()["job_id"])
+
+    assert job["resultados"][0]["id_sap"] == 17259425
+    assert job["resultados"][0]["classificacao"] == "gerada"
+    assert job["resultados"][0]["elegivel"] is False
+
+
+def test_consulta_leitura_falha_individual_vira_linha_de_erro(
+    operation_client, monkeypatch,
+):
+    from coffee_module import client as client_module
+
+    def _falha(ident):
+        if int(ident) == 401:
+            raise client_module.NotaNaoEncontradaErro(ident)
+        return _nota(int(ident), None)
+
+    monkeypatch.setattr(client_module, "buscar_nota", _falha)
+    resposta = operation_client.post(
+        "/api/coffee/operacao/consultar-lote",
+        json={"ids": [401, 402]},
+    )
+    job = _aguardar(resposta.json()["job_id"])
+
+    por_pk = {item["pk"]: item for item in job["resultados"]}
+    assert por_pk[401]["erro"] is not None
+    assert por_pk[401]["elegivel"] is False
+    assert por_pk[402]["erro"] is None
+    assert por_pk[402]["elegivel"] is True

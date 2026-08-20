@@ -1,13 +1,12 @@
 import React from 'react';
 import { Plus, Search } from 'lucide-react';
-import { Eyebrow } from '@/components/branded/section';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 
 export interface ParsedIds {
   ids: number[];
   invalidos: string[];
-  repetidos: number;
+  repetidos: number[];
 }
 
 export function parseCoffeeIds(value: string): ParsedIds {
@@ -16,50 +15,91 @@ export function parseCoffeeIds(value: string): ParsedIds {
     .filter((token) => /^\d+$/.test(token) && Number(token) > 0)
     .map(Number);
   const ids = [...new Set(validos)];
+  const ocorrencias = new Map<number, number>();
+  validos.forEach((id) => ocorrencias.set(id, (ocorrencias.get(id) ?? 0) + 1));
 
   return {
     ids,
     invalidos: tokens.filter(
       (token) => !/^\d+$/.test(token) || Number(token) <= 0,
     ),
-    repetidos: validos.length - ids.length,
+    repetidos: [...ocorrencias.entries()]
+      .filter(([, vezes]) => vezes > 1)
+      .map(([id]) => id),
   };
 }
 
+interface ComposerFeedbackProps {
+  parsed: ParsedIds;
+  jaNaOperacao: number;
+}
+
+/** Pura: renderiza a contagem de válidos e um chip por token exato de
+ * repetido/inválido, dado um ParsedIds já calculado. Extraída de
+ * OperacaoComposer pra poder ser testada diretamente com um `parsed`
+ * arbitrário (ver a nota de testes no cabeçalho da Task 6 do plano). */
+export function ComposerFeedback({ parsed, jaNaOperacao }: ComposerFeedbackProps): React.JSX.Element {
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-[6px] text-xs text-text-mute">
+      <span className="font-medium text-text">{parsed.ids.length} válidos</span>
+      {parsed.repetidos.map((id) => (
+        <span key={`rep-${id}`} className="rounded-full bg-tint-amber px-[9px] py-[3px] font-mono text-[11px] text-amber">
+          repetido: {id}
+        </span>
+      ))}
+      {parsed.invalidos.map((token, indice) => (
+        <span key={`inv-${indice}-${token}`} className="rounded-full bg-tint-red px-[9px] py-[3px] font-mono text-[11px] text-red">
+          inválido: {token}
+        </span>
+      ))}
+      {jaNaOperacao > 0 && (
+        <span className="text-amber">{jaNaOperacao} já na operação</span>
+      )}
+    </div>
+  );
+}
+
 interface OperacaoComposerProps {
-  pending: boolean;
-  /** IDs já presentes na Operação (fila/pronta/processando/aguardando SAP),
-   * pra avisar antes de consultar de novo. Omitido quando o quadro ainda não
-   * carregou. */
+  pendingConsulta: boolean;
+  pendingAdicionar: boolean;
+  /** IDs já presentes na Operação, pra avisar antes de enfileirar de novo.
+   * Omitido quando o quadro ainda não carregou. */
   idsNaOperacao?: Set<number>;
   onConsultar: (ids: number[]) => Promise<void>;
+  onAdicionarFila: (ids: number[]) => Promise<void>;
 }
 
 export function OperacaoComposer({
-  pending,
+  pendingConsulta,
+  pendingAdicionar,
   idsNaOperacao,
   onConsultar,
+  onAdicionarFila,
 }: OperacaoComposerProps): React.JSX.Element {
-  const [open, setOpen] = React.useState(false);
   const [value, setValue] = React.useState('');
   const [erro, setErro] = React.useState<string | null>(null);
   const parsed = React.useMemo(() => parseCoffeeIds(value), [value]);
   const jaNaOperacao = idsNaOperacao
     ? parsed.ids.filter((id) => idsNaOperacao.has(id)).length
     : 0;
-
-  function fechar(): void {
-    setOpen(false);
-    setValue('');
-    setErro(null);
-  }
+  const pending = pendingConsulta || pendingAdicionar;
 
   async function consultar(): Promise<void> {
     if (parsed.ids.length === 0 || pending) return;
     setErro(null);
     try {
       await onConsultar(parsed.ids);
-      fechar();
+    } catch (error) {
+      setErro(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function adicionarFila(): Promise<void> {
+    if (parsed.ids.length === 0 || pending) return;
+    setErro(null);
+    try {
+      await onAdicionarFila(parsed.ids);
+      setValue('');
     } catch (error) {
       setErro(error instanceof Error ? error.message : String(error));
     }
@@ -68,64 +108,47 @@ export function OperacaoComposer({
   function onKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>): void {
     if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
       event.preventDefault();
-      void consultar();
+      void adicionarFila();
     }
   }
 
-  if (!open) {
-    return (
-      <Button size="sm" onClick={() => setOpen(true)}>
-        <Plus /> Adicionar notas
-      </Button>
-    );
-  }
-
   return (
-    <section className="w-full max-w-xl rounded-[11px] border border-line bg-surface p-4">
-      <Eyebrow asChild>
-        <label htmlFor="coffee-operation-ids">IDs COFFEE</label>
-      </Eyebrow>
-      <p className="mt-1 text-xs text-text-mute">
-        Cole os IDs separados por espaço, vírgula, ponto e vírgula ou linha.
-        Só números positivos e únicos seguem para a consulta.
-      </p>
-      <Textarea
-        id="coffee-operation-ids"
-        value={value}
-        onChange={(event) => { setValue(event.target.value); setErro(null); }}
-        onKeyDown={onKeyDown}
-        placeholder={'101\n102\n103'}
-        rows={8}
-        aria-invalid={erro !== null}
-        className="mt-3 min-h-40 max-h-72 resize-y overflow-y-auto font-mono"
-        disabled={pending}
-      />
-      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-mute">
-        <span className="font-medium text-text">{parsed.ids.length} válidos</span>
-        <span>{parsed.repetidos} repetidos</span>
-        <span>{parsed.invalidos.length} inválidos</span>
-        {jaNaOperacao > 0 && (
-          <span className="text-amber">{jaNaOperacao} já na operação</span>
-        )}
+    <section className="flex flex-col gap-[9px] border-b border-line bg-bg-2 px-[22px] py-[14px]">
+      <div className="flex items-start gap-[10px]">
+        <Textarea
+          value={value}
+          onChange={(event) => { setValue(event.target.value); setErro(null); }}
+          onKeyDown={onKeyDown}
+          placeholder="Cole IDs — espaço, vírgula ou linha"
+          aria-label="IDs COFFEE"
+          rows={2}
+          aria-invalid={erro !== null}
+          className="min-h-[52px] flex-1 resize-none font-mono text-[12.5px]"
+          disabled={pending}
+        />
+        <div className="flex shrink-0 flex-col gap-[6px]">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={parsed.ids.length === 0 || pending}
+            onClick={() => void consultar()}
+          >
+            <Search /> {pendingConsulta ? 'Consultando…' : 'Consultar'}
+          </Button>
+          <Button
+            size="sm"
+            disabled={parsed.ids.length === 0 || pending}
+            onClick={() => void adicionarFila()}
+          >
+            <Plus /> {pendingAdicionar ? 'Adicionando…' : 'Adicionar à fila'}
+          </Button>
+        </div>
       </div>
+      <ComposerFeedback parsed={parsed} jaNaOperacao={jaNaOperacao} />
       {erro && (
-        <p role="alert" className="mt-2 text-xs text-red">
-          {erro}
-        </p>
+        <p role="alert" className="text-xs text-red">{erro}</p>
       )}
-      <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
-        <span className="mr-auto text-[11px] text-text-mute">Ctrl+Enter para consultar</span>
-        <Button variant="ghost" size="sm" disabled={pending} onClick={fechar}>
-          Cancelar
-        </Button>
-        <Button
-          size="sm"
-          disabled={parsed.ids.length === 0 || pending}
-          onClick={() => void consultar()}
-        >
-          <Search /> {pending ? 'Consultando…' : 'Consultar'}
-        </Button>
-      </div>
+      <span className="text-[11px] text-text-mute">Ctrl+Enter adiciona à fila</span>
     </section>
   );
 }

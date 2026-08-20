@@ -14,7 +14,7 @@ renderiza uma de cinco seções por `SegTabs`:
 
 - **Verificar** — lê a triagem diretamente do `Verificar.db` e encaminha notas para a fila COFFEE.
 - **Abrir** — abre IDs manualmente no COFFEE; a lista fica no navegador.
-- **Operação** — o Kanban da fila ativa.
+- **Operação** — lista ordenável da fila ativa, com consulta somente-leitura separada do enfileiramento.
 - **Concluídas** — histórico separado de notas geradas e corrigidas.
 - **Logs** — auditoria filtrável das ações e chamadas de integração.
 
@@ -25,8 +25,10 @@ renderiza uma de cinco seções por `SegTabs`:
 | `coffee-hub.tsx` | Cabeçalho, navegação das cinco subseções e handoffs de Verificar/Relatórios. |
 | `operacao/coffee-operacao.tsx` | Orquestra quadro, seleção em lote, confirmações, inspector e ações da fila. |
 | `operacao/use-coffee-operacao.ts` | Query do quadro e mutations de consultar, gerar, atualizar SAP e remover. |
-| `operacao/components/operacao-composer.tsx` | Entrada de IDs; informa válidos, repetidos e inválidos antes da consulta. |
-| `operacao/components/operacao-kanban.tsx` | Quatro colunas responsivas, sem drag and drop: Fila, Prontas, Processando e Aguardando SAP. |
+| `operacao/components/operacao-composer.tsx` | Barra sempre visível (sem expandir/recolher) com dois botões — `Consultar` (somente leitura) e `Adicionar à fila` (enfileira); mostra chips com o token exato de repetidos/inválidos, não só a contagem. |
+| `operacao/components/operacao-lista.tsx` | Lista ordenável (Atualização/Prioridade); cada linha mostra a jornada da nota via `operacao-stepper.tsx`, sem colunas fixas. |
+| `operacao/components/operacao-stepper.tsx` | Mini-stepper de 5 nós (Fila/Pronta/Processando/Aguardando SAP + nó fantasma "Concluída"), reutilizado por `nota-operacao-row.tsx`. |
+| `operacao/components/operacao-consulta-resultado.tsx` | Painel recolhível com o resultado da consulta somente-leitura: resumo por contagem, lista com altura travada, `+ Fila` por linha e "Selecionar todas elegíveis". |
 | `components/coffee-nota-inspector.tsx` | Ficha lateral da nota com resumo, card read-only da Carteira, atividade, edição de local e ações contextuais. |
 | `concluidas/coffee-concluidas.tsx` | Histórico, filtros, arquivamento de geradas e movimento de corrigidas para o Plano. |
 | `concluidas/concluidas-api.ts` | Consulta e exportação do conjunto filtrado de concluídas. |
@@ -36,35 +38,38 @@ renderiza uma de cinco seções por `SegTabs`:
 | `confirm-modal.tsx` | Confirmação com justificativa obrigatória quando a ação exige auditoria. |
 | `mover-plano-modal.tsx` | Formulário de integração com o Plano do Input. |
 
-## Operação: Kanban persistido
+## Operação: lista persistida
 
-O botão **Adicionar notas** abre o composer na própria página
-(`operacao-composer.tsx`): textarea grande (8 linhas, `resize-y`,
-`overflow-y-auto` até a altura máxima), texto auxiliar sobre o formato e
-contadores de válidos/repetidos/inválidos/já-na-operação enquanto o usuário
-digita. IDs separados por espaço, vírgula, ponto e vírgula ou linha são
-analisados antes de enviar; somente números positivos e únicos seguem para
-`POST /api/coffee/operacao/consultar`. O composer só limpa o texto e fecha
-depois que a consulta é *aceita* pelo backend — uma falha mantém o conteúdo
-e mostra o erro embutido no painel, sem fechar silenciosamente. Ctrl+Enter
-consulta; Enter sozinho só quebra linha (é uma textarea).
+O **composer** é uma barra sempre visível no topo da página (`operacao-composer.tsx`):
+textarea compacta (2 linhas) com dois botões de ação. IDs são separados por espaço,
+vírgula, ponto e vírgula ou linha; enquanto o usuário digita, aparecem chips mostrando
+o token exato de cada ID repetido ou inválido (não apenas uma contagem). Números
+positivos e únicos são validados localmente; **Ctrl+Enter** ou clicar em **Adicionar à fila**
+enfileira os IDs; clicar em **Consultar** abre o painel de consulta somente-leitura.
 
-Depois que o job de consulta termina, um toast resume o resultado real
-(`resumo-job.ts: resumoJobConsulta`) — quantas notas ficaram prontas,
-aguardando SAP, em processamento, foram ignoradas (já em estado final) ou
-falharam — em vez de só "Consulta iniciada". O backend expõe essa contagem
-em `por_etapa` no snapshot do job de consulta (`jobs.py:
-_rodar_consulta_operacao`).
+O botão **Consultar** dispara uma consulta somente-leitura (`POST /api/coffee/operacao/consultar-lote`),
+que abre um painel recolhível de resultado (`operacao-consulta-resultado.tsx`) abaixo do
+composer. O painel mostra um resumo por contagem (elegiveis, concluídas, já na operação,
+erros) e uma lista com altura travada (`max-h-[336px]`) — cada linha exibe o ID, local
+de instalação e status. IDs elegíveis mostram um botão "+ Fila"; concluídas mostram o
+SAP com um botão de copiar; em operação mostram um badge de confirmação. Um checkbox
+"Selecionar todas elegíveis" permite bulk-select, com um botão "Adicionar à fila de
+geração" que enfileira os selecionados via `POST /api/coffee/operacao/consultar`.
 
-O Kanban não permite arrastar cards. A API e a máquina de estados definem a
-etapa de cada item:
+O botão **Adicionar à fila** (sempre visível no composer) enfileira IDs digitados
+diretamente sem abrir o painel de consulta somente-leitura — equivale ao comportamento
+anterior de `consulta é aceita` que limpava e fechava. Uma falha mantém o texto no
+composer e mostra o erro embutido, sem fechar silenciosamente.
 
-| Coluna | Significado | Ações principais |
-|---|---|---|
-| Fila | Consulta em andamento ou nota que precisa de nova tentativa. | Reconsultar ou remover. |
-| Prontas para gerar | Nota elegível e sem SAP real. | Gerar, editar local, remover. |
-| Processando | Geração em andamento. | Acompanhar no card e no inspector. |
-| Aguardando SAP | Placeholder `10000000`; falta consultar o SAP real. | Atualizar SAP ou remover. |
+A **lista operacional** (`operacao-lista.tsx`) ordena itens por Atualização (padrão) ou
+Prioridade (via dropdown). Cada linha é uma `nota-operacao-row.tsx` que mostra o ID,
+local, um mini-stepper (`operacao-stepper.tsx`) e seleção/ações. O mini-stepper de 5 nós
+mostra a jornada da nota: **Fila** → **Pronta** → **Processando** → **Aguardando SAP**
+(todos reais) + um nó tracejado fantasma **Concluída** (inerte, sai do quadro ao gerar).
+A API e a máquina de estados definem a etapa de cada item; não há drag-and-drop. Cada
+linha tem um checkbox de seleção e um botão que abre a ficha de detalhes da nota
+(`CoffeeNotaInspector`); não há botões de ação por linha — gerar, reconsultar, atualizar
+SAP e remover ficam na `OperacaoBatchBar`, orientada pela seleção, e/ou na ficha.
 
 `useCoffeeOperacao` consulta `['coffee', 'operacao']` e faz refetch a cada
 800 ms somente enquanto houver operação com estado `rodando`. O quadro vem do

@@ -50,7 +50,7 @@ export function OperacaoBatchBar({
           size="sm"
           onClick={() => onSelectColumn(columnIds)}
         >
-          <ListChecks /> Selecionar coluna
+          <ListChecks /> Selecionar etapa
         </Button>
       )}
       {etapa === 'fila' && (

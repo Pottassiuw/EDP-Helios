@@ -439,6 +439,21 @@ def consultar_operacao(
     return {"job_id": job_id}
 
 
+@router.post("/operacao/consultar-lote")
+def consultar_operacao_lote(
+    pedido: OperacaoIdsPedido,
+    usuario: Optional[str] = Depends(usuario_coffee),
+):
+    _garantir_banco()
+    ids = _validar_ids(pedido.ids)
+    job_id = jobs.iniciar_consulta_leitura(
+        ids,
+        trace=db.trace_atual(),
+        usuario=usuario,
+    )
+    return {"job_id": job_id}
+
+
 @router.post("/operacao/gerar")
 def gerar_operacao(
     pedido: OperacaoIdsPedido,

@@ -12,8 +12,10 @@ import { formatRelativeTime } from '../format';
 import type { NotaRevisao } from '../types';
 import { OperacaoBatchBar } from './components/operacao-batch-bar';
 import { OperacaoComposer } from './components/operacao-composer';
-import { OperacaoKanban } from './components/operacao-kanban';
+import { OperacaoConsultaResultado } from './components/operacao-consulta-resultado';
+import { OperacaoLista } from './components/operacao-lista';
 import { aguardarJobOperacao, useCoffeeOperacao } from './use-coffee-operacao';
+import { useConsultaLeitura } from './use-consulta-leitura';
 import { resumoJobConsulta } from './resumo-job';
 
 const LEGACY_ROWS_KEY = 'edp_coffee_gerar_rows';
@@ -33,6 +35,7 @@ export function CoffeeOperacao({
     atualizarSap,
     remover,
   } = useCoffeeOperacao();
+  const consultaLeitura = useConsultaLeitura();
   const [selected, setSelected] = React.useState<Set<number>>(new Set());
   const [selectedPk, setSelectedPk] = React.useState<number | null>(null);
   const [pendingRemoval, setPendingRemoval] = React.useState<number[] | null>(null);
@@ -107,6 +110,17 @@ export function CoffeeOperacao({
     }
   }, [consultar]);
 
+  /** A consulta somente-leitura pode voltar interrompida (ex.: reinício do
+   * backend no meio do lote) — os resultados parciais ainda aparecem no
+   * painel, mas o usuário precisa saber que a consulta não terminou. */
+  React.useEffect(() => {
+    if (consultaLeitura.erro) {
+      toast.error('Consulta somente-leitura incompleta', {
+        description: consultaLeitura.erro,
+      });
+    }
+  }, [consultaLeitura.erro]);
+
   function clearSelection(): void {
     setSelected(new Set());
   }
@@ -178,6 +192,19 @@ export function CoffeeOperacao({
     aoConsultarComSucesso(ids, job_id);
   }
 
+  function handleConsultar(ids: number[]): Promise<void> {
+    return consultaLeitura.iniciar(ids).catch((error: unknown) => {
+      mutationError('consultar as notas', error);
+      throw error;
+    });
+  }
+
+  function handleAdicionarFilaDoResultado(ids: number[]): void {
+    consultarViaComposer(ids)
+      .then(() => consultaLeitura.removerDosResultados(ids))
+      .catch((error: unknown) => mutationError('adicionar essas notas à fila', error));
+  }
+
   function generate(ids: number[]): void {
     gerar.mutate(ids, {
       onSuccess: () => {
@@ -240,18 +267,30 @@ export function CoffeeOperacao({
         >
           <RefreshCw /> Atualizar pendentes
         </Button>
-        <OperacaoComposer
-          pending={consultar.isPending}
-          idsNaOperacao={idsNaOperacao}
-          onConsultar={consultarViaComposer}
-        />
       </header>
+      <OperacaoComposer
+        pendingConsulta={consultaLeitura.pending}
+        pendingAdicionar={consultar.isPending}
+        idsNaOperacao={idsNaOperacao}
+        onConsultar={handleConsultar}
+        onAdicionarFila={consultarViaComposer}
+      />
+      {consultaLeitura.resultados && (
+        <OperacaoConsultaResultado
+          resultados={consultaLeitura.resultados}
+          selecionados={consultaLeitura.selecionados}
+          onToggle={consultaLeitura.toggle}
+          onSelecionarTodasElegiveis={consultaLeitura.selecionarTodasElegiveis}
+          onAdicionarFila={handleAdicionarFilaDoResultado}
+          onFechar={consultaLeitura.fechar}
+        />
+      )}
       {quadro.isError && (
         <div className="border-b border-line px-[22px] py-3 text-sm text-red" role="alert">
           Não foi possível carregar a operação. Atualize a página para tentar novamente.
         </div>
       )}
-      <OperacaoKanban
+      <OperacaoLista
         itens={itens}
         jobs={quadro.data?.operacoes_ativas ?? []}
         selected={selected}
