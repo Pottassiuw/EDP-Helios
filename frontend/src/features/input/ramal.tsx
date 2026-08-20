@@ -516,7 +516,7 @@ export function Ramal({
         <React.Fragment>
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold flex items-center justify-between">
+              <CardTitle className="text-sm font-medium flex items-center justify-between">
                 <span>Edição em Lote — Selecione as notas ramal e defina os novos valores:</span>
                 <span className="font-mono text-xs font-normal text-text-mute">
                   {selecionados.size} nota(s) marcada(s)
@@ -673,12 +673,12 @@ export function Ramal({
         <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 p-3.5 bg-surface border border-accent/60 rounded-xl shadow-2xl animate-in slide-in-from-bottom-5">
           <div className="flex items-center gap-2 pr-2 border-r border-line">
             <span className="flex h-2.5 w-2.5 rounded-full bg-accent animate-pulse" />
-            <span className="text-xs font-semibold text-foreground">
+            <span className="text-xs font-medium text-foreground">
               {edicoes.size} nota(s) ramal alterada(s)
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <Button size="sm" disabled={salvando} onClick={salvarEdicoes} className="gap-1.5 h-8 text-xs font-semibold">
+            <Button size="sm" disabled={salvando} onClick={salvarEdicoes} className="gap-1.5 h-8 text-xs font-medium">
               {salvando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
               Salvar Alterações
             </Button>

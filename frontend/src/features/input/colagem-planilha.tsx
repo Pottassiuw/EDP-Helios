@@ -212,7 +212,7 @@ export function ColagemPlanilha({
           <div>
             <div className="flex items-center gap-2">
               <FileSpreadsheet className="h-5 w-5 text-accent" />
-              <CardTitle className="text-base font-bold text-foreground">{titulo}</CardTitle>
+              <CardTitle className="text-base font-medium text-foreground">{titulo}</CardTitle>
             </div>
             <CardDescription className="text-xs text-text-dim mt-0.5">
               Grade estruturada de notas. Preencha diretamente nas células ou cole (Ctrl+V) dados do Excel.
@@ -223,7 +223,7 @@ export function ColagemPlanilha({
             <Button
               variant="outline"
               size="sm"
-              className="h-8 text-xs font-semibold gap-1.5 border-line hover:border-accent"
+              className="h-8 text-xs font-medium gap-1.5 border-line hover:border-accent"
               onClick={copiarCabecalhoExcel}
               title="Copiar lista de colunas na ordem correta para usar no Excel"
             >
@@ -234,7 +234,7 @@ export function ColagemPlanilha({
             <Button
               variant="outline"
               size="sm"
-              className="h-8 text-xs font-semibold gap-1.5 border-line"
+              className="h-8 text-xs font-medium gap-1.5 border-line"
               onClick={() => setMostrarCaixaColagem(!mostrarCaixaColagem)}
             >
               <ClipboardPaste className="h-3.5 w-3.5 text-text-mute" />
@@ -302,7 +302,7 @@ export function ColagemPlanilha({
             <Table className="w-full border-collapse text-xs">
               <TableHeader className="bg-surface-2 sticky top-0 z-10 border-b border-line shadow-xs">
                 <TableRow className="hover:bg-transparent">
-                  <TableHead className="w-10 text-center font-mono text-[10px] text-text-mute font-bold">#</TableHead>
+                  <TableHead className="w-10 text-center font-mono text-[10px] text-text-mute font-medium">#</TableHead>
                   {colunasColagem.map((c) => {
                     const CAMPOS_OBRIGATORIOS = new Set([
                       'Numero_Nota',
@@ -318,13 +318,13 @@ export function ColagemPlanilha({
                     return (
                       <TableHead
                         key={c}
-                        className={`font-mono text-[11px] font-semibold tracking-wider uppercase whitespace-nowrap px-3 py-2 ${
+                        className={`font-mono text-[11px] font-medium tracking-wider uppercase whitespace-nowrap px-3 py-2 ${
                           destaque ? 'text-accent bg-accent/5' : 'text-text-mute'
                         }`}
                       >
                         <div className="flex items-center gap-1">
                           <span>{rotulos[c] ?? c}</span>
-                          {obrigatorio && <span className="text-red font-bold" title="Campo obrigatório">*</span>}
+                          {obrigatorio && <span className="text-red font-medium" title="Campo obrigatório">*</span>}
                         </div>
                       </TableHead>
                     );
@@ -365,9 +365,9 @@ export function ColagemPlanilha({
                             }
                             className={`h-7 text-xs px-2 rounded font-mono border-line/60 bg-surface focus-visible:bg-bg-2 focus-visible:ring-1 focus-visible:ring-accent ${
                               colKey === 'Numero_Nota' && !notaValida && linha.Numero_Nota.trim() !== ''
-                                ? 'border-red/60 text-red font-bold'
+                                ? 'border-red/60 text-red font-medium'
                                 : colKey === 'Nota_Mae' && ehFilha
-                                ? 'border-accent/50 text-accent font-semibold'
+                                ? 'border-accent/50 text-accent font-medium'
                                 : ''
                             }`}
                           />
@@ -397,7 +397,7 @@ export function ColagemPlanilha({
               <Button
                 variant="outline"
                 size="sm"
-                className="h-8 text-xs font-semibold gap-1 bg-surface border-line"
+                className="h-8 text-xs font-medium gap-1 bg-surface border-line"
                 onClick={() => adicionarLinhas(1)}
               >
                 <Plus className="h-3.5 w-3.5 text-accent" />
@@ -406,7 +406,7 @@ export function ColagemPlanilha({
               <Button
                 variant="outline"
                 size="sm"
-                className="h-8 text-xs font-semibold gap-1 bg-surface border-line"
+                className="h-8 text-xs font-medium gap-1 bg-surface border-line"
                 onClick={() => adicionarLinhas(5)}
               >
                 <Plus className="h-3.5 w-3.5 text-accent" />
@@ -432,7 +432,7 @@ export function ColagemPlanilha({
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <div className="flex items-center gap-2">
                 <GitBranch className="h-4 w-4 text-accent" />
-                <span className="text-xs font-semibold text-foreground">
+                <span className="text-xs font-medium text-foreground">
                   Notas Mães Detectadas na Planilha ({ajustesMaes.length})
                 </span>
               </div>
@@ -444,7 +444,7 @@ export function ColagemPlanilha({
                     onChange={(e) => onToggleDescontarMaes(e.target.checked)}
                     className="rounded border-line text-accent focus:ring-accent"
                   />
-                  <span className="font-semibold text-foreground">
+                  <span className="font-medium text-foreground">
                     Descontar medidas das Notas Mães automaticamente no banco de dados
                   </span>
                 </label>
@@ -457,11 +457,11 @@ export function ColagemPlanilha({
                   key={aj.numeroMae}
                   className="px-2.5 py-1.5 bg-surface rounded border border-line text-xs font-mono flex items-center gap-1.5"
                 >
-                  <span className="font-bold text-accent">Mãe #{aj.numeroMae}:</span>
+                  <span className="font-medium text-accent">Mãe #{aj.numeroMae}:</span>
                   <span className="text-text-mute">{aj.medidaAtual}</span>
                   <span>➔</span>
-                  <span className="font-bold text-foreground">{aj.novaMedida}</span>
-                  <span className="text-red font-semibold text-[11px]">(-{aj.deducao})</span>
+                  <span className="font-medium text-foreground">{aj.novaMedida}</span>
+                  <span className="text-red font-medium text-[11px]">(-{aj.deducao})</span>
                 </div>
               ))}
             </div>
@@ -488,7 +488,7 @@ export function ColagemPlanilha({
             disabled={salvando || totalPreenchidas === 0}
             onClick={onSalvar}
             size="sm"
-            className="h-9 px-5 text-xs font-semibold gap-1.5"
+            className="h-9 px-5 text-xs font-medium gap-1.5"
           >
             💾 {salvando ? 'Salvando...' : rotuloSalvar || `Salvar Lote (${totalPreenchidas})`}
           </Button>

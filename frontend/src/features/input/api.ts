@@ -80,7 +80,8 @@ export const InputApi = {
     req<{ ok: boolean }>('/responsaveis', escrita('PUT', mapa)),
 
   bases: () => req<{ bases: BaseStatus[] }>('/bases'),
-  syncSap: () => req<{ mensagem: string; sap: import('./types').SapSyncState }>('/bases/sync-sap', escrita('POST')),
+  syncSap: (credenciaisSap?: { login_sap: string; senha_sap: string }) =>
+    req<{ mensagem: string; sap: import('./types').SapSyncState }>('/bases/sync-sap', escrita('POST', credenciaisSap)),
   urlDownloadBase: (arquivo: string) => `${base()}/input/bases/${encodeURIComponent(arquivo)}/download`,
   substituirBase: async (arquivo: string, f: File): Promise<void> => {
     const usuario = getUsuario();

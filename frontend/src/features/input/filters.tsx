@@ -224,7 +224,7 @@ export function MultiSelect({
             <button
               type="button"
               onClick={selectAll}
-              className="font-semibold text-primary hover:opacity-80 cursor-pointer transition-opacity"
+              className="font-medium text-primary hover:opacity-80 cursor-pointer transition-opacity"
             >
               Selecionar tudo ({filtered.length})
             </button>
@@ -232,7 +232,7 @@ export function MultiSelect({
             <button
               type="button"
               onClick={deselectAll}
-              className="font-semibold text-text-mute hover:text-text cursor-pointer transition-colors"
+              className="font-medium text-text-mute hover:text-text cursor-pointer transition-colors"
             >
               Limpar filtro
             </button>
@@ -249,7 +249,7 @@ export function MultiSelect({
                 return (
                   <div key={group.year} className="flex flex-col gap-[2px] border-b border-line-2/40 pb-[4px]">
                     {/* Cabeçalho do Ano */}
-                    <div className="flex items-center justify-between w-full px-[6px] py-[4px] rounded-[4px] bg-bg-2/80 hover:bg-surface-2 text-[11.5px] font-semibold text-text-dim transition-colors group/year">
+                    <div className="flex items-center justify-between w-full px-[6px] py-[4px] rounded-[4px] bg-bg-2/80 hover:bg-surface-2 text-[11.5px] font-medium text-text-dim transition-colors group/year">
                       <button
                         type="button"
                         onClick={() => toggleYear(group.items)}
@@ -260,7 +260,7 @@ export function MultiSelect({
                             isYearFullySelected
                               ? "border-primary bg-primary text-primary-foreground"
                               : isYearPartial
-                              ? "border-primary bg-primary/20 text-primary font-bold"
+                              ? "border-primary bg-primary/20 text-primary font-medium"
                               : "border-line-2 bg-bg-2 group-hover/year:border-text-dim"
                           }`}
                         >
@@ -485,7 +485,7 @@ export function Filters({
           <Filter size={13} />
           <span>Filtros avançados</span>
           {estado.filtros.length > 0 && (
-            <span className="ml-[2px] bg-primary text-primary-foreground size-[16px] text-[10px] font-bold rounded-full flex items-center justify-center">
+            <span className="ml-[2px] bg-primary text-primary-foreground size-[16px] text-[10px] font-medium rounded-full flex items-center justify-center">
               {estado.filtros.length}
             </span>
           )}

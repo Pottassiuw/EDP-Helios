@@ -216,7 +216,7 @@ export function CadastroModal({
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <div className="flex items-center gap-2">
                 <GitBranch className="h-4 w-4 text-accent" />
-                <span className="text-xs font-semibold text-foreground">
+                <span className="text-xs font-medium text-foreground">
                   Vínculo com Nota Mãe #{notaMae.obj.Numero_Nota}
                 </span>
               </div>
@@ -235,21 +235,21 @@ export function CadastroModal({
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono bg-surface p-2 rounded border border-line">
               <div>
                 <span className="text-[10px] uppercase tracking-wider text-text-mute block">Regional / Cj:</span>
-                <span className="font-semibold text-foreground truncate block">
+                <span className="font-medium text-foreground truncate block">
                   {notaMae.obj.Regional} · {notaMae.obj.Conjunto}
                 </span>
               </div>
               <div>
                 <span className="text-[10px] uppercase tracking-wider text-text-mute block">Planejado Mãe:</span>
-                <span className="font-semibold text-foreground">{notaMae.medidaAtual}</span>
+                <span className="font-medium text-foreground">{notaMae.medidaAtual}</span>
               </div>
               <div>
                 <span className="text-[10px] uppercase tracking-wider text-text-mute block">Medida Filha:</span>
-                <span className="font-bold text-accent">{notaMae.medidaFilha}</span>
+                <span className="font-medium text-accent">{notaMae.medidaFilha}</span>
               </div>
               <div>
                 <span className="text-[10px] uppercase tracking-wider text-text-mute block">Nova Medida Mãe:</span>
-                <span className="font-bold text-green-600 dark:text-green-400">{notaMae.novaMedida}</span>
+                <span className="font-medium text-green-600 dark:text-green-400">{notaMae.novaMedida}</span>
               </div>
             </div>
 

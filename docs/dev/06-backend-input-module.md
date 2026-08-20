@@ -427,7 +427,7 @@ Router `/api/input` (prefixo). Todo endpoint de leitura/escrita chama
 | `POST /export` | Gera um `.xlsx` filtrado (linhas/colunas selecionadas) com nomes amigáveis. |
 | `GET /responsaveis`, `PUT /responsaveis` | Mapa Regional → responsável (JSON local). |
 | `GET /bases`, `GET /bases/{nome}/download`, `POST /bases/{nome}` | Lista/baixa/substitui as bases de apoio na rede (`config.BASES_APOIO`). O upload é atômico e só responde `200` se o import para o SQLite deu certo — ver "Upload atômico de bases" abaixo. |
-| `POST /bases/sync-sap` | Dispara a extração SAP em background — é o que o botão **"Sincronizar SAP"** do frontend chama (`InputApi.syncSap()`, ver [`03-frontend-input.md`](03-frontend-input.md)). Roda `Sap_Robot.py` num subprocesso, depois importa os três Excel gerados (IW28/IW38/IW66) para o SQLite via `_processar_upload_base` e invalida o cache do engine. |
+| `POST /bases/sync-sap` | Dispara a extração SAP em background — é o que o botão **"Executar Robô SAP"** em Configurações chama (`InputApi.syncSap()`, ver [`03-frontend-input.md`](03-frontend-input.md)). Aceita `{ login_sap, senha_sap }` opcional no corpo; se presente, repassa como variável de ambiente só para o subprocesso (nunca grava em disco/log) — se ausente, `Sap_Robot.py` cai no fallback `credenciais.json`. Roda `Sap_Robot.py` num subprocesso, depois importa os três Excel gerados (IW28/IW38/IW66) para o SQLite via `_processar_upload_base` e invalida o cache do engine. |
 | `GET /backups`, `GET /backups/{nome}/download` | Lista/baixa backups rotativos do banco de notas. |
 | `GET /ramal`, `POST /ramal/bulk`, `DELETE /ramal` | CRUD da tabela `notas_ramal` (obras de ramal, schema paralelo ao de `notas`). |
 | `POST /hierarquia`, `GET /hierarquia/{numero_nota}` | Vínculo nota-mãe/nota-filha (`Nota_Mae`), respeitando o bloqueio por nota e disparando o pós-escrita canônico. |
@@ -605,14 +605,24 @@ copy credenciais.json.example credenciais.json
 # edite credenciais.json com LOGIN_SAP/SENHA_SAP reais — nunca commitar esse arquivo
 ```
 
+`credenciais.json` só é obrigatório para a execução agendada/desatendida
+(abaixo). Quem dispara pelo app informa usuário/senha próprios a cada
+execução — não precisa desse arquivo.
+
 Duas formas de rodar:
 - **Clique duplo em `backend/Rodar_Sap_Robot.bat`** — checa venv/credenciais,
-  roda com o Python do venv, pausa no fim mostrando o resultado.
-- **Pelo app** — botão "Sincronizar SAP" do frontend chama `POST
+  roda com o Python do venv, pausa no fim mostrando o resultado. Sempre usa
+  `credenciais.json` (não passa por variável de ambiente).
+- **Pelo app** — botão "Executar Robô SAP" em Configurações chama `POST
   /api/input/bases/sync-sap`, que dispara `_rotina_sap_background` em
   background usando `sys.executable` (o mesmo Python do venv do backend, não
   o `python` genérico do PATH — precisa ser o venv com pywin32/pyperclip
-  instalados via `requirements-sap-robot.txt`).
+  instalados via `requirements-sap-robot.txt`). Se o request trouxer
+  `login_sap`/`senha_sap`, a rota injeta `LOGIN_SAP`/`SENHA_SAP` só no
+  ambiente desse subprocesso (nunca em disco); `Sap_Robot.py` lê essas
+  variáveis antes de tentar `credenciais.json` (Chapter 2 do script). Cada
+  engenheiro loga com o próprio usuário SAP dessa forma, mesmo com vários
+  usando o mesmo servidor.
 
 `requirements-sap-robot.txt` fica separado de `requirements.txt` porque
 `pywin32`/`pyperclip` são Windows-only e o backend web (FastAPI) não precisa

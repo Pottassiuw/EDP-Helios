@@ -39,40 +39,15 @@ CAMINHO_SAP_LOGON = r"C:\Program Files (x86)\SAP\FrontEnd\SAPgui\saplogon.exe"
 def obter_credenciais_sap() -> tuple[str, str]:
     """
     Obtém as credenciais do SAP com prioridade flexível e sem dependência obrigatória de arquivo:
-    1. Argumentos de linha de comando (--user/--password ou posicionais)
-    2. Variáveis de ambiente (LOGIN_SAP/SENHA_SAP ou SAP_USER/SAP_PASSWORD)
-    3. Arquivo credenciais.json (fallback opcional se existir)
-    4. Solicitação interativa no console (se executado via terminal interativo)
+    1. Variáveis de ambiente LOGIN_SAP/SENHA_SAP — como chegam quando disparado pela UI
+       web (Configurações → Automação SAP), por requisição, nunca gravadas em disco
+       (ver routes.py `_rotina_sap_background`). Cada engenheiro loga com o próprio usuário.
+    2. Arquivo credenciais.json (fallback para a execução agendada via Rodar_Sap_Robot.bat,
+       que não passa pela UI e portanto não tem variáveis de ambiente por requisição).
     """
-    import argparse
+    login = os.environ.get("LOGIN_SAP", "").strip()
+    senha = os.environ.get("SENHA_SAP", "")
 
-    login = ""
-    senha = ""
-
-    # 1. Argumentos de linha de comando
-    try:
-        parser = argparse.ArgumentParser(description="Automação do Robô SAP", add_help=False)
-        parser.add_argument("-u", "--user", "--login", dest="user", default="")
-        parser.add_argument("-p", "--password", "--senha", dest="password", default="")
-        args, extras = parser.parse_known_args()
-        if args.user:
-            login = args.user
-        if args.password:
-            senha = args.password
-        if not login and len(extras) >= 1 and not extras[0].startswith("-"):
-            login = extras[0]
-        if not senha and len(extras) >= 2 and not extras[1].startswith("-"):
-            senha = extras[1]
-    except Exception:
-        pass
-
-    # 2. Variáveis de ambiente
-    if not login:
-        login = os.environ.get("LOGIN_SAP", "") or os.environ.get("SAP_USER", "")
-    if not senha:
-        senha = os.environ.get("SENHA_SAP", "") or os.environ.get("SAP_PASSWORD", "")
-
-    # 3. Fallback opcional para credenciais.json (sem travar se não existir)
     if not (login and senha):
         caminhos_tentativas = [
             os.path.join(os.path.dirname(os.path.abspath(__file__)), "credenciais.json"),

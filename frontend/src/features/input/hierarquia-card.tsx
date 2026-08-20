@@ -147,7 +147,7 @@ export function HierarquiaCard({ registros, recarregar }: HierarquiaCardProps): 
     <Card className="border border-line bg-surface shadow-sm">
       <CardHeader className="pb-3">
         <Eyebrow className="text-xs tracking-wider">Hierarquia & Vínculos</Eyebrow>
-        <CardTitle className="text-base font-semibold text-foreground">Gerenciador de Nota-Mãe e Filhas</CardTitle>
+        <CardTitle className="text-base font-medium text-foreground">Gerenciador de Nota-Mãe e Filhas</CardTitle>
       </CardHeader>
       <CardContent>
         <div className="flex gap-3 items-end mb-4 flex-wrap">
@@ -178,14 +178,14 @@ export function HierarquiaCard({ registros, recarregar }: HierarquiaCardProps): 
             {maeRegistro && (
               <div className="p-3 bg-surface-2 rounded-lg border border-line flex items-center justify-between flex-wrap gap-2 text-xs">
                 <div className="flex items-center gap-3">
-                  <span className="font-mono font-bold text-accent">Mãe #{maeRegistro.Numero_Nota}</span>
+                  <span className="font-mono font-medium text-accent">Mãe #{maeRegistro.Numero_Nota}</span>
                   <span>Conjunto: <strong>{String(maeRegistro.Conjunto ?? '-')}</strong></span>
                   <span>Medida Planejada: <strong className="font-mono text-green">{formatarNumero(maeRegistro['Planejado_DDPM'] ?? null, 2)}</strong></span>
                 </div>
                 <Button
                   size="sm"
                   variant={mostrarCriarFilha ? "secondary" : "default"}
-                  className="h-8 text-xs font-semibold gap-1.5"
+                  className="h-8 text-xs font-medium gap-1.5"
                   onClick={() => setMostrarCriarFilha((prev) => !prev)}
                 >
                   <PlusCircle className="h-3.5 w-3.5" />
@@ -197,7 +197,7 @@ export function HierarquiaCard({ registros, recarregar }: HierarquiaCardProps): 
             {/* Painel para criar nova filha diretamente para esta mãe */}
             {mostrarCriarFilha && maeRegistro && (
               <div className="p-4 bg-green/5 border border-green/30 rounded-lg flex flex-col gap-3">
-                <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+                <div className="flex items-center gap-2 text-xs font-medium text-foreground">
                   <FolderPlus className="h-4 w-4 text-green" />
                   <span>Cadastrar Nova Filha para a Mãe #{maeRegistro.Numero_Nota}</span>
                 </div>
@@ -254,7 +254,7 @@ export function HierarquiaCard({ registros, recarregar }: HierarquiaCardProps): 
 
                   <Button
                     size="sm"
-                    className="h-8 text-xs font-semibold gap-1.5"
+                    className="h-8 text-xs font-medium gap-1.5"
                     disabled={salvandoFilha || !novaFilhaNumero.trim()}
                     onClick={() => void salvarNovaFilha()}
                   >
@@ -267,8 +267,8 @@ export function HierarquiaCard({ registros, recarregar }: HierarquiaCardProps): 
 
             {hierarquia.filhas.length > 0 && (
               <div className="text-xs text-text-dim flex items-center gap-1.5 bg-surface-2 p-2.5 rounded-md border border-line">
-                <span className="font-semibold text-foreground">Filhas vinculadas ({hierarquia.filhas.length}):</span>
-                <span className="font-mono text-accent font-semibold">{hierarquia.filhas.map((f) => f.Numero_Nota).join(', ')}</span>
+                <span className="font-medium text-foreground">Filhas vinculadas ({hierarquia.filhas.length}):</span>
+                <span className="font-mono text-accent font-medium">{hierarquia.filhas.map((f) => f.Numero_Nota).join(', ')}</span>
               </div>
             )}
 
@@ -289,7 +289,7 @@ export function HierarquiaCard({ registros, recarregar }: HierarquiaCardProps): 
                         checked={filhasSelecionadas.has(r.Numero_Nota)}
                         onChange={() => toggleFilha(r.Numero_Nota)}
                       />
-                      <span className="font-mono text-foreground font-semibold">{r.Numero_Nota}</span>
+                      <span className="font-mono text-foreground font-medium">{r.Numero_Nota}</span>
                       <span className="text-text-dim">
                         {String(r['Status_Nota'] ?? '-')} · Plan: {formatarNumero(r['Planejado_DDPM'] ?? null, 2)} · {String(r['Conjunto'] ?? '-')}
                       </span>

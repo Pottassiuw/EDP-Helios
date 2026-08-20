@@ -1341,6 +1341,19 @@ def test_get_sync(cliente):
     assert "ultima_alteracao" in r.json()
 
 
+def test_credenciais_sap_do_payload():
+    from input_module.routes import _credenciais_sap_do_payload
+
+    assert _credenciais_sap_do_payload(None) is None
+    assert _credenciais_sap_do_payload({}) is None
+    assert _credenciais_sap_do_payload({"login_sap": "joao"}) is None
+    assert _credenciais_sap_do_payload({"login_sap": "  ", "senha_sap": "x"}) is None
+    assert _credenciais_sap_do_payload({"login_sap": "joao", "senha_sap": ""}) is None
+    assert _credenciais_sap_do_payload({"login_sap": "  joao  ", "senha_sap": "segredo"}) == {
+        "login_sap": "joao", "senha_sap": "segredo",
+    }
+
+
 def test_notas_etag_304(banco_temporario):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient

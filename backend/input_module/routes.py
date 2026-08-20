@@ -479,7 +479,23 @@ def _exigir_sqlite_realinhado(nome_arquivo: str, caminho: str, causa: Exception)
              "acione o suporte antes de usar os dados desta base.")
 
 
-def _rotina_sap_background():
+def _credenciais_sap_do_payload(payload: Optional[dict]) -> Optional[dict]:
+    """Extrai login_sap/senha_sap do corpo da requisição, se ambos vierem preenchidos.
+
+    Cada engenheiro loga com o próprio usuário SAP — por isso as credenciais vêm do
+    request, não de um credenciais.json compartilhado. Se algum campo faltar, retorna
+    None e o robô cai no fallback (credenciais.json), preservando a execução agendada
+    via Rodar_Sap_Robot.bat, que não passa por esta rota."""
+    if not payload:
+        return None
+    login = str(payload.get("login_sap") or "").strip()
+    senha = str(payload.get("senha_sap") or "")
+    if not login or not senha:
+        return None
+    return {"login_sap": login, "senha_sap": senha}
+
+
+def _rotina_sap_background(credenciais_sap: Optional[dict] = None):
     import subprocess
     import os
     import sys
@@ -493,6 +509,10 @@ def _rotina_sap_background():
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
         env["INPUT_DB_PATH"] = db.obter_caminho_banco()
+        if credenciais_sap:
+            # Só vive no ambiente deste subprocesso — nunca gravado em disco/log.
+            env["LOGIN_SAP"] = credenciais_sap["login_sap"]
+            env["SENHA_SAP"] = credenciais_sap["senha_sap"]
         res = subprocess.run(
             [python_exe, script_path],
             check=True,
@@ -538,11 +558,12 @@ def _rotina_sap_background():
 def sync_sap(tasks: BackgroundTasks, x_user: Optional[str] = Header(default="Sistema", alias="X-User"), payload: dict = Body(None)):
     """Inicia a extração SAP em background."""
     garantir_banco()
+    credenciais_sap = _credenciais_sap_do_payload(payload)
     try:
         estado = sap_sync.reservar()
     except sap_sync.SapSyncEmAndamento as exc:
         raise HTTPException(status_code=409, detail=str(exc))
-    tasks.add_task(sap_sync.executar, _rotina_sap_background)
+    tasks.add_task(sap_sync.executar, lambda: _rotina_sap_background(credenciais_sap))
     return {
         "mensagem": "Sincronização SAP iniciada em background.",
         "sap": estado,

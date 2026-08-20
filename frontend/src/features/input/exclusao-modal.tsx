@@ -50,7 +50,7 @@ export function ExclusaoModal({
     <AlertDialog open={aberto} onOpenChange={(next) => { if (!next && !busy) onCancelar(); }}>
       <AlertDialogContent className="w-[480px] max-w-[94vw] gap-3 p-5">
         <AlertDialogHeader>
-          <AlertDialogTitle className="text-base font-semibold flex items-center gap-2 text-red-600 dark:text-red-400">
+          <AlertDialogTitle className="text-base font-medium flex items-center gap-2 text-red-600 dark:text-red-400">
             <Trash2 className="h-5 w-5" />
             Excluir {notas.length === 1 ? `Nota #${notas[0]}` : `${notas.length} Notas Selecionadas`}
           </AlertDialogTitle>
@@ -73,7 +73,7 @@ export function ExclusaoModal({
                 className="rounded border-line text-accent focus:ring-accent mt-0.5"
               />
               <div className="flex flex-col">
-                <span className="font-semibold text-foreground">
+                <span className="font-medium text-foreground">
                   Somar medida da(s) nota(s) filha(s) de volta à nota mãe
                 </span>
                 <span className="text-text-dim text-[11.5px] leading-tight">
@@ -89,11 +89,11 @@ export function ExclusaoModal({
                     key={f.numeroMae}
                     className="px-2 py-1 bg-surface rounded border border-line text-xs font-mono flex items-center gap-1.5"
                   >
-                    <span className="font-bold text-accent">Mãe #{f.numeroMae}:</span>
+                    <span className="font-medium text-accent">Mãe #{f.numeroMae}:</span>
                     <span className="text-text-mute">{f.medidaAtual}</span>
                     <span>➔</span>
-                    <span className="font-bold text-green">{f.novaMedida}</span>
-                    <span className="text-green font-semibold text-[11px]">(+{f.somaRetorno})</span>
+                    <span className="font-medium text-green">{f.novaMedida}</span>
+                    <span className="text-green font-medium text-[11px]">(+{f.somaRetorno})</span>
                   </div>
                 ))}
               </div>
@@ -104,7 +104,7 @@ export function ExclusaoModal({
         <div className="flex flex-col gap-1.5 pt-1">
           <label className="text-xs font-medium text-foreground flex items-center justify-between">
             <span>Motivo / Justificativa da Exclusão</span>
-            <span className="text-[11px] text-red-600 dark:text-red-400 font-semibold">* obrigatório</span>
+            <span className="text-[11px] text-red-600 dark:text-red-400 font-medium">* obrigatório</span>
           </label>
           <textarea
             value={justificativa}

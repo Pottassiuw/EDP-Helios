@@ -36,7 +36,7 @@ export function OcultacaoModal({
     <AlertDialog open={aberto} onOpenChange={(next) => { if (!next && !busy) onCancelar(); }}>
       <AlertDialogContent className="w-[440px] max-w-[92vw] gap-3 p-5">
         <AlertDialogHeader>
-          <AlertDialogTitle className="text-base font-semibold flex items-center gap-2 text-foreground">
+          <AlertDialogTitle className="text-base font-medium flex items-center gap-2 text-foreground">
             <EyeOff className="h-5 w-5 text-amber-500" />
             Ocultar {notas.length === 1 ? `Nota #${notas[0]}` : `${notas.length} Notas Selecionadas`}
           </AlertDialogTitle>
@@ -50,7 +50,7 @@ export function OcultacaoModal({
         <div className="flex flex-col gap-1.5 pt-1">
           <label className="text-xs font-medium text-foreground flex items-center justify-between">
             <span>Motivo / Justificativa da Ocultação</span>
-            <span className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold">* obrigatório</span>
+            <span className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">* obrigatório</span>
           </label>
           <textarea
             value={justificativa}

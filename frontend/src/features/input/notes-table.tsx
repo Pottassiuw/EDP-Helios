@@ -517,13 +517,13 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
               <button
                 type="button"
                 onClick={(e) => onOpenDetails(r, e.currentTarget)}
-                className="font-semibold text-foreground tracking-tight hover:text-accent hover:underline cursor-pointer text-left"
+                className="font-medium text-foreground tracking-tight hover:text-accent hover:underline cursor-pointer text-left"
                 title="Abrir detalhes e enriquecimento desta nota"
               >
                 {formatarNumero(v, 0, false)}
               </button>
             ) : (
-              <span className="font-semibold text-foreground tracking-tight">
+              <span className="font-medium text-foreground tracking-tight">
                 {formatarNumero(v, 0, false)}
               </span>
             )}
@@ -643,7 +643,7 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
           <div className="flex items-center justify-between gap-1.5 w-full">
             <span>{formatarNumero(valorExibicao, 2)}</span>
             <span
-              className="inline-flex items-center px-1.5 py-0.2 text-[10px] font-mono font-bold bg-green/15 text-green dark:text-green-2 border border-green/30 rounded"
+              className="inline-flex items-center px-1.5 py-0.2 text-[10px] font-mono font-medium bg-green/15 text-green dark:text-green-2 border border-green/30 rounded"
               title={tooltipSoma}
             >
               Σ grupo
@@ -749,7 +749,7 @@ export function NotesTable(props: NotesTableProps): React.JSX.Element {
               } else if (ehFilha) {
                 bgClasse = "border-l-[3px] border-l-blue-400 bg-surface-2 hover:bg-surface-2/80 font-medium";
               } else if (item.temFilhas) {
-                bgClasse = "border-l-[3px] border-l-green bg-green/5 hover:bg-green/12 font-semibold";
+                bgClasse = "border-l-[3px] border-l-green bg-green/5 hover:bg-green/12 font-medium";
               }
 
               return (

@@ -94,13 +94,13 @@ function Rosca({ fatias }: { fatias: FatiaRosca[] }): React.JSX.Element {
         style={{ background: backgroundConic }}
       >
         <div className="w-[76px] h-[76px] rounded-full bg-surface flex flex-col items-center justify-center border border-line shadow-xs">
-          <span className="text-[10px] text-text-mute uppercase tracking-wider font-semibold">Total</span>
-          <span className="text-[15px] font-mono font-bold text-text">{total}</span>
+          <span className="text-[10px] text-text-mute uppercase tracking-wider font-medium">Total</span>
+          <span className="text-[15px] font-mono font-medium text-text">{total}</span>
         </div>
       </div>
 
       <div className="flex flex-col gap-[6px] flex-1 max-h-[140px] overflow-y-auto pr-[4px]">
-        <span className="text-[11px] font-semibold text-text-dim uppercase tracking-wider font-sans border-b border-line-2 pb-[3px]">
+        <span className="text-[11px] font-medium text-text-dim uppercase tracking-wider font-sans border-b border-line-2 pb-[3px]">
           Distribuição dos Prazos
         </span>
         {fatias.map((f) => {
@@ -749,7 +749,7 @@ export function Reports({
             {/* Bloco de KPIs e Gráficos */}
             <Card className="lg:col-span-2 bg-surface border border-line flex flex-col justify-between">
               <CardHeader className="py-[10px] px-[16px] border-b border-line flex flex-row items-center justify-between">
-                <CardTitle className="text-[13px] uppercase font-semibold text-text-dim tracking-wider">
+                <CardTitle className="text-[13px] uppercase font-medium text-text-dim tracking-wider">
                   Métricas de Aderência ao Plano
                 </CardTitle>
 
@@ -766,7 +766,7 @@ export function Reports({
                   </DialogTrigger>
                   <DialogContent className="max-w-[540px] bg-surface border-line p-[20px] rounded-[10px]">
                     <DialogHeader>
-                      <DialogTitle className="text-[14px] font-bold text-text flex items-center gap-2">
+                      <DialogTitle className="text-[14px] font-medium text-text flex items-center gap-2">
                         <Info className="h-4 w-4 text-primary" />
                         Guia de Critérios e Regras das Flags
                       </DialogTitle>
@@ -777,48 +777,48 @@ export function Reports({
                     <div className="flex flex-col gap-[10px] pt-[8px] text-[12px] font-sans">
                       <div className="bg-bg-2 border border-line-2 rounded-[6px] p-[10px] flex items-center justify-between text-[11.5px]">
                         <span className="text-text-dim">Tolerância Operacional Homologada:</span>
-                        <strong className="text-primary font-semibold">+1 mês (No Prazo)</strong>
+                        <strong className="text-primary font-medium">+1 mês (No Prazo)</strong>
                       </div>
                       <div className="flex flex-col gap-[6px]">
                         <div className="flex items-start gap-[8px] bg-bg-2/50 p-[8px] rounded-[6px] border border-line-2/40">
                           <span className="text-[14px]">🟢</span>
                           <div>
-                            <strong className="text-text font-semibold">Adiantado:</strong>
+                            <strong className="text-text font-medium">Adiantado:</strong>
                             <p className="text-text-mute text-[11px]">Encerramento SAP realizado antes do mês planejado.</p>
                           </div>
                         </div>
                         <div className="flex items-start gap-[8px] bg-bg-2/50 p-[8px] rounded-[6px] border border-line-2/40">
                           <span className="text-[14px]">🔵</span>
                           <div>
-                            <strong className="text-text font-semibold">No Prazo (+1m):</strong>
+                            <strong className="text-text font-medium">No Prazo (+1m):</strong>
                             <p className="text-text-mute text-[11px]">Concluído no mês ou até 1 mês após (dentro da tolerância).</p>
                           </div>
                         </div>
                         <div className="flex items-start gap-[8px] bg-bg-2/50 p-[8px] rounded-[6px] border border-line-2/40">
                           <span className="text-[14px]">🔴</span>
                           <div>
-                            <strong className="text-text font-semibold">Com Atraso (≥2m):</strong>
+                            <strong className="text-text font-medium">Com Atraso (≥2m):</strong>
                             <p className="text-text-mute text-[11px]">Concluído com 2 ou mais meses além do planejado.</p>
                           </div>
                         </div>
                         <div className="flex items-start gap-[8px] bg-bg-2/50 p-[8px] rounded-[6px] border border-line-2/40">
                           <span className="text-[14px]">⏳</span>
                           <div>
-                            <strong className="text-text font-semibold">Pendente Atrasado:</strong>
+                            <strong className="text-text font-medium">Pendente Atrasado:</strong>
                             <p className="text-text-mute text-[11px]">Nota aberta cujo mês planejado já expirou há mais de 1 mês.</p>
                           </div>
                         </div>
                         <div className="flex items-start gap-[8px] bg-bg-2/50 p-[8px] rounded-[6px] border border-line-2/40">
                           <span className="text-[14px]">⚠️</span>
                           <div>
-                            <strong className="text-text font-semibold">Passível de Encerramento:</strong>
+                            <strong className="text-text font-medium">Passível de Encerramento:</strong>
                             <p className="text-text-mute text-[11px]">Ordem executada em campo no SAP aguardando encerramento da nota.</p>
                           </div>
                         </div>
                         <div className="flex items-start gap-[8px] bg-bg-2/50 p-[8px] rounded-[6px] border border-line-2/40">
                           <span className="text-[14px]">⏱️</span>
                           <div>
-                            <strong className="text-text font-semibold">Atraso Acumulado:</strong>
+                            <strong className="text-text font-medium">Atraso Acumulado:</strong>
                             <p className="text-text-mute text-[11px]">Soma total dos meses de desvio real positivo para controle do passivo.</p>
                           </div>
                         </div>
@@ -863,7 +863,7 @@ export function Reports({
                         onClick={() => setRapido(ativo ? '(Nenhum)' : p.filtro)}
                         className={`flex items-center gap-[5px] px-[9px] py-[3px] rounded-full border text-[11px] font-medium font-sans transition-all cursor-pointer ${
                           ativo
-                            ? 'ring-2 ring-primary ring-offset-1 ring-offset-surface font-semibold ' + p.corBadge
+                            ? 'ring-2 ring-primary ring-offset-1 ring-offset-surface font-medium ' + p.corBadge
                             : p.corBadge
                         }`}
                         title={`Filtrar por ${p.label}`}
@@ -880,7 +880,7 @@ export function Reports({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-[14px] border-t border-line pt-[12px]">
                   {/* Gráfico de Rosca */}
                   <div className="flex flex-col gap-[6px]">
-                    <span className="text-[11px] font-semibold text-text-dim uppercase tracking-wider font-sans">
+                    <span className="text-[11px] font-medium text-text-dim uppercase tracking-wider font-sans">
                       Proporção de Status
                     </span>
                     {fatias.length > 0 ? (
@@ -894,7 +894,7 @@ export function Reports({
 
                   {/* Distribuição dos Desvios em Meses */}
                   <div className="flex flex-col gap-[6px]">
-                    <span className="text-[11px] font-semibold text-text-dim uppercase tracking-wider font-sans border-b border-line-2 pb-[3px]">
+                    <span className="text-[11px] font-medium text-text-dim uppercase tracking-wider font-sans border-b border-line-2 pb-[3px]">
                       Distribuição dos Desvios (Meses)
                     </span>
                     <div className="flex flex-col gap-[5px] max-h-[120px] overflow-y-auto pr-[4px]">
@@ -933,13 +933,13 @@ export function Reports({
             {/* Bloco de Filtros da Auditoria & SLA */}
             <Card className="bg-surface border border-line">
               <CardHeader className="py-[10px] px-[16px] border-b border-line">
-                <CardTitle className="text-[13px] uppercase font-semibold text-text-dim tracking-wider">
+                <CardTitle className="text-[13px] uppercase font-medium text-text-dim tracking-wider">
                   Filtros da Auditoria
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-[14px] flex flex-col gap-[9px]">
                 <div className="flex flex-col gap-[4px]">
-                  <span className="text-[10.5px] font-semibold text-text-mute uppercase tracking-wider">
+                  <span className="text-[10.5px] font-medium text-text-mute uppercase tracking-wider">
                     Filtro Rápido
                   </span>
                   <div className="flex flex-wrap gap-[4px]">
@@ -949,7 +949,7 @@ export function Reports({
                         onClick={() => setRapido(f)}
                         className={`px-[7px] py-[3px] rounded-[5px] border text-[10.5px] font-medium transition-colors cursor-pointer ${
                           rapido === f
-                            ? 'border-primary bg-primary/10 text-primary font-semibold'
+                            ? 'border-primary bg-primary/10 text-primary font-medium'
                             : 'border-line-2 bg-bg-2 text-text-dim hover:bg-surface-3'
                         }`}
                       >
@@ -960,7 +960,7 @@ export function Reports({
                 </div>
 
                 <div className="flex flex-col gap-[4px] mt-[1px]">
-                  <span className="text-[10.5px] font-semibold text-text-mute uppercase tracking-wider">
+                  <span className="text-[10.5px] font-medium text-text-mute uppercase tracking-wider">
                     Ano de Encerramento (SAP)
                   </span>
                   <MultiSelect
@@ -972,7 +972,7 @@ export function Reports({
                 </div>
 
                 <div className="flex flex-col gap-[4px]">
-                  <span className="text-[10.5px] font-semibold text-text-mute uppercase tracking-wider">
+                  <span className="text-[10.5px] font-medium text-text-mute uppercase tracking-wider">
                     Mês Planejado
                   </span>
                   <MultiSelect
@@ -984,7 +984,7 @@ export function Reports({
                 </div>
 
                 <div className="flex flex-col gap-[4px]">
-                  <span className="text-[10.5px] font-semibold text-text-mute uppercase tracking-wider">
+                  <span className="text-[10.5px] font-medium text-text-mute uppercase tracking-wider">
                     Resultado da Auditoria
                   </span>
                   <MultiSelect
@@ -996,7 +996,7 @@ export function Reports({
                 </div>
 
                 <div className="flex flex-col gap-[4px]">
-                  <span className="text-[10.5px] font-semibold text-text-mute uppercase tracking-wider">
+                  <span className="text-[10.5px] font-medium text-text-mute uppercase tracking-wider">
                     Status de SLA
                   </span>
                   <MultiSelect
@@ -1015,7 +1015,7 @@ export function Reports({
                 </div>
 
                 <div className="flex flex-col gap-[4px]">
-                  <span className="text-[10.5px] font-semibold text-text-mute uppercase tracking-wider">
+                  <span className="text-[10.5px] font-medium text-text-mute uppercase tracking-wider">
                     Regional
                   </span>
                   <MultiSelect
@@ -1031,7 +1031,7 @@ export function Reports({
 
           {/* Tabela Unificada de Aderência ao Plano */}
           <div className="flex flex-col gap-[6px] flex-1 min-h-[300px]">
-            <span className="text-[12px] font-semibold text-text-dim uppercase tracking-wider font-sans ml-[4px]">
+            <span className="text-[12px] font-medium text-text-dim uppercase tracking-wider font-sans ml-[4px]">
               Detalhamento de Aderência ao Plano ({auditadas.length})
             </span>
             <NotesTable registros={auditadas} colunas={COLUNAS_AUDITORIA} altura={380} />
@@ -1046,7 +1046,7 @@ export function Reports({
             {/* Bloco de KPIs e Gráficos de Barra Financeiros */}
             <Card className="lg:col-span-2 bg-surface border border-line flex flex-col justify-between">
               <CardHeader className="py-[12px] px-[16px] border-b border-line">
-                <CardTitle className="text-[13px] uppercase font-semibold text-text-dim tracking-wider">
+                <CardTitle className="text-[13px] uppercase font-medium text-text-dim tracking-wider">
                   Consolidação dos Custos Planejados e Realizados
                 </CardTitle>
               </CardHeader>
@@ -1093,7 +1093,7 @@ export function Reports({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-[24px] border-t border-line pt-[16px]">
                   {/* Progress bars por Regional */}
                   <div>
-                    <h4 className="text-[12px] font-semibold text-text-dim uppercase tracking-wider mb-[10px] font-sans border-b border-line-2 pb-[4px]">
+                    <h4 className="text-[12px] font-medium text-text-dim uppercase tracking-wider mb-[10px] font-sans border-b border-line-2 pb-[4px]">
                       Orçamento Modular por Regional
                     </h4>
                     <div className="flex flex-col gap-[10px] max-h-[160px] overflow-y-auto pr-[4px]">
@@ -1126,7 +1126,7 @@ export function Reports({
 
                   {/* Progress bars por Status */}
                   <div>
-                    <h4 className="text-[12px] font-semibold text-text-dim uppercase tracking-wider mb-[10px] font-sans border-b border-line-2 pb-[4px]">
+                    <h4 className="text-[12px] font-medium text-text-dim uppercase tracking-wider mb-[10px] font-sans border-b border-line-2 pb-[4px]">
                       Orçamento Modular por Status
                     </h4>
                     <div className="flex flex-col gap-[10px] max-h-[160px] overflow-y-auto pr-[4px]">
@@ -1165,13 +1165,13 @@ export function Reports({
             {/* Bloco de Filtros Financeiros */}
             <Card className="bg-surface border border-line">
               <CardHeader className="py-[12px] px-[16px] border-b border-line">
-                <CardTitle className="text-[13px] uppercase font-semibold text-text-dim tracking-wider">
+                <CardTitle className="text-[13px] uppercase font-medium text-text-dim tracking-wider">
                   Filtros Financeiros
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-[16px] flex flex-col gap-[12px]">
                 <div className="flex flex-col gap-[4px]">
-                  <span className="text-[11px] font-semibold text-text-mute uppercase tracking-wider">
+                  <span className="text-[11px] font-medium text-text-mute uppercase tracking-wider">
                     Mês Planejado
                   </span>
                   <MultiSelect
@@ -1183,7 +1183,7 @@ export function Reports({
                 </div>
 
                 <div className="flex flex-col gap-[4px]">
-                  <span className="text-[11px] font-semibold text-text-mute uppercase tracking-wider">
+                  <span className="text-[11px] font-medium text-text-mute uppercase tracking-wider">
                     Regional
                   </span>
                   <MultiSelect
@@ -1195,7 +1195,7 @@ export function Reports({
                 </div>
 
                 <div className="flex flex-col gap-[4px]">
-                  <span className="text-[11px] font-semibold text-text-mute uppercase tracking-wider">
+                  <span className="text-[11px] font-medium text-text-mute uppercase tracking-wider">
                     Status de Nota
                   </span>
                   <MultiSelect
@@ -1211,7 +1211,7 @@ export function Reports({
 
           {/* Tabela de Detalhamento de Custos */}
           <div className="flex flex-col gap-[6px] flex-1 min-h-[300px]">
-            <span className="text-[12px] font-semibold text-text-dim uppercase tracking-wider font-sans ml-[4px]">
+            <span className="text-[12px] font-medium text-text-dim uppercase tracking-wider font-sans ml-[4px]">
               Detalhamento de Custos ({registrosFinancas.length})
             </span>
             <NotesTable
@@ -1247,7 +1247,7 @@ export function Reports({
                 <Mail size={18} />
               </div>
               <div>
-                <h4 className="text-[13px] font-semibold text-text">Relatório Analítico de Engenharia (Status 10)</h4>
+                <h4 className="text-[13px] font-medium text-text">Relatório Analítico de Engenharia (Status 10)</h4>
                 <p className="text-[11.5px] text-text-mute">
                   Extrai notas e ordens diretamente do SAP (IW28 + IW38), cruza com custos modulares e gera resumo no Outlook.
                 </p>
@@ -1301,7 +1301,7 @@ export function Reports({
             {/* Bloco de KPIs e Gráficos de Prioridade */}
             <Card className="lg:col-span-2 bg-surface border border-line flex flex-col justify-between">
               <CardHeader className="py-[12px] px-[16px] border-b border-line">
-                <CardTitle className="text-[13px] uppercase font-semibold text-text-dim tracking-wider">
+                <CardTitle className="text-[13px] uppercase font-medium text-text-dim tracking-wider">
                   Métricas do Backlog (Status 10)
                 </CardTitle>
               </CardHeader>
@@ -1348,7 +1348,7 @@ export function Reports({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-[24px] border-t border-line pt-[16px]">
                   {/* Progress bars por Regional (Valor) */}
                   <div>
-                    <h4 className="text-[12px] font-semibold text-text-dim uppercase tracking-wider mb-[10px] font-sans border-b border-line-2 pb-[4px]">
+                    <h4 className="text-[12px] font-medium text-text-dim uppercase tracking-wider mb-[10px] font-sans border-b border-line-2 pb-[4px]">
                       Orçamento do Backlog por Regional
                     </h4>
                     <div className="flex flex-col gap-[10px] max-h-[160px] overflow-y-auto pr-[4px]">
@@ -1381,7 +1381,7 @@ export function Reports({
 
                   {/* Progress bars por Prioridade (Qtd) */}
                   <div>
-                    <h4 className="text-[12px] font-semibold text-text-dim uppercase tracking-wider mb-[10px] font-sans border-b border-line-2 pb-[4px]">
+                    <h4 className="text-[12px] font-medium text-text-dim uppercase tracking-wider mb-[10px] font-sans border-b border-line-2 pb-[4px]">
                       Notas por Prioridade
                     </h4>
                     <div className="flex flex-col gap-[10px] max-h-[160px] overflow-y-auto pr-[4px]">
@@ -1425,13 +1425,13 @@ export function Reports({
             {/* Bloco de Filtros do Backlog */}
             <Card className="bg-surface border border-line">
               <CardHeader className="py-[12px] px-[16px] border-b border-line">
-                <CardTitle className="text-[13px] uppercase font-semibold text-text-dim tracking-wider">
+                <CardTitle className="text-[13px] uppercase font-medium text-text-dim tracking-wider">
                   Filtros do Backlog
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-[16px] flex flex-col gap-[12px]">
                 <div className="flex flex-col gap-[4px]">
-                  <span className="text-[11px] font-semibold text-text-mute uppercase tracking-wider">
+                  <span className="text-[11px] font-medium text-text-mute uppercase tracking-wider">
                     Mês Planejado
                   </span>
                   <MultiSelect
@@ -1446,7 +1446,7 @@ export function Reports({
                 </div>
 
                 <div className="flex flex-col gap-[4px]">
-                  <span className="text-[11px] font-semibold text-text-mute uppercase tracking-wider">
+                  <span className="text-[11px] font-medium text-text-mute uppercase tracking-wider">
                     Regional
                   </span>
                   <MultiSelect
@@ -1461,7 +1461,7 @@ export function Reports({
                 </div>
 
                 <div className="flex flex-col gap-[4px]">
-                  <span className="text-[11px] font-semibold text-text-mute uppercase tracking-wider">
+                  <span className="text-[11px] font-medium text-text-mute uppercase tracking-wider">
                     Prioridade
                   </span>
                   <MultiSelect
@@ -1481,7 +1481,7 @@ export function Reports({
           {/* Tabela do Backlog (Status 10 Enriquecida) */}
           <div className="flex flex-col gap-[6px] flex-1 min-h-[300px]">
             <div className="flex justify-between items-center px-1">
-              <span className="text-[12px] font-semibold text-text-dim uppercase tracking-wider font-sans">
+              <span className="text-[12px] font-medium text-text-dim uppercase tracking-wider font-sans">
                 Notas de Backlog em Planejamento ({registrosPlanejamento.length})
               </span>
               {status10Query.isFetching && (

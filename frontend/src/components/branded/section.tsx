@@ -26,7 +26,7 @@ export function StatNumber({ className, ...props }: React.ComponentProps<'span'>
   return (
     <span
       className={cn(
-        'text-2xl font-semibold leading-none tracking-display tabular-nums text-text',
+        'text-2xl font-medium leading-none tracking-display tabular-nums text-text',
         className,
       )}
       {...props}
@@ -60,7 +60,7 @@ export function PageHeader({ eyebrow, title, subtitle, action }: {
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div className="flex min-w-0 flex-col gap-[3px]">
         {eyebrow && <Eyebrow>{eyebrow}</Eyebrow>}
-        <h2 className="m-0 text-lg font-semibold leading-[1.15] tracking-display text-balance">
+        <h2 className="m-0 text-lg font-medium leading-[1.15] tracking-display text-balance">
           {title}
         </h2>
         {subtitle && <p className="m-0 text-[13px] text-text-dim">{subtitle}</p>}
