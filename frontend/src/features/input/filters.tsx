@@ -8,12 +8,13 @@ import {
   FILTROS_TEXTO,
   ROTULOS,
 } from "./columns";
-import { CLASSE_SELECT_MONO } from "./ui";
+import { criarFuncaoComDebounce } from "@/lib/debounce";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Search, X, ChevronDown, ChevronRight, Filter, Check } from "lucide-react";
+import { Eye, EyeOff, Search, X, ChevronDown, ChevronRight, Filter, Check } from "lucide-react";
+import { ehNotaOculta } from "./lib";
 import {
   Select,
   SelectContent,
@@ -27,6 +28,7 @@ export interface FiltersState {
   filtros: Filtro[];
   somente2026: boolean;
   somenteNotasMaes: boolean;
+  mostrarOcultas?: boolean;
 }
 
 export const FILTROS_INICIAIS: FiltersState = {
@@ -34,6 +36,7 @@ export const FILTROS_INICIAIS: FiltersState = {
   filtros: [],
   somente2026: true,
   somenteNotasMaes: false,
+  mostrarOcultas: false,
 };
 
 interface FiltersProps {
@@ -197,7 +200,7 @@ export function MultiSelect({
         onClick={() => setOpen(!open)}
         className="flex h-[32px] w-full items-center justify-between gap-[8px] rounded-[6px] border border-line-2 bg-bg-2 px-[10px] text-[12px] text-text hover:bg-surface-3 transition-colors outline-none focus-visible:border-primary"
       >
-        <span className="truncate max-w-[90%] font-mono">
+        <span className={`truncate max-w-[90%] font-sans ${selected.length === 0 ? 'text-text-mute' : 'text-text font-medium'}`}>
           {selected.length === 0
             ? placeholder
             : `${selected.length} selecionado(s)`}
@@ -356,6 +359,22 @@ export function Filters({
   setEstado,
 }: FiltersProps): React.JSX.Element {
   const [aberto, setAberto] = React.useState(false);
+  const [busca, setBusca] = React.useState(estado.busca);
+  const estadoAtual = React.useRef(estado);
+  estadoAtual.current = estado;
+  const buscaComDebounce = React.useMemo(
+    () => criarFuncaoComDebounce((valor: string) => {
+      setEstado({ ...estadoAtual.current, busca: valor });
+    }, 300),
+    [setEstado],
+  );
+
+  React.useEffect(() => {
+    buscaComDebounce.cancelar();
+    setBusca(estado.busca);
+  }, [buscaComDebounce, estado.busca]);
+
+  React.useEffect(() => () => buscaComDebounce.cancelar(), [buscaComDebounce]);
   const camposDisponiveis = React.useMemo(() => {
     return [
       ...FILTROS_MULTI,
@@ -378,7 +397,7 @@ export function Filters({
     });
   }
 
-  const temFiltrosAtivos = estado.filtros.length > 0 || Boolean(estado.busca) || !estado.somente2026;
+  const temFiltrosAtivos = estado.filtros.length > 0 || Boolean(busca) || !estado.somente2026;
 
   return (
     <div className="flex flex-col gap-[10px]">
@@ -388,14 +407,23 @@ export function Filters({
         <div className="relative flex items-center w-[280px]">
           <Search size={14} className="absolute left-[11px] text-text-mute" />
           <Input
-            value={estado.busca}
+            value={busca}
             placeholder="Buscar notas: 12345, 54321..."
-            onChange={(e) => setEstado({ ...estado, busca: e.target.value })}
+            onChange={(e) => {
+              setBusca(e.target.value);
+              buscaComDebounce.chamar(e.target.value);
+            }}
             className="pl-[32px] pr-[28px] w-full"
           />
-          {estado.busca && (
+          {busca && (
             <button
-              onClick={() => setEstado({ ...estado, busca: "" })}
+              type="button"
+              aria-label="Limpar busca global"
+              onClick={() => {
+                buscaComDebounce.cancelar();
+                setBusca("");
+                setEstado({ ...estadoAtual.current, busca: "" });
+              }}
               className="absolute right-[10px] text-text-mute hover:text-text cursor-pointer transition-colors"
             >
               <X size={14} />
@@ -429,6 +457,22 @@ export function Filters({
           </Label>
         </div>
 
+        {/* Seletor On/Off para Exibir Notas Ocultas */}
+        {registros.some(ehNotaOculta) && (
+          <div className="flex items-center gap-[8px] bg-bg-2 border border-line-2 px-[12px] h-[34px] rounded-sm select-none">
+            <Switch
+              id="switch-ocultas"
+              checked={Boolean(estado.mostrarOcultas)}
+              onCheckedChange={(checked) => setEstado({ ...estado, mostrarOcultas: checked })}
+              size="sm"
+            />
+            <Label htmlFor="switch-ocultas" className="text-[12.5px] font-medium text-text-dim cursor-pointer flex items-center gap-1.5">
+              {estado.mostrarOcultas ? <Eye size={13} className="text-amber-500" /> : <EyeOff size={13} className="text-text-mute" />}
+              <span>Mostrar Ocultas ({registros.filter(ehNotaOculta).length})</span>
+            </Label>
+          </div>
+        )}
+
         {/* Botão de Filtros Avançados */}
         <Button
           variant="outline"
@@ -452,7 +496,11 @@ export function Filters({
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setEstado(FILTROS_INICIAIS)}
+            onClick={() => {
+              buscaComDebounce.cancelar();
+              setBusca("");
+              setEstado(FILTROS_INICIAIS);
+            }}
             className="h-[34px] text-text-mute hover:text-text cursor-pointer"
           >
             Limpar filtros
@@ -465,7 +513,10 @@ export function Filters({
         <div className="border border-line rounded-md p-[14px] bg-bg-2/30 flex flex-col gap-[10px] animate-in fade-in slide-in-from-top-1 duration-200">
           <div className="flex items-center gap-[10px] w-full sm:w-[320px]">
             <Select
+              key={estado.filtros.map((f) => f.campo).join(',')}
+              value=""
               onValueChange={(v) => {
+                if (!v) return;
                 setEstado({
                   ...estado,
                   filtros: [
@@ -475,10 +526,10 @@ export function Filters({
                 });
               }}
             >
-              <SelectTrigger aria-label="Adicionar campo de filtro" className="h-[32px] bg-surface border-line-2">
+              <SelectTrigger aria-label="Adicionar campo de filtro" className="h-[32px] bg-surface border-line-2 font-sans text-xs">
                 <SelectValue placeholder="+ Adicionar filtro avançado..." />
               </SelectTrigger>
-              <SelectContent className={CLASSE_SELECT_MONO}>
+              <SelectContent>
                 {camposDisponiveis.map((c) => (
                   <SelectItem key={c} value={c}>
                     {ROTULOS[c] ?? c}
@@ -497,7 +548,7 @@ export function Filters({
                   className="flex flex-col gap-[6px] p-[10px] bg-surface border border-line-2 rounded-[8px] w-full sm:w-[240px] shadow-sm relative group/card hover:border-line-2/80 transition-colors"
                 >
                   <div className="flex justify-between items-center">
-                    <span className="text-[11px] font-semibold text-text-mute uppercase tracking-wider font-sans">
+                    <span className="text-[11px] font-medium text-text-mute uppercase tracking-wider font-sans">
                       {ROTULOS[f.campo] ?? f.campo}
                     </span>
                     <button

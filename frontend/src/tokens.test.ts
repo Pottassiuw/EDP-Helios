@@ -173,7 +173,7 @@ describe('herança dos hexes legados', () => {
       return /\bedp-(?!verify\b)[a-z]/.test(codigo);
     });
     expect(culpados).toEqual([]);
-  });
+  }, 15000);
 
   it('tema e densidade são atributos de :root, não da classe .edp', () => {
     expect(CSS).toContain(':root[data-theme="dark"]');

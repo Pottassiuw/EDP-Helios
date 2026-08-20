@@ -17,7 +17,21 @@ async function req<T>(caminho: string, init?: RequestInit): Promise<T> {
   if (!r.ok) {
     const corpo = await r.text();
     let detalhe = corpo;
-    try { detalhe = (JSON.parse(corpo) as { detail?: string }).detail ?? corpo; } catch { /* texto puro */ }
+    try {
+      const parsed = JSON.parse(corpo);
+      if (typeof parsed.detail === 'string') {
+        detalhe = parsed.detail;
+      } else if (Array.isArray(parsed.detail)) {
+        detalhe = parsed.detail
+          .map((d: { loc?: unknown[]; msg?: string }) => {
+            const campo = Array.isArray(d.loc) ? d.loc.slice(-1)[0] : '';
+            return campo ? `${campo}: ${d.msg}` : (d.msg ?? JSON.stringify(d));
+          })
+          .join(' | ');
+      } else if (parsed.message) {
+        detalhe = String(parsed.message);
+      }
+    } catch { /* texto puro */ }
     throw new Error(detalhe || `HTTP ${r.status}`);
   }
   return r.json() as Promise<T>;
@@ -38,7 +52,7 @@ function escrita(method: string, corpo?: unknown): RequestInit {
 export const InputApi = {
   me: () => req<{ usuario: string }>('/me'),
   dados: () => req<InputDataset>('/notas'),
-  sync: () => req<{ ultima_alteracao: string | null; versao: string; sincronizando?: boolean }>('/sync'),
+  sync: () => req<{ ultima_alteracao: string | null; versao: string; sincronizando?: boolean; sap?: import('./types').SapSyncState }>('/sync'),
 
   editar: (linhas: Partial<NotaInput>[]) =>
     req<EdicaoResultado>('/notas', escrita('PATCH', { linhas })),
@@ -46,8 +60,8 @@ export const InputApi = {
     req<{ inseridas: number }>('/notas', escrita('POST', nota)),
   criarLote: (notas: Partial<NotaInput>[]) =>
     req<{ inseridas: number }>('/notas/bulk', escrita('POST', { notas })),
-  excluir: (numeros: number[]) =>
-    req<{ excluidas: number }>('/notas', escrita('DELETE', { numeros })),
+  excluir: (numeros: number[], motivo?: string) =>
+    req<{ excluidas: number }>('/notas', escrita('DELETE', { numeros, motivo })),
   desfazer: () =>
     req<{ ok: boolean; mensagem: string }>('/desfazer', escrita('POST', {})),
 
@@ -66,7 +80,7 @@ export const InputApi = {
     req<{ ok: boolean }>('/responsaveis', escrita('PUT', mapa)),
 
   bases: () => req<{ bases: BaseStatus[] }>('/bases'),
-  syncSap: () => req<{ mensagem: string }>('/bases/sync-sap', escrita('POST')),
+  syncSap: () => req<{ mensagem: string; sap: import('./types').SapSyncState }>('/bases/sync-sap', escrita('POST')),
   urlDownloadBase: (arquivo: string) => `${base()}/input/bases/${encodeURIComponent(arquivo)}/download`,
   substituirBase: async (arquivo: string, f: File): Promise<void> => {
     const usuario = getUsuario();
@@ -122,9 +136,27 @@ export const InputApi = {
   obterStatus10Resumo: async (): Promise<import('./types').Status10Resumo> => {
     return req<import('./types').Status10Resumo>('/status10/resumo');
   },
+  extrairSapStatus10: async (): Promise<{ ok: boolean; mensagem: string; total_notas?: number }> => {
+    return req<{ ok: boolean; mensagem: string; total_notas?: number }>('/status10/extrair-sap', escrita('POST'));
+  },
   enviarEmailStatus10: async (): Promise<{ ok: boolean; mensagem: string }> => {
     return req<{ ok: boolean; mensagem: string }>('/status10/enviar-email', escrita('POST'));
   },
+
+  obterEmailsResponsaveis: () =>
+    req<Record<string, string>>('/responsaveis/emails'),
+  gravarEmailsResponsaveis: (novo: Record<string, string>) =>
+    req<{ ok: boolean }>('/responsaveis/emails', escrita('PUT', novo)),
+
+  obterResumoNotificacoesDiarias: (data?: string) =>
+    req<import('./types').ResumoNotificacoesDiarias>(
+      data ? `/notificacoes/resumo-diario?data=${encodeURIComponent(data)}` : '/notificacoes/resumo-diario'
+    ),
+  enviarEmailNotificacao: (engenheiro: string = '__todos__', data?: string) =>
+    req<{ ok: boolean; mensagem: string; enviados?: number }>(
+      '/notificacoes/enviar-email',
+      escrita('POST', { engenheiro, data })
+    ),
 };
 
 export function baixarBlob(blob: Blob, nome: string): void {

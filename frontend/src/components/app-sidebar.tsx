@@ -139,7 +139,7 @@ export function AppSidebar({
                 <BrandGlyph />
               </span>
               <span className="font-semibold text-sm truncate group-data-[collapsible=icon]:hidden">
-                EDP Verify
+                EDP-Helios
               </span>
               <SidebarTrigger className="ml-auto group-data-[collapsible=icon]:mx-auto" />
             </div>

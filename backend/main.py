@@ -62,7 +62,16 @@ async def _trace_middleware(request, call_next):
 # ── Scheduler (Extração Noturna do SAP) ──────────────────────────────────────
 import asyncio
 import datetime
+from input_module import sap_sync
 from input_module.routes import _rotina_sap_background
+
+
+def _disparar_sap_agendado():
+    try:
+        return sap_sync.disparar(_rotina_sap_background)
+    except sap_sync.SapSyncEmAndamento as exc:
+        print(f"[Scheduler] Extração SAP não iniciada: {exc}")
+        return None
 
 async def _agendador_sap_noturno():
     """Roda infinitamente verificando se é a hora da madrugada (ex: 03:00) para acionar o SAP."""
@@ -73,7 +82,7 @@ async def _agendador_sap_noturno():
             print("🕒 [Scheduler] Iniciando extração noturna do SAP...")
             # Roda em thread para não bloquear o event loop do FastAPI
             loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, _rotina_sap_background)
+            await loop.run_in_executor(None, _disparar_sap_agendado)
             print("✅ [Scheduler] Extração noturna finalizada!")
             
             # Dorme por 61 minutos para garantir que não vai rodar de novo hoje às 3h

@@ -82,22 +82,17 @@ if errorlevel 1 goto PROD_MODE
 
 :PROD_MODE
 cls
-echo.
-echo [1/2] Verificando arquivos do Frontend (dist)...
-if not exist "%PROJECT_ROOT%frontend\dist" (
+echo [1/2] Compilando a versao mais recente do Frontend (dist)...
+cd /d "%PROJECT_ROOT%frontend"
+call npm run build
+if errorlevel 1 (
     echo.
-    echo Frontend ainda nao foi compilado. Gerando build agora...
-    cd /d "%PROJECT_ROOT%frontend"
-    call npm run build
-    if errorlevel 1 (
-        echo.
-        echo Build falhou. O servidor nao sera iniciado.
-        pause
-        goto FIM
-    )
+    echo Build falhou. O servidor nao sera iniciado.
+    pause
+    goto FIM
 )
 
-echo [2/2] Iniciando o servidor EDP Verify (Backend + Frontend)...
+echo [2/2] Iniciando o servidor EDP-Helios (Backend + Frontend)...
 echo.
 echo -----------------------------------------------------------------------
 echo  O sistema abrira automaticamente no navegador: http://localhost:6328
@@ -120,10 +115,10 @@ echo =======================================================================
 echo.
 
 echo [1/2] Iniciando Backend FastAPI em segundo plano (:6328)...
-start "EDP Verify - Backend" cmd /k "cd /d "%PROJECT_ROOT%backend" && "!PYTHON_EXE!" -m uvicorn main:app --host 0.0.0.0 --port 6328 --reload"
+start "EDP-Helios - Backend" cmd /k "cd /d "%PROJECT_ROOT%backend" && "!PYTHON_EXE!" -m uvicorn main:app --host 0.0.0.0 --port 6328 --reload"
 
 echo [2/2] Iniciando Frontend Vite (:5173)...
-start "EDP Verify - Frontend Vite" cmd /k "cd /d "%PROJECT_ROOT%frontend" && npm run dev"
+start "EDP-Helios - Frontend Vite" cmd /k "cd /d "%PROJECT_ROOT%frontend" && npm run dev"
 
 echo.
 echo Servidores iniciados em janelas separadas!
