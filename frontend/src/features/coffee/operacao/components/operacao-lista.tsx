@@ -117,4 +117,3 @@ export function OperacaoLista(props: OperacaoListaProps): React.JSX.Element {
     </div>
   );
 }
-
