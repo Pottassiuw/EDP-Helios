@@ -16,39 +16,6 @@ setlocal enabledelayedexpansion
 set "PROJECT_ROOT=%~dp0"
 cd /d "%PROJECT_ROOT%"
 
-:: Inicializa o FNM antes de qualquer chamada ao Node/npm.
-:: O npm correto vem da versao Node selecionada pelo FNM, nunca do PATH do Windows.
-set "FNM_EXE="
-if exist "%USERPROFILE%\Documents\fnm-windows\fnm.exe" set "FNM_EXE=%USERPROFILE%\Documents\fnm-windows\fnm.exe"
-if not defined FNM_EXE if exist "%USERPROFILE%\AppData\Local\fnm\fnm.exe" set "FNM_EXE=%USERPROFILE%\AppData\Local\fnm\fnm.exe"
-if not defined FNM_EXE (
-    for /f "delims=" %%i in ('where fnm 2^>nul') do if not defined FNM_EXE set "FNM_EXE=%%i"
-)
-if not defined FNM_EXE (
-    echo ERRO: FNM nao encontrado.
-    echo Instale/configure o FNM em %%USERPROFILE%%\Documents\fnm-windows ou adicione-o ao PATH.
-    pause
-    exit /b 1
-)
-
-for /f "tokens=*" %%i in ('"%FNM_EXE%" env --shell cmd') do %%i
-if errorlevel 1 (
-    echo ERRO: nao foi possivel inicializar o ambiente do FNM.
-    pause
-    exit /b 1
-)
-
-where node >nul 2>&1 || (
-    echo ERRO: Node nao foi disponibilizado pelo FNM.
-    pause
-    exit /b 1
-)
-where npm >nul 2>&1 || (
-    echo ERRO: npm nao foi disponibilizado pelo FNM.
-    pause
-    exit /b 1
-)
-
 :: Identifica o executavel do Python pelo caminho absoluto
 if exist "%PROJECT_ROOT%backend\.venv\Scripts\python.exe" (
     set "PYTHON_EXE=%PROJECT_ROOT%backend\.venv\Scripts\python.exe"
