@@ -44,8 +44,8 @@ O **composer** é uma barra sempre visível no topo da página (`operacao-compos
 textarea compacta (2 linhas) com dois botões de ação. IDs são separados por espaço,
 vírgula, ponto e vírgula ou linha; enquanto o usuário digita, aparecem chips mostrando
 o token exato de cada ID repetido ou inválido (não apenas uma contagem). Números
-positivos e únicos são validados localmente; **Ctrl+Enter** ou clicar em **Consultar**
-inicia a consulta de leitura (não enfileira).
+positivos e únicos são validados localmente; **Ctrl+Enter** ou clicar em **Adicionar à fila**
+enfileira os IDs; clicar em **Consultar** abre o painel de consulta somente-leitura.
 
 O botão **Consultar** dispara uma consulta somente-leitura (`POST /api/coffee/operacao/consultar-lote`),
 que abre um painel recolhível de resultado (`operacao-consulta-resultado.tsx`) abaixo do
