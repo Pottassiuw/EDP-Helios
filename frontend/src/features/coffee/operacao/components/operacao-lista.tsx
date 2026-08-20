@@ -1,4 +1,5 @@
 import React from 'react';
+import { Inbox } from 'lucide-react';
 import type { CoffeeJob, CoffeeOperacaoItem } from '../../types';
 import { NotaOperacaoRow } from './nota-operacao-row';
 
@@ -37,32 +38,36 @@ export function OperacaoLista(props: OperacaoListaProps): React.JSX.Element {
   const ordenados = ordenar(props.itens, ordenacao);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-bg-2 px-[22px] py-[9px]">
-        <div className="flex items-center gap-3 text-[11.5px] text-text-mute">
+    <div className="flex flex-col bg-surface">
+      <div className="sticky top-0 z-10 flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-line bg-bg-2 px-6 py-2">
+        <div className="flex items-center gap-3.5 text-xs text-text-mute">
           {LEGENDA.map((entrada) => (
-            <span key={entrada.etapa} className="flex items-center gap-[5px]">
-              <span className={`size-[7px] shrink-0 rounded-full ${entrada.cor}`} />
-              {entrada.rotulo}
+            <span key={entrada.etapa} className="flex items-center gap-1.5">
+              <span className={`size-2 shrink-0 rounded-full ${entrada.cor}`} />
+              <span className="font-mono text-[11px] text-text-dim">{entrada.rotulo}</span>
             </span>
           ))}
         </div>
-        <label className="flex items-center gap-[6px] text-[12.5px] text-text-dim">
-          Ordenar por:
+        <label className="flex items-center gap-2 text-xs text-text-dim">
+          <span>Ordenar por:</span>
           <select
             value={ordenacao}
             onChange={(event) => setOrdenacao(event.target.value as Ordenacao)}
-            className="rounded-app-sm border border-line-2 bg-bg-2 px-[6px] py-[2px] text-[12.5px] text-text"
+            className="h-7 rounded-[5px] border border-line bg-surface px-2 text-xs font-medium text-text outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
           >
             <option value="atualizacao">Atualização</option>
             <option value="prioridade">Prioridade</option>
           </select>
         </label>
       </div>
-      <div className="min-h-40 flex-1 overflow-y-auto">
+      <div className={`flex flex-col ${props.selected.size > 0 ? 'pb-24' : 'pb-8'}`}>
         {ordenados.length === 0 ? (
-          <div className="grid min-h-28 place-items-center text-center text-xs text-text-mute">
-            Nenhuma nota na operação.
+          <div className="flex min-h-60 flex-col items-center justify-center gap-2 p-8 text-center">
+            <Inbox className="size-8 text-text-mute/50" />
+            <span className="text-sm font-medium text-text">Nenhuma nota na operação.</span>
+            <span className="max-w-sm font-mono text-xs text-text-mute">
+              Cole IDs no campo acima ou selecione notas da triagem no Verificar para enfileirar.
+            </span>
           </div>
         ) : ordenados.map((item) => {
           const pk = item.nota_pk ?? item.entrada_id;

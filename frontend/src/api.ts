@@ -15,7 +15,10 @@ import type {
   DuplicateResult,
 } from "./types";
 import { getUsuario, setUsuario, InputApi } from "./features/input/api";
-export const BASE: string = localStorage.getItem("edp_api") || "/api";
+export const BASE: string =
+  typeof localStorage !== 'undefined'
+    ? localStorage.getItem('edp_api') || '/api'
+    : '/api';
 const hash_api_url = import.meta.env.VITE_HASH_API_URL;
 const COFFEE_BASE = `https://coffee.edp.gpti.com.br/${hash_api_url}/informativo/`;
 export const coffeeUrl = (id: string): string =>
@@ -157,7 +160,10 @@ function normalize(j: ApiData): FetchResult {
 // localStorage.setItem('edp_perf', '1') e recarregue. Loga rede, parse e
 // normalização separados, além da contagem de chamadas (chamadas duplicadas
 // aparecem como #2, #3… para a mesma rota).
-const perfAtivo = localStorage.getItem("edp_perf") === "1";
+const perfAtivo =
+  typeof localStorage !== 'undefined'
+    ? localStorage.getItem('edp_perf') === '1'
+    : false;
 const perfChamadas = new Map<string, number>();
 function perfLog(rota: string, etapas: Record<string, number>, sufixo = ""): void {
   const n = (perfChamadas.get(rota) ?? 0) + 1;

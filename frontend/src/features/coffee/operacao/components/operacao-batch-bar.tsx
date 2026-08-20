@@ -42,41 +42,47 @@ export function OperacaoBatchBar({
       .map((item) => item.nota_pk ?? item.entrada_id);
 
   return (
-    <div className="absolute inset-x-4 bottom-4 z-20 flex flex-wrap items-center gap-2 rounded-[11px] border border-line-2 bg-surface p-2 shadow-lg">
-      <strong className="px-2 text-sm">{itens.length} selecionadas</strong>
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 flex max-w-2xl w-[calc(100%-3rem)] flex-wrap items-center gap-2 rounded-[8px] border border-line-2 bg-surface/95 p-2 shadow-2xl shadow-black/15 backdrop-blur-md">
+      <span className="px-2 font-mono text-xs font-medium text-text">{itens.length} selecionadas</span>
       {etapa !== null && columnIds.length > itens.length && (
         <Button
           variant="outline"
           size="sm"
           onClick={() => onSelectColumn(columnIds)}
+          className="h-7 gap-1.5 text-xs font-medium"
         >
-          <ListChecks /> Selecionar etapa
+          <ListChecks className="size-3.5" /> Selecionar etapa
         </Button>
       )}
       {etapa === 'fila' && (
-        <Button size="sm" onClick={() => onReconsultar(ids)}>
-          <RefreshCw /> Consultar novamente
+        <Button size="sm" onClick={() => onReconsultar(ids)} className="h-7 gap-1.5 text-xs font-medium">
+          <RefreshCw className="size-3.5" /> Consultar novamente
         </Button>
       )}
       {etapa === 'pronta' && (
-        <Button size="sm" onClick={() => onGerar(ids)}>
-          <WandSparkles /> Gerar
+        <Button size="sm" onClick={() => onGerar(ids)} className="h-7 gap-1.5 text-xs font-medium">
+          <WandSparkles className="size-3.5" /> Gerar
         </Button>
       )}
       {etapa === 'aguardando_sap' && (
-        <Button size="sm" onClick={() => onAtualizar(ids)}>
-          <RefreshCw /> Atualizar SAP
+        <Button size="sm" onClick={() => onAtualizar(ids)} className="h-7 gap-1.5 text-xs font-medium">
+          <RefreshCw className="size-3.5" /> Atualizar SAP
         </Button>
       )}
       {etapa === null && (
-        <span className="text-xs text-text-mute">
-          Selecione notas da mesma etapa para executar ações.
+        <span className="font-mono text-xs text-text-mute">
+          Selecione notas da mesma etapa para executar ações em lote.
         </span>
       )}
       <div className="flex-1" />
       {!etapas.has('processando') && (
-        <Button variant="ghost" size="sm" onClick={() => onRemover(ids)}>
-          <Trash2 /> Remover
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => onRemover(ids)}
+          className="h-7 gap-1.5 text-xs font-medium text-red hover:bg-tint-red hover:text-red"
+        >
+          <Trash2 className="size-3.5" /> Remover
         </Button>
       )}
       <Button
@@ -84,8 +90,9 @@ export function OperacaoBatchBar({
         size="icon-sm"
         onClick={onClear}
         aria-label="Limpar seleção"
+        className="size-7 text-text-dim hover:text-text"
       >
-        <X />
+        <X className="size-3.5" />
       </Button>
     </div>
   );
