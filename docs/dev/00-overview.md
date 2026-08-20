@@ -111,15 +111,12 @@ processo (`backend/main.py:330-332`). No Windows, `iniciar_sistema.bat` oferece 
 frontend sem iniciar servidor, apenas backend com `--reload` e saída. O modo
 de produção sempre executa `npm run build` antes de iniciar o servidor; se o
 Node, as dependências (`npm ci`) ou o build falharem, ele informa o erro e
-não inicia com um `dist` potencialmente desatualizado. O script inicializa o `fnm`
-antes de buscar `npm`, priorizando `%USERPROFILE%\Documents\fnm-windows\fnm.exe`
-e aceitando também `%USERPROFILE%\AppData\Local\fnm\fnm.exe` ou o `PATH`.
-Se o FNM/Node/npm não estiver disponível, o script aborta em vez de usar
-silenciosamente uma versão do sistema. As versões ativas de Node e npm são
-exibidas no início; `npm.cmd` é chamado com `call`, pois executá-lo sem
-`call` encerra o fluxo do batch antes do menu. O cabeçalho do `.bat` também registra uma regra de
-manutenção: não alterar executáveis, Node/npm, FNM, versões ou caminhos sem
-solicitação explícita.
+não inicia com um `dist` potencialmente desatualizado. Node e npm são
+resolvidos diretamente do `PATH` (sem inicialização explícita do `fnm` no
+script); as versões ativas são exibidas no início. `npm.cmd` é chamado com
+`call`, pois executá-lo sem `call` encerra o fluxo do batch antes do menu.
+O cabeçalho do `.bat` também registra uma regra de manutenção: não alterar
+executáveis, Node/npm, FNM, versões ou caminhos sem solicitação explícita.
 
 Testes (`README.md`):
 
