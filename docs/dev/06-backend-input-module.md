@@ -545,6 +545,11 @@ muda é o `PRAGMA schema_version` dentro de `obter_versao_dataset()` (ver "Vers�
 do dataset"). Nada disso muda o comportamento **antes** da publicação — os
 caminhos de `422`/`502`/`500` acima são idênticos.
 
+`Status_Obra` faz parte de `CAMPOS_EDITAVEIS` e pode ser atualizado pelo fluxo
+COFFEE → Input quando uma nota já existente é revisada. O diff compara a
+representação carregada do SQLite antes de gerar o upsert; campos sem mudança
+não incrementam `alteradas`.
+
 ### Regra de executado em Relatórios
 
 Executado reconhece o código exato 99 em `Status_Final`; `Status_Nota` só é
