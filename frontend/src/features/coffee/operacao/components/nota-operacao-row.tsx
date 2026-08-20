@@ -36,8 +36,7 @@ export function NotaOperacaoRow({
     <div
       className={[
         'flex items-center gap-[14px] border-b border-line px-[22px] py-[11px]',
-        'even:bg-bg-2',
-        selected ? 'bg-tint-green' : '',
+        selected ? 'bg-tint-green' : 'even:bg-bg-2',
       ].join(' ')}
     >
       <input

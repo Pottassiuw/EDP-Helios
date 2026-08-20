@@ -1,4 +1,4 @@
-import type { ConsultaLoteItem } from '../types';
+import type { CoffeeJob, ConsultaLoteItem } from '../types';
 
 export interface ConsultaLeituraEstado {
   resultados: ConsultaLoteItem[] | null;
@@ -20,11 +20,19 @@ export function alternarSelecao(estado: ConsultaLeituraEstado, pk: number): Cons
   return { ...estado, selecionados: proximo };
 }
 
-export function selecionarElegiveis(estado: ConsultaLeituraEstado): ConsultaLeituraEstado {
+/** Alterna a seleção das notas elegíveis: se todas já estão selecionadas,
+ * limpa só essas da seleção; senão, seleciona todas — o par que dá ao
+ * checkbox "Selecionar todas elegíveis" um estado controlado e reversível. */
+export function alternarElegiveis(estado: ConsultaLeituraEstado): ConsultaLeituraEstado {
   const elegiveis = (estado.resultados ?? [])
     .filter((item) => item.elegivel)
     .map((item) => item.pk);
-  return { ...estado, selecionados: new Set(elegiveis) };
+  const todasSelecionadas = elegiveis.length > 0
+    && elegiveis.every((pk) => estado.selecionados.has(pk));
+  const selecionados = todasSelecionadas
+    ? new Set([...estado.selecionados].filter((pk) => !elegiveis.includes(pk)))
+    : new Set([...estado.selecionados, ...elegiveis]);
+  return { ...estado, selecionados };
 }
 
 export function removerDosResultados(estado: ConsultaLeituraEstado, ids: number[]): ConsultaLeituraEstado {
@@ -32,4 +40,17 @@ export function removerDosResultados(estado: ConsultaLeituraEstado, ids: number[
   const selecionados = new Set(estado.selecionados);
   ids.forEach((id) => selecionados.delete(id));
   return { resultados, selecionados };
+}
+
+/** Se o job da consulta somente-leitura não terminou em `concluido` (ex.:
+ * `interrompido` por reinício do backend no meio da consulta), devolve uma
+ * mensagem explicando o motivo — os `resultados` parciais ainda são
+ * aplicados normalmente, mas a UI não pode tratar isso como sucesso pleno.
+ * Retorna `null` quando o job concluiu normalmente. */
+export function resumirInterrupcao(job: Pick<CoffeeJob, 'estado' | 'erros'>): string | null {
+  if (job.estado === 'concluido') return null;
+  const motivos = job.erros.map((erro) => erro.msg).join('; ');
+  return motivos
+    ? `Consulta interrompida antes de terminar: ${motivos}`
+    : 'Consulta interrompida antes de terminar — os resultados abaixo podem estar incompletos.';
 }

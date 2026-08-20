@@ -5,8 +5,9 @@ import {
   estadoInicial,
   aplicarResultado,
   alternarSelecao,
-  selecionarElegiveis,
+  alternarElegiveis,
   removerDosResultados,
+  resumirInterrupcao,
 } from './consulta-leitura-estado';
 
 /** Estado da consulta somente-leitura da Operação: separado de
@@ -18,6 +19,7 @@ import {
 export function useConsultaLeitura() {
   const [estado, setEstado] = React.useState(estadoInicial);
   const [pending, setPending] = React.useState(false);
+  const [erro, setErro] = React.useState<string | null>(null);
 
   async function iniciar(ids: number[]): Promise<void> {
     setPending(true);
@@ -25,6 +27,7 @@ export function useConsultaLeitura() {
       const { job_id } = await OperacaoApi.consultarLeitura(ids);
       const job = await aguardarJobOperacao(job_id);
       setEstado(aplicarResultado(job.resultados ?? []));
+      setErro(resumirInterrupcao(job));
     } finally {
       setPending(false);
     }
@@ -34,10 +37,14 @@ export function useConsultaLeitura() {
     resultados: estado.resultados,
     selecionados: estado.selecionados,
     pending,
+    erro,
     iniciar,
     toggle: (pk: number) => setEstado((atual) => alternarSelecao(atual, pk)),
-    selecionarTodasElegiveis: () => setEstado(selecionarElegiveis),
-    fechar: () => setEstado(estadoInicial()),
+    selecionarTodasElegiveis: () => setEstado(alternarElegiveis),
+    fechar: () => {
+      setEstado(estadoInicial());
+      setErro(null);
+    },
     removerDosResultados: (ids: number[]) => setEstado((atual) => removerDosResultados(atual, ids)),
   };
 }

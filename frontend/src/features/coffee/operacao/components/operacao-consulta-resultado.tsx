@@ -1,5 +1,6 @@
 import React from 'react';
 import { Copy, ExternalLink, Info, X } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import type { ConsultaLoteItem } from '../../types';
 
@@ -29,6 +30,35 @@ function resumir(resultados: ConsultaLoteItem[]): Resumo {
   }, inicial);
 }
 
+/** Botão "+ Fila", reutilizado pelas notas elegíveis (nao_gerada) e pendentes
+ * (aguardando SAP) — ambas são candidatas legítimas a enfileirar; só notas
+ * duplicadas ou já concluídas com SAP real não recebem essa ação. */
+function BotaoAdicionarFila({
+  pk,
+  onAdicionarFila,
+}: {
+  pk: number;
+  onAdicionarFila: (ids: number[]) => void;
+}): React.JSX.Element {
+  return (
+    <Button variant="outline" size="xs" onClick={() => onAdicionarFila([pk])}>
+      + Fila
+    </Button>
+  );
+}
+
+async function copiarSap(idSap: number | null): Promise<void> {
+  if (idSap == null) return;
+  try {
+    await navigator.clipboard.writeText(String(idSap));
+    toast.success(`SAP ${idSap} copiado para a área de transferência`);
+  } catch (error: unknown) {
+    toast.error('Não foi possível copiar automaticamente', {
+      description: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 export function OperacaoConsultaResultado({
   resultados,
   selecionados,
@@ -39,6 +69,8 @@ export function OperacaoConsultaResultado({
 }: OperacaoConsultaResultadoProps): React.JSX.Element {
   const contagens = resumir(resultados);
   const elegiveis = resultados.filter((item) => item.elegivel);
+  const todasElegiveisSelecionadas = elegiveis.length > 0
+    && elegiveis.every((item) => selecionados.has(item.pk));
 
   return (
     <section className="flex flex-col border-b border-line">
@@ -86,25 +118,36 @@ export function OperacaoConsultaResultado({
                 <span className="rounded-[5px] bg-surface-3 px-2 py-[3px] font-mono text-[10.5px] font-semibold uppercase tracking-[0.08em] text-text-dim">
                   Ainda não gerada
                 </span>
-                <Button variant="outline" size="xs" onClick={() => onAdicionarFila([item.pk])}>
-                  + Fila
-                </Button>
+                <BotaoAdicionarFila pk={item.pk} onAdicionarFila={onAdicionarFila} />
               </div>
             ) : item.ja_na_operacao ? (
               <span className="shrink-0 rounded-[5px] bg-tint-blue px-2 py-[3px] font-mono text-[10.5px] font-semibold uppercase tracking-[0.08em] text-blue">
                 Já na Operação
               </span>
+            ) : item.classificacao === 'pendente' ? (
+              <div className="flex shrink-0 items-center gap-[8px]">
+                <span className="rounded-[5px] bg-tint-amber px-2 py-[3px] font-mono text-[10.5px] font-semibold uppercase tracking-[0.08em] text-amber">
+                  Aguardando SAP
+                </span>
+                <BotaoAdicionarFila pk={item.pk} onAdicionarFila={onAdicionarFila} />
+              </div>
+            ) : item.classificacao === 'duplicada' ? (
+              <span className="shrink-0 rounded-[5px] bg-tint-red px-2 py-[3px] font-mono text-[10.5px] font-semibold uppercase tracking-[0.08em] text-red">
+                Duplicada
+              </span>
             ) : (
               <div className="flex shrink-0 items-center gap-[8px]">
-                <span className="font-mono text-[12.5px] font-semibold">SAP {item.id_sap}</span>
-                <button
-                  type="button"
-                  onClick={() => void navigator.clipboard.writeText(String(item.id_sap))}
-                  aria-label={`Copiar SAP ${item.id_sap}`}
-                  className="flex size-[24px] items-center justify-center rounded-md border border-line text-text-dim"
-                >
-                  <Copy className="size-[13px]" />
-                </button>
+                <span className="font-mono text-[12.5px] font-semibold">SAP {item.id_sap ?? '—'}</span>
+                {item.id_sap != null && (
+                  <button
+                    type="button"
+                    onClick={() => void copiarSap(item.id_sap)}
+                    aria-label={`Copiar SAP ${item.id_sap}`}
+                    className="flex size-[24px] items-center justify-center rounded-md border border-line text-text-dim"
+                  >
+                    <Copy className="size-[13px]" />
+                  </button>
+                )}
                 <span className="flex items-center gap-[3px] text-[11.5px] text-text-mute">
                   já concluída <ExternalLink className="size-3" />
                 </span>
@@ -117,6 +160,7 @@ export function OperacaoConsultaResultado({
         <label className="flex items-center gap-[7px] text-xs text-text-mute">
           <input
             type="checkbox"
+            checked={todasElegiveisSelecionadas}
             onChange={onSelecionarTodasElegiveis}
             disabled={elegiveis.length === 0}
             className="size-[14px] accent-green"

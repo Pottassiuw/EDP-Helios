@@ -110,6 +110,17 @@ export function CoffeeOperacao({
     }
   }, [consultar]);
 
+  /** A consulta somente-leitura pode voltar interrompida (ex.: reinício do
+   * backend no meio do lote) — os resultados parciais ainda aparecem no
+   * painel, mas o usuário precisa saber que a consulta não terminou. */
+  React.useEffect(() => {
+    if (consultaLeitura.erro) {
+      toast.error('Consulta somente-leitura incompleta', {
+        description: consultaLeitura.erro,
+      });
+    }
+  }, [consultaLeitura.erro]);
+
   function clearSelection(): void {
     setSelected(new Set());
   }
