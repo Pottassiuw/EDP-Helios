@@ -14,7 +14,7 @@ renderiza uma de cinco seções por `SegTabs`:
 
 - **Verificar** — lê a triagem diretamente do `Verificar.db` e encaminha notas para a fila COFFEE.
 - **Abrir** — abre IDs manualmente no COFFEE; a lista fica no navegador.
-- **Operação** — o Kanban da fila ativa.
+- **Operação** — lista ordenável da fila ativa, com consulta somente-leitura separada do enfileiramento.
 - **Concluídas** — histórico separado de notas geradas e corrigidas.
 - **Logs** — auditoria filtrável das ações e chamadas de integração.
 
@@ -38,7 +38,7 @@ renderiza uma de cinco seções por `SegTabs`:
 | `confirm-modal.tsx` | Confirmação com justificativa obrigatória quando a ação exige auditoria. |
 | `mover-plano-modal.tsx` | Formulário de integração com o Plano do Input. |
 
-## Operação: Kanban persistido
+## Operação: lista persistida
 
 O **composer** é uma barra sempre visível no topo da página (`operacao-composer.tsx`):
 textarea compacta (2 linhas) com dois botões de ação. IDs são separados por espaço,
@@ -66,8 +66,10 @@ Prioridade (via dropdown). Cada linha é uma `nota-operacao-row.tsx` que mostra 
 local, um mini-stepper (`operacao-stepper.tsx`) e seleção/ações. O mini-stepper de 5 nós
 mostra a jornada da nota: **Fila** → **Pronta** → **Processando** → **Aguardando SAP**
 (todos reais) + um nó tracejado fantasma **Concluída** (inerte, sai do quadro ao gerar).
-A API e a máquina de estados definem a etapa de cada item; não há drag-and-drop. Ações
-por linha: gerar, reconsultar, atualizar SAP, remover (com justificativa).
+A API e a máquina de estados definem a etapa de cada item; não há drag-and-drop. Cada
+linha tem um checkbox de seleção e um botão que abre a ficha de detalhes da nota
+(`CoffeeNotaInspector`); não há botões de ação por linha — gerar, reconsultar, atualizar
+SAP e remover ficam na `OperacaoBatchBar`, orientada pela seleção, e/ou na ficha.
 
 `useCoffeeOperacao` consulta `['coffee', 'operacao']` e faz refetch a cada
 800 ms somente enquanto houver operação com estado `rodando`. O quadro vem do
