@@ -41,7 +41,7 @@ export function useInputData() {
   return useQuery({
     queryKey: INPUT_DADOS_KEY,
     queryFn: buscarEGravar,
-    staleTime: 300_000,
+    staleTime: 10_000,
     retry: 1,
   });
 }
@@ -49,6 +49,7 @@ export function useInputData() {
 export function useRecarregarInput(): () => Promise<void> {
   const qc = useQueryClient();
   return React.useCallback(async () => {
+    qc.invalidateQueries({ queryKey: INPUT_DADOS_KEY });
     await qc.refetchQueries({ queryKey: INPUT_DADOS_KEY, type: 'active' });
   }, [qc]);
 }
