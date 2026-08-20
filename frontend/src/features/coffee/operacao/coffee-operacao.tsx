@@ -191,7 +191,7 @@ export function CoffeeOperacao({
   function handleAdicionarFilaDoResultado(ids: number[]): void {
     consultarViaComposer(ids)
       .then(() => consultaLeitura.removerDosResultados(ids))
-      .catch(() => { /* consultarViaComposer já mostra o toast de erro */ });
+      .catch((error: unknown) => mutationError('adicionar essas notas à fila', error));
   }
 
   function generate(ids: number[]): void {
