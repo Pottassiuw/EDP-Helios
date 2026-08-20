@@ -659,6 +659,21 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                     except Exception:
                         pass
 
+                    # Se a linha 0 estiver com status MEDE (Encerrada/Concluída), o SAP bloqueia a exclusão e edição.
+                    # Pressiona o botão 'Anular encerramento' (btnFC_ERL_ZURUECK) para reabrir a medida (voltar p/ MEDA) antes de deletar.
+                    try:
+                        status_linha_0 = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-ASTXT[7,0]").text
+                    except Exception:
+                        status_linha_0 = ""
+
+                    if any(s in status_linha_0.upper() for s in ["MEDE", "ENCE", "ERL", "CONC"]):
+                        log_debug(f"Nota {nota} - Linha 0 está encerrada ({status_linha_0}). Anulando encerramento (btnFC_ERL_ZURUECK) para reabrir e permitir exclusão...")
+                        try:
+                            session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/btnFC_ERL_ZURUECK").press()
+                            time.sleep(0.5)
+                        except Exception as e_anular:
+                            log_debug(f"Nota {nota} - Aviso ao anular encerramento da linha 0: {e_anular}")
+
                     try:
                         session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-QSMNUM[0,0]").setFocus()
                     except Exception:
