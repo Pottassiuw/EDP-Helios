@@ -25,10 +25,10 @@ renderiza uma de cinco seções por `SegTabs`:
 | `coffee-hub.tsx` | Cabeçalho, navegação das cinco subseções e handoffs de Verificar/Relatórios. |
 | `operacao/coffee-operacao.tsx` | Orquestra quadro, seleção em lote, confirmações, inspector e ações da fila. |
 | `operacao/use-coffee-operacao.ts` | Query do quadro e mutations de consultar, gerar, atualizar SAP e remover. |
-| `operacao/components/operacao-composer.tsx` | Barra sempre visível (sem expandir/recolher) com dois botões — `Consultar` (somente leitura) e `Adicionar à fila` (enfileira); mostra chips com o token exato de repetidos/inválidos, não só a contagem. |
+| `operacao/components/operacao-composer.tsx` | Barra sempre visível no topo da página focada em enfileiramento rápido (`+ Adicionar à fila` / `Ctrl+Enter`) e botão para abrir o modal de consulta (`Consultar notas…`). |
 | `operacao/components/operacao-lista.tsx` | Lista ordenável (Atualização/Prioridade); cada linha mostra a jornada da nota via `operacao-stepper.tsx`, sem colunas fixas. |
 | `operacao/components/operacao-stepper.tsx` | Mini-stepper de 5 nós (Fila/Pronta/Processando/Aguardando SAP + nó fantasma "Concluída"), reutilizado por `nota-operacao-row.tsx`. |
-| `operacao/components/operacao-consulta-resultado.tsx` | Painel recolhível com o resultado da consulta somente-leitura: resumo por contagem, lista com altura travada, `+ Fila` por linha e "Selecionar todas elegíveis". |
+| `operacao/components/consulta-notas-modal.tsx` | Modal independente de consulta somente-leitura com busca por IDs, tabela rica de informações, cópia por célula/linha e exportação tabular para Excel. |
 | `components/coffee-nota-inspector.tsx` | Ficha lateral da nota com resumo, card read-only da Carteira, atividade, edição de local e ações contextuais. |
 | `concluidas/coffee-concluidas.tsx` | Histórico, filtros, arquivamento de geradas e movimento de corrigidas para o Plano. |
 | `concluidas/concluidas-api.ts` | Consulta e exportação do conjunto filtrado de concluídas. |
@@ -41,25 +41,18 @@ renderiza uma de cinco seções por `SegTabs`:
 ## Operação: lista persistida
 
 O **composer** é uma barra sempre visível no topo da página (`operacao-composer.tsx`):
-textarea compacta (2 linhas) com dois botões de ação. IDs são separados por espaço,
+textarea compacta com botões de ação direta. IDs são separados por espaço,
 vírgula, ponto e vírgula ou linha; enquanto o usuário digita, aparecem chips mostrando
 o token exato de cada ID repetido ou inválido (não apenas uma contagem). Números
 positivos e únicos são validados localmente; **Ctrl+Enter** ou clicar em **Adicionar à fila**
-enfileira os IDs; clicar em **Consultar** abre o painel de consulta somente-leitura.
+enfileira os IDs na fila ativa. O botão **Consultar notas…** abre o modal dedicado de consulta.
 
-O botão **Consultar** dispara uma consulta somente-leitura (`POST /api/coffee/operacao/consultar-lote`),
-que abre um painel recolhível de resultado (`operacao-consulta-resultado.tsx`) abaixo do
-composer. O painel mostra um resumo por contagem (elegiveis, concluídas, já na operação,
-erros) e uma lista com altura travada (`max-h-[336px]`) — cada linha exibe o ID, local
-de instalação e status. IDs elegíveis mostram um botão "+ Fila"; concluídas mostram o
-SAP com um botão de copiar; em operação mostram um badge de confirmação. Um checkbox
-"Selecionar todas elegíveis" permite bulk-select, com um botão "Adicionar à fila de
-geração" que enfileira os selecionados via `POST /api/coffee/operacao/consultar`.
-
-O botão **Adicionar à fila** (sempre visível no composer) enfileira IDs digitados
-diretamente sem abrir o painel de consulta somente-leitura — equivale ao comportamento
-anterior de `consulta é aceita` que limpava e fechava. Uma falha mantém o texto no
-composer e mostra o erro embutido, sem fechar silenciosamente.
+O modal **Consulta de Notas** (`consulta-notas-modal.tsx`) desacopla a pesquisa somente-leitura
+da fila de execução. O modal permite colar IDs, consultar via `POST /api/coffee/operacao/consultar-lote`,
+visualizar a tabela com dados completos (ID, local de instalação, ID SAP, status), copiar campos
+individualmente e exportar a tabela formatada para Excel (TSV). Os dados e o texto do modal
+são persistidos em `sessionStorage` (`edp_coffee_modal_consulta_text` e `edp_coffee_operacao_consulta`),
+garantindo que fechar e reabrir o modal mantenha as notas consultadas.
 
 A **lista operacional** (`operacao-lista.tsx`) ordena itens por Atualização (padrão) ou
 Prioridade (via dropdown). Cada linha é uma `nota-operacao-row.tsx` que mostra o ID,

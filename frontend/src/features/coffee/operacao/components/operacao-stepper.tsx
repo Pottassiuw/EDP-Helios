@@ -11,10 +11,10 @@ const ROTULOS: Record<OperacaoEtapa, string> = {
 };
 
 const NODE_ATUAL: Record<OperacaoEtapa, string> = {
-  fila: 'bg-indigo ring-4 ring-tint-indigo',
-  pronta: 'bg-green ring-4 ring-tint-green',
-  processando: 'bg-amber ring-4 ring-tint-amber motion-safe:animate-pulse',
-  aguardando_sap: 'bg-blue ring-4 ring-tint-blue',
+  fila: 'bg-indigo ring-2 ring-indigo/30 ring-offset-1 ring-offset-surface',
+  pronta: 'bg-green ring-2 ring-green/30 ring-offset-1 ring-offset-surface',
+  processando: 'bg-amber ring-2 ring-amber/30 ring-offset-1 ring-offset-surface motion-safe:animate-pulse',
+  aguardando_sap: 'bg-blue ring-2 ring-blue/30 ring-offset-1 ring-offset-surface',
 };
 
 const LABEL_COR: Record<OperacaoEtapa, string> = {
@@ -36,13 +36,13 @@ export function OperacaoStepper({ etapa }: OperacaoStepperProps): React.JSX.Elem
   const sufixo = etapa === 'aguardando_sap' ? ' · sai ao concluir' : '';
 
   return (
-    <div className="flex w-[222px] shrink-0 flex-col gap-[5px]">
+    <div className="flex w-[184px] shrink-0 flex-col gap-1">
       <div className="flex items-center">
         {ETAPAS.map((passo, indice) => (
           <React.Fragment key={passo}>
             <span
               className={[
-                'h-[9px] w-[9px] shrink-0 rounded-full',
+                'size-2 shrink-0 rounded-full transition-all',
                 indice < indiceAtual
                   ? 'bg-green'
                   : indice === indiceAtual
@@ -52,15 +52,18 @@ export function OperacaoStepper({ etapa }: OperacaoStepperProps): React.JSX.Elem
             />
             <span
               className={[
-                'h-[2px] w-[24px] shrink-0',
+                'h-[1.5px] w-4 shrink-0',
                 indice < indiceAtual ? 'bg-green' : 'bg-line-2',
               ].join(' ')}
             />
           </React.Fragment>
         ))}
-        <span className="h-[11px] w-[11px] shrink-0 rounded-full border-[1.5px] border-dashed border-line-2 bg-surface" />
+        <span
+          title="Concluída (sai da operação)"
+          className="size-2.5 shrink-0 rounded-full border border-dashed border-line-2 bg-surface"
+        />
       </div>
-      <span className={`font-mono text-[10px] font-medium uppercase tracking-[0.07em] ${LABEL_COR[etapa]}`}>
+      <span className={`font-mono text-[10px] font-medium tracking-[0.06em] ${LABEL_COR[etapa]}`}>
         {ROTULOS[etapa]}{sufixo}
       </span>
     </div>

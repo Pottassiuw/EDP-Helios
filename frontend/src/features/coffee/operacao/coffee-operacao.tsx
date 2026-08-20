@@ -1,7 +1,6 @@
 import React from 'react';
 import { RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
-import { Eyebrow } from '@/components/branded/section';
 import { Button } from '@/components/ui/button';
 import { ConfirmModal } from '../confirm-modal';
 import {
@@ -12,10 +11,9 @@ import { formatRelativeTime } from '../format';
 import type { NotaRevisao } from '../types';
 import { OperacaoBatchBar } from './components/operacao-batch-bar';
 import { OperacaoComposer } from './components/operacao-composer';
-import { OperacaoConsultaResultado } from './components/operacao-consulta-resultado';
+import { ConsultaNotasModal } from './components/consulta-notas-modal';
 import { OperacaoLista } from './components/operacao-lista';
 import { aguardarJobOperacao, useCoffeeOperacao } from './use-coffee-operacao';
-import { useConsultaLeitura } from './use-consulta-leitura';
 import { resumoJobConsulta } from './resumo-job';
 
 const LEGACY_ROWS_KEY = 'edp_coffee_gerar_rows';
@@ -35,7 +33,7 @@ export function CoffeeOperacao({
     atualizarSap,
     remover,
   } = useCoffeeOperacao();
-  const consultaLeitura = useConsultaLeitura();
+  const [consultaModalAberto, setConsultaModalAberto] = React.useState(false);
   const [selected, setSelected] = React.useState<Set<number>>(new Set());
   const [selectedPk, setSelectedPk] = React.useState<number | null>(null);
   const [pendingRemoval, setPendingRemoval] = React.useState<number[] | null>(null);
@@ -110,16 +108,6 @@ export function CoffeeOperacao({
     }
   }, [consultar]);
 
-  /** A consulta somente-leitura pode voltar interrompida (ex.: reinício do
-   * backend no meio do lote) — os resultados parciais ainda aparecem no
-   * painel, mas o usuário precisa saber que a consulta não terminou. */
-  React.useEffect(() => {
-    if (consultaLeitura.erro) {
-      toast.error('Consulta somente-leitura incompleta', {
-        description: consultaLeitura.erro,
-      });
-    }
-  }, [consultaLeitura.erro]);
 
   function clearSelection(): void {
     setSelected(new Set());
@@ -192,19 +180,6 @@ export function CoffeeOperacao({
     aoConsultarComSucesso(ids, job_id);
   }
 
-  function handleConsultar(ids: number[]): Promise<void> {
-    return consultaLeitura.iniciar(ids).catch((error: unknown) => {
-      mutationError('consultar as notas', error);
-      throw error;
-    });
-  }
-
-  function handleAdicionarFilaDoResultado(ids: number[]): void {
-    consultarViaComposer(ids)
-      .then(() => consultaLeitura.removerDosResultados(ids))
-      .catch((error: unknown) => mutationError('adicionar essas notas à fila', error));
-  }
-
   function generate(ids: number[]): void {
     gerar.mutate(ids, {
       onSuccess: () => {
@@ -243,50 +218,41 @@ export function CoffeeOperacao({
 
   return (
     <div
-      className="relative flex flex-1 flex-col overflow-hidden"
+      className="relative flex min-h-0 flex-1 flex-col overflow-y-auto bg-surface"
       data-selected-pk={selectedPk ?? undefined}
     >
-      <header className="flex flex-wrap items-center gap-3 border-b border-line px-[22px] py-4">
-        <div className="min-w-0 flex-1">
-          <Eyebrow>Fluxo ativo</Eyebrow>
-          <h1 className="text-lg font-semibold tracking-display text-balance">Geração de notas</h1>
+      <div className="flex shrink-0 items-center justify-between border-b border-line bg-surface px-6 py-2">
+        <div className="flex items-center gap-3">
+          <span className="font-mono text-xs font-medium uppercase tracking-wider text-text">Fila de Operação</span>
+          <span className="rounded border border-line bg-bg-2 px-1.5 py-0.5 font-mono text-[11px] font-medium text-text-dim">
+            {itens.length} {itens.length === 1 ? 'nota' : 'notas'}
+          </span>
+          {latestUpdate && (
+            <span className="hidden sm:inline font-mono text-[11px] text-text-mute">
+              · atualizado {formatRelativeTime(latestUpdate)}
+            </span>
+          )}
         </div>
-        <span className="font-mono text-xs text-text-mute">
-          {itens.length} em andamento
-        </span>
-        <span className="font-mono text-xs text-text-mute">
-          {latestUpdate
-            ? `Atualizado ${formatRelativeTime(latestUpdate)}`
-            : 'Sem atualizações'}
-        </span>
         <Button
           variant="outline"
           size="sm"
           disabled={waitingSapIds.length === 0 || atualizarSap.isPending}
           onClick={() => updateSap(waitingSapIds)}
+          className="h-7 gap-1.5 px-2.5 text-xs font-medium"
         >
-          <RefreshCw /> Atualizar pendentes
+          <RefreshCw className="size-3" /> Atualizar pendentes
         </Button>
-      </header>
-      <OperacaoComposer
-        pendingConsulta={consultaLeitura.pending}
-        pendingAdicionar={consultar.isPending}
-        idsNaOperacao={idsNaOperacao}
-        onConsultar={handleConsultar}
-        onAdicionarFila={consultarViaComposer}
-      />
-      {consultaLeitura.resultados && (
-        <OperacaoConsultaResultado
-          resultados={consultaLeitura.resultados}
-          selecionados={consultaLeitura.selecionados}
-          onToggle={consultaLeitura.toggle}
-          onSelecionarTodasElegiveis={consultaLeitura.selecionarTodasElegiveis}
-          onAdicionarFila={handleAdicionarFilaDoResultado}
-          onFechar={consultaLeitura.fechar}
+      </div>
+      <div className="shrink-0">
+        <OperacaoComposer
+          pendingAdicionar={consultar.isPending}
+          idsNaOperacao={idsNaOperacao}
+          onAdicionarFila={consultarViaComposer}
+          onAbrirConsulta={() => setConsultaModalAberto(true)}
         />
-      )}
+      </div>
       {quadro.isError && (
-        <div className="border-b border-line px-[22px] py-3 text-sm text-red" role="alert">
+        <div className="shrink-0 border-b border-line px-6 py-2 text-xs text-red bg-tint-red" role="alert">
           Não foi possível carregar a operação. Atualize a página para tentar novamente.
         </div>
       )}
@@ -317,6 +283,10 @@ export function CoffeeOperacao({
         busy={remover.isPending}
         onConfirm={confirmRemoval}
         onCancel={() => setPendingRemoval(null)}
+      />
+      <ConsultaNotasModal
+        open={consultaModalAberto}
+        onOpenChange={setConsultaModalAberto}
       />
       <CoffeeNotaInspector
         pk={selectedPk}

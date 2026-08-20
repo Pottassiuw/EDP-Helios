@@ -50,36 +50,36 @@ export function CoffeeHub({
   return (
     <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
       <div className="shrink-0 bg-surface border-b border-b-line">
-        <div className="pt-[13px] px-[22px] pb-[11px] flex items-center gap-[12px]">
-          <div className="flex-1 min-w-0 flex flex-col gap-[2px]">
+        <div className="pt-3 px-6 pb-2.5 flex items-center gap-3">
+          <div className="flex-1 min-w-0 flex flex-col gap-0.5">
             <Eyebrow>Módulo COFFEE</Eyebrow>
-            <strong className="text-[16px] font-semibold leading-[1.15] tracking-display text-balance">
+            <strong className="text-base font-medium leading-tight tracking-display text-balance text-text">
               Geração de notas
             </strong>
           </div>
           {sub === "verificar" && !triage.isLoading && !triage.error && (
-            <div className="flex items-center gap-[12px] shrink-0">
+            <div className="flex items-center gap-3 shrink-0">
               <span
-                className="font-mono text-[11px] text-text-mute bg-bg-2 py-[5px] px-[10px] rounded-[6px] border border-line"
+                className="font-mono text-[11px] text-text-mute bg-bg-2 py-1 px-2.5 rounded-[6px] border border-line"
                 title={`Arquivo atualizado em ${formatSourceDate(triage.fonte?.atualizado_em ?? null)}`}
               >
                 {triage.fonte?.arquivo ?? 'Verificar.db'} · schema v{triage.fonte?.schema_version ?? '—'}
               </span>
               <span title="Banco de triagem conectado"
-                    className="inline-flex items-center gap-[6px] text-[10.5px]
-                             font-mono tracking-[.06em] uppercase
-                             py-[4px] px-[9px] rounded-[999px]
+                    className="inline-flex items-center gap-1.5 text-[10.5px]
+                             font-mono tracking-wider uppercase
+                             py-1 px-2.5 rounded-full
                              text-green bg-tint-green">
-                <span className="w-[6px] h-[6px] rounded-[50%] bg-[currentColor]" />
+                <span className="size-1.5 rounded-full bg-current" />
                 Banco conectado
               </span>
-              <Button variant="ghost" size="sm" disabled={triage.isRefreshing} onClick={triage.onRetry}>
+              <Button variant="ghost" size="sm" disabled={triage.isRefreshing} onClick={triage.onRetry} className="h-7 text-xs font-medium">
                 {triage.isRefreshing ? 'Atualizando…' : 'Atualizar'}
               </Button>
             </div>
           )}
         </div>
-        <div className="py-0 px-[22px] border-t border-t-line">
+        <div className="py-0 px-6 border-t border-t-line">
           <SegTabs tabs={COFFEE_SUBS} value={sub} onChange={setSub}
                    ariaLabel="Seções do módulo COFFEE" />
         </div>
