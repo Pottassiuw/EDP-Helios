@@ -32,11 +32,13 @@ import {
   Flame,
   CornerDownRight,
   HelpCircle,
+  Filter,
 } from 'lucide-react';
 
 interface RateioProps {
   dados: InputDataset;
   estadoFiltros?: FiltersState;
+  onClearFilters?: () => void;
   recarregar: () => Promise<void>;
 }
 interface RelatorioItem {
@@ -45,7 +47,7 @@ interface RelatorioItem {
   Mensagem: string;
 }
 
-export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React.JSX.Element {
+export function Rateio({ dados, estadoFiltros, onClearFilters, recarregar }: RateioProps): React.JSX.Element {
   // SAP GUI Credentials State com persistência no localStorage
   const [loginSap, setLoginSap] = React.useState(() => localStorage.getItem('sap_user') ?? '');
   const [senhaSap, setSenhaSap] = React.useState('');
@@ -55,6 +57,7 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
 
   // Navegação por abas: 'hierarquico' | 'individual'
   const [subTab, setSubTab] = React.useState<'hierarquico' | 'individual'>('hierarquico');
+  const [ignorarFiltrosPainel, setIgnorarFiltrosPainel] = React.useState(false);
 
   // Relatório de execução
   const [relatorio, setRelatorio] = React.useState<RelatorioItem[] | null>(null);
@@ -64,11 +67,22 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
     localStorage.setItem('sap_user', val);
   };
 
+  // Checa se há filtros ativos do painel restringindo a exibição
+  const temFiltrosAtivos = React.useMemo(() => {
+    if (!estadoFiltros) return false;
+    return (
+      (estadoFiltros.busca ?? '').trim() !== '' ||
+      (estadoFiltros.filtros ?? []).some((f) => f.valores.length > 0) ||
+      estadoFiltros.somente2026 ||
+      estadoFiltros.mostrarOcultas
+    );
+  }, [estadoFiltros]);
+
   // Base filtrada pelo estado de filtros (ex: somente2026)
   const registrosBase = React.useMemo(() => {
-    if (!estadoFiltros) return dados.registros;
+    if (!estadoFiltros || ignorarFiltrosPainel) return dados.registros;
     return filtrarRegistros(dados.registros, estadoFiltros);
-  }, [dados.registros, estadoFiltros]);
+  }, [dados.registros, estadoFiltros, ignorarFiltrosPainel]);
 
   // 1. FILTRAGEM DE VÍNCULOS MÃE/FILHA
   const ativas = React.useMemo(() => registrosBase.filter((r) => ehNotaAtiva(r.Status_Nota)), [registrosBase]);
@@ -481,6 +495,41 @@ export function Rateio({ dados, estadoFiltros, recarregar }: RateioProps): React
           </p>
         </div>
       </div>
+
+      {/* Banner de Aviso quando há Filtros Globais / Busca Ativa */}
+      {temFiltrosAtivos && (
+        <div className="p-3 bg-amber-500/10 border border-amber-500/25 rounded-xl flex items-center justify-between gap-3 text-xs text-amber-600 dark:text-amber-400">
+          <div className="flex items-center gap-2">
+            <Filter className="h-4 w-4 shrink-0" />
+            <span>
+              Filtro do painel ativo ({registrosBase.length} de {dados.registros.length} notas).{' '}
+              {ignorarFiltrosPainel
+                ? 'Exibindo todas as divergências da base completa.'
+                : estadoFiltros?.busca
+                ? `Filtrando pela busca: "${estadoFiltros.busca}".`
+                : 'Filtros de pesquisa aplicados no cabeçalho.'}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setIgnorarFiltrosPainel((v) => !v)}
+              className="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 font-medium rounded-lg transition-colors cursor-pointer"
+            >
+              {ignorarFiltrosPainel ? 'Aplicar Filtros do Painel' : 'Mostrar Todas as Divergências da Base'}
+            </button>
+            {onClearFilters && (
+              <button
+                type="button"
+                onClick={onClearFilters}
+                className="px-2.5 py-1 bg-surface border border-line hover:border-text-mute font-medium rounded-lg transition-colors cursor-pointer text-foreground"
+              >
+                Limpar Filtros
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Barra de Autenticação SAP & Chave de Modo */}
       <div className="p-3.5 bg-surface-2/60 border border-line rounded-xl flex items-center justify-between gap-4 flex-wrap shadow-2xs">

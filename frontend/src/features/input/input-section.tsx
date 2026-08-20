@@ -165,7 +165,7 @@ export function InputSection({
         )}
         {dados && sub === 'rateio' && (
           <div className="p-6 max-w-7xl mx-auto w-full">
-            <Rateio dados={dados} estadoFiltros={estadoFiltros} recarregar={recarregar} />
+            <Rateio dados={dados} estadoFiltros={estadoFiltros} onClearFilters={clearFilters} recarregar={recarregar} />
           </div>
         )}
         {dados && sub === 'ramal' && (
