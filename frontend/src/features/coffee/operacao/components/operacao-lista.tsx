@@ -1,6 +1,8 @@
 import React from 'react';
-import { Inbox } from 'lucide-react';
+import { Inbox, Search } from 'lucide-react';
+import { Input } from '@/components/ui/input';
 import type { CoffeeJob, CoffeeOperacaoItem } from '../../types';
+import { operacaoItemMatches } from '../operacao-utils';
 import { NotaOperacaoRow } from './nota-operacao-row';
 
 type Ordenacao = 'atualizacao' | 'prioridade';
@@ -11,6 +13,8 @@ interface OperacaoListaProps {
   selected: Set<number>;
   onToggle: (pk: number) => void;
   onOpen: (pk: number, trigger: HTMLButtonElement) => void;
+  query?: string;
+  onQueryChange?: (query: string) => void;
 }
 
 function valorPrioridade(item: CoffeeOperacaoItem): number {
@@ -35,7 +39,15 @@ const LEGENDA: Array<{ etapa: string; cor: string; rotulo: string }> = [
 
 export function OperacaoLista(props: OperacaoListaProps): React.JSX.Element {
   const [ordenacao, setOrdenacao] = React.useState<Ordenacao>('atualizacao');
-  const ordenados = ordenar(props.itens, ordenacao);
+  const [internalQuery, setInternalQuery] = React.useState('');
+  const query = props.query ?? internalQuery;
+  const setQuery = props.onQueryChange ?? setInternalQuery;
+
+  const filtrados = React.useMemo(() => {
+    return props.itens.filter((item) => operacaoItemMatches(item, query));
+  }, [props.itens, query]);
+
+  const ordenados = ordenar(filtrados, ordenacao);
 
   return (
     <div className="flex flex-col bg-surface">
@@ -48,25 +60,43 @@ export function OperacaoLista(props: OperacaoListaProps): React.JSX.Element {
             </span>
           ))}
         </div>
-        <label className="flex items-center gap-2 text-xs text-text-dim">
-          <span>Ordenar por:</span>
-          <select
-            value={ordenacao}
-            onChange={(event) => setOrdenacao(event.target.value as Ordenacao)}
-            className="h-7 rounded-[5px] border border-line bg-surface px-2 text-xs font-medium text-text outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
-          >
-            <option value="atualizacao">Atualização</option>
-            <option value="prioridade">Prioridade</option>
-          </select>
-        </label>
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="relative flex items-center">
+            <Search className="pointer-events-none absolute left-2.5 size-3.5 text-text-mute" />
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Buscar ID, SAP ou local"
+              aria-label="Buscar ID, SAP ou local"
+              className="h-7 w-56 pl-8 text-xs font-normal"
+            />
+          </label>
+          <label className="flex items-center gap-2 text-xs text-text-dim">
+            <span>Ordenar por:</span>
+            <select
+              value={ordenacao}
+              onChange={(event) => setOrdenacao(event.target.value as Ordenacao)}
+              className="h-7 rounded-[5px] border border-line bg-surface px-2 text-xs font-medium text-text outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
+            >
+              <option value="atualizacao">Atualização</option>
+              <option value="prioridade">Prioridade</option>
+            </select>
+          </label>
+        </div>
       </div>
       <div className={`flex flex-col ${props.selected.size > 0 ? 'pb-24' : 'pb-8'}`}>
         {ordenados.length === 0 ? (
           <div className="flex min-h-60 flex-col items-center justify-center gap-2 p-8 text-center">
             <Inbox className="size-8 text-text-mute/50" />
-            <span className="text-sm font-medium text-text">Nenhuma nota na operação.</span>
+            <span className="text-sm font-medium text-text">
+              {props.itens.length === 0
+                ? 'Nenhuma nota na operação.'
+                : 'Nenhuma nota encontrada para o filtro informado.'}
+            </span>
             <span className="max-w-sm font-mono text-xs text-text-mute">
-              Cole IDs no campo acima ou selecione notas da triagem no Verificar para enfileirar.
+              {props.itens.length === 0
+                ? 'Cole IDs no campo acima ou selecione notas da triagem no Verificar para enfileirar.'
+                : 'Verifique os IDs, SAPs ou locais buscados ou limpe a busca.'}
             </span>
           </div>
         ) : ordenados.map((item) => {

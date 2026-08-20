@@ -146,6 +146,7 @@ cd frontend && npm run build                    # type-check (tsc) + build
 | Carteira | `frontend/src/features/carteira/` | Explorador da base COFFEE (Databricks): tabela paginada, filtros, situação, detalhe e sincronização — referência de não-regressão da direção visual Supabaze (DESIGN.md), hoje global | [11-frontend-carteira.md](./11-frontend-carteira.md) |
 | Backend — Verificar | `backend/verificar_module/`, `backend/main.py` | Leitura read-only de `Verificar.db`, normalização da triagem e endpoint `/api/data`; o upload é só compatibilidade | [01-frontend-verificar.md](./01-frontend-verificar.md) |
 | Entrega no GitHub | `.github/`, `CONTRIBUTING.md`, GitHub Issues/Project/PRs | Processo de Issue → branch isolada → Pull Request → revisão → merge, templates e gates automatizados | [13-github-delivery-workflow.md](./13-github-delivery-workflow.md) |
+| Orquestração por agentes | `backend/workflow_module/` | Snapshot read-only do GitHub Project/Issues/PRs, DeliveryPlan, Kanban persistente, worker seguro, leases, dispatcher e projeção opcional no Hermes SQLite | [13-agent-workflows.md](./13-agent-workflows.md) |
 
 ## Pontos de atenção
 

@@ -57,4 +57,111 @@ describe('OperacaoLista', () => {
     );
     expect(html).toContain('Nenhuma nota na operação.');
   });
+
+  it('filtra notas por id, sap e local em lote quando query é fornecida', () => {
+    const itens = [
+      item({
+        entrada_id: 101,
+        nota_pk: 101,
+        nota: {
+          pk: 101,
+          id_sap: 900123,
+          id_sap_anterior: null,
+          arquivado: null,
+          classificacao: 'pronta',
+          dados_json: { cidade: 'Recife', tipo_local_instalacao: 'Poste', local_instalacao_numero: '42' },
+          buscado_em: '2026-08-18T10:00:00',
+          erro: null,
+        },
+      }),
+      item({
+        entrada_id: 202,
+        nota_pk: 202,
+        nota: {
+          pk: 202,
+          id_sap: 900456,
+          id_sap_anterior: null,
+          arquivado: null,
+          classificacao: 'pronta',
+          dados_json: { cidade: 'Olinda', tipo_local_instalacao: 'Torre', local_instalacao_numero: '88' },
+          buscado_em: '2026-08-18T10:00:00',
+          erro: null,
+        },
+      }),
+      item({
+        entrada_id: 303,
+        nota_pk: 303,
+        nota: {
+          pk: 303,
+          id_sap: 900789,
+          id_sap_anterior: null,
+          arquivado: null,
+          classificacao: 'pronta',
+          dados_json: { cidade: 'Paulista', tipo_local_instalacao: 'Poste', local_instalacao_numero: '99' },
+          buscado_em: '2026-08-18T10:00:00',
+          erro: null,
+        },
+      }),
+    ];
+
+    // Busca em lote por IDs separados por quebra de linha / espaço
+    const htmlLote = renderToStaticMarkup(
+      <OperacaoLista
+        itens={itens}
+        jobs={[]}
+        selected={new Set()}
+        onToggle={noop}
+        onOpen={noop}
+        query={'101\n303'}
+      />,
+    );
+    expect(htmlLote).toContain('#101');
+    expect(htmlLote).not.toContain('#202');
+    expect(htmlLote).toContain('#303');
+
+    // Busca por id_sap
+    const htmlSap = renderToStaticMarkup(
+      <OperacaoLista
+        itens={itens}
+        jobs={[]}
+        selected={new Set()}
+        onToggle={noop}
+        onOpen={noop}
+        query="900456"
+      />,
+    );
+    expect(htmlSap).not.toContain('#101');
+    expect(htmlSap).toContain('#202');
+    expect(htmlSap).not.toContain('#303');
+
+    // Busca por local de instalação
+    const htmlLocal = renderToStaticMarkup(
+      <OperacaoLista
+        itens={itens}
+        jobs={[]}
+        selected={new Set()}
+        onToggle={noop}
+        onOpen={noop}
+        query="Recife"
+      />,
+    );
+    expect(htmlLocal).toContain('#101');
+    expect(htmlLocal).not.toContain('#202');
+    expect(htmlLocal).not.toContain('#303');
+  });
+
+  it('exibe mensagem quando filtro não encontra nenhuma nota', () => {
+    const itens = [item({ entrada_id: 101, nota_pk: 101 })];
+    const html = renderToStaticMarkup(
+      <OperacaoLista
+        itens={itens}
+        jobs={[]}
+        selected={new Set()}
+        onToggle={noop}
+        onOpen={noop}
+        query="999999"
+      />,
+    );
+    expect(html).toContain('Nenhuma nota encontrada para o filtro informado.');
+  });
 });
