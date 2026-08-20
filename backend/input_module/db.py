@@ -1691,7 +1691,7 @@ def obter_versao_dataset() -> str:
     mesmo se o log de arquivos — que é best-effort — não tiver gravado; sem
     isso o navegador receberia 304 e seguiria servindo a base antiga.
     """
-    ENGINE_REVISAO = "2026.08.20.v6"
+    ENGINE_REVISAO = "2026.08.19.v3"
     conn = get_db_connection()
     try:
         max_alt = conn.execute("SELECT MAX(Data_Hora) FROM log_alteracoes").fetchone()[0]

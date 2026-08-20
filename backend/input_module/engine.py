@@ -336,7 +336,6 @@ def avaliar_prazo_sap(row):
 def enriquecer_dados():
     # 3.1. Carrega a base bruta (notas cadastradas) do SQLite
     df = carregar_dados()
-    df['Numero_Nota_str'] = pd.to_numeric(df['Numero_Nota'], errors='coerce').fillna(0).astype(int).astype(str).str.strip()
 
     # Tratamento de limpeza do Conjunto (remove quebras de linha e múltiplos espaços)
     if 'Conjunto' in df.columns:
@@ -798,21 +797,6 @@ def enriquecer_dados():
     if df_medidas_raw is not None:
         try:
             df_m = df_medidas_raw.copy()
-
-            # Normalização resiliente das colunas do IW66 (trata encoding do SQLite ex: Denominao / N de ordenao)
-            novas_cols = {}
-            for col in df_m.columns:
-                c_norm = unicodedata.normalize('NFKD', str(col)).encode('ascii', 'ignore').decode('utf-8').lower()
-                if 'denomina' in c_norm and 'conjunto' in c_norm:
-                    novas_cols[col] = 'Denominação do conjunto'
-                elif 'ordena' in c_norm:
-                    novas_cols[col] = 'Nº de ordenação'
-                elif 'texto' in c_norm and 'medida' in c_norm:
-                    novas_cols[col] = 'Texto medida'
-                elif 'descri' in c_norm:
-                    novas_cols[col] = 'Descrição'
-
-            df_m = df_m.rename(columns=novas_cols)
             df_m['Nota'] = df_m['Nota'].dropna().astype(int).astype(str).str.strip()
 
             _UN_DENOMS = {"POSTE", "TRANSFORMADOR", "TRANSF", "TRAFO", "SUBST", "CHAVE",
@@ -869,61 +853,7 @@ def enriquecer_dados():
 
             grouped["Medida_SAP_Str"] = grouped.apply(_format_medida, axis=1)
             dict_medidas = dict(zip(grouped["Nota"], grouped["Medida_SAP_Str"]))
-
-            num_nota_clean = pd.to_numeric(df["Numero_Nota"], errors='coerce').fillna(0).astype(int).astype(str).str.strip()
-            df["Medida_SAP"] = num_nota_clean.map(dict_medidas).fillna("-")
-
-            # Agregação de Medidas das Filhas para Notas Mães
-            # Em grupos hierárquicos no SAP (IW66), as medidas físicas ficam alocadas nas notas filhas.
-            # Para notas mães sem medida direta, agregamos a soma das medidas das suas filhas ativas.
-            try:
-                df_temp = df[['Numero_Nota', 'Nota_Mae', 'Status_Nota', 'Medida_SAP']].copy()
-                df_temp['Nota_Mae_Limpa'] = df_temp['Nota_Mae'].fillna('').astype(str).str.strip()
-                df_temp['Status_Nota_Str'] = df_temp['Status_Nota'].fillna('').astype(str).str.strip()
-
-                inativos = {'ENCE CANC', 'SUPR CANC', 'ENCE EXEC', 'SUPR', '999', '998', '997', '55', '99'}
-                def _eh_ativa(st):
-                    st_u = st.upper()
-                    return not (st_u in inativos or st_u.startswith('55') or st_u.startswith('99'))
-
-                df_temp['Ativa'] = df_temp['Status_Nota_Str'].apply(_eh_ativa)
-                filhas_ativas = df_temp[
-                    df_temp['Ativa'] &
-                    df_temp['Nota_Mae_Limpa'].str.isdigit() &
-                    (df_temp['Nota_Mae_Limpa'] != '0')
-                ].copy()
-
-                if not filhas_ativas.empty:
-                    def _extrair_val_m_un(medida_str):
-                        if not medida_str or medida_str == '-': return 0.0, 0.0
-                        val_m, val_un = 0.0, 0.0
-                        m_km = re.search(r'([\d.]+)\s*km', str(medida_str).lower())
-                        if m_km:
-                            try: val_m = float(m_km.group(1)) * 1000.0
-                            except ValueError: pass
-                        m_un = re.search(r'([\d.]+)\s*un', str(medida_str).lower())
-                        if m_un:
-                            try: val_un = float(m_un.group(1))
-                            except ValueError: pass
-                        return val_m, val_un
-
-                    vals = filhas_ativas['Medida_SAP'].apply(_extrair_val_m_un).tolist()
-                    filhas_ativas['val_m'] = [v[0] for v in vals]
-                    filhas_ativas['val_un'] = [v[1] for v in vals]
-
-                    agg_maes = filhas_ativas.groupby('Nota_Mae_Limpa')[['val_m', 'val_un']].sum().reset_index()
-                    agg_maes['Medida_Agregada'] = agg_maes.apply(_format_medida, axis=1)
-                    dict_agg = dict(zip(agg_maes['Nota_Mae_Limpa'], agg_maes['Medida_Agregada']))
-
-                    medida_agregada_col = num_nota_clean.map(dict_agg).fillna('-')
-
-                    df['Medida_SAP'] = np.where(
-                        (df['Medida_SAP'] == '-') & (medida_agregada_col != '-'),
-                        medida_agregada_col,
-                        df['Medida_SAP']
-                    )
-            except Exception as e_agg:
-                print(f"Aviso ao agregar medidas de notas filhas para mães: {e_agg}")
+            df["Medida_SAP"] = df["Numero_Nota"].astype(str).str.strip().map(dict_medidas).fillna("-")
         except Exception as e:
             print(f"Erro ao processar medidas IW66: {e}")
             df["Medida_SAP"] = "Erro"
@@ -960,13 +890,8 @@ def get_dataset(forcar: bool = False) -> pd.DataFrame:
     with _cache_lock:
         versao = db.obter_versao_dataset()
         expirado = time.time() - _cache["quando"] > _CACHE_TTL_SEGUNDOS
-        medidas_zeradas = (
-            _cache["df"] is not None
-            and "Medida_SAP" in _cache["df"].columns
-            and (_cache["df"]["Medida_SAP"] != "-").sum() == 0
-        )
         if (forcar or _cache["df"] is None or expirado
-                or _cache["versao"] != versao or medidas_zeradas):
+                or _cache["versao"] != versao):
             df_res = enriquecer_dados()
             colunas_existentes = [col for col in config.COLUNAS_PAINEL if col in df_res.columns]
             colunas_extras = [col for col in df_res.columns if col not in colunas_existentes]
