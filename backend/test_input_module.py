@@ -3191,5 +3191,3 @@ def test_parse_data_encerramento_evita_bug_dayfirst_iso():
     }
     resultado = avaliar_prazo_sap(row)
     assert resultado == "🟢 No Prazo"
-
-

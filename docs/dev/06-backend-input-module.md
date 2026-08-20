@@ -868,4 +868,3 @@ Na visualização hierárquica (`NotesTable` com `agruparGavetinhas=true`):
   - Filtro e destaque automatizado de **desvios significativos de custo** entre o valor modular planejado e o custo real da ordem no SAP (> 15% e > R$ 5.000).
   - Linha de totais gerais consolidada e formatação em moeda padrão brasileiro (`R$`).
   - Disparo de e-mail analítico formatado diretamente pelo Outlook via `win32com.client`.
-

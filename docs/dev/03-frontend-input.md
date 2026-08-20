@@ -417,4 +417,3 @@ o Input em si não guarda essa informação.
   - O modal exibe um diálogo de confirmação perguntando se o usuário deseja **devolver/somar a medida planejada da nota filha de volta para a Nota Mãe**.
   - Impede que a Nota Mãe seja deixada com medida zero indevidamente.
   - Se confirmado, a medida da Nota Mãe é recalculada e atualizada no banco no mesmo fluxo de exclusão.
-
