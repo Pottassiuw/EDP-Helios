@@ -72,9 +72,9 @@ export function Rateio({ dados, estadoFiltros, onClearFilters, recarregar }: Rat
     if (!estadoFiltros) return false;
     return (
       (estadoFiltros.busca ?? '').trim() !== '' ||
-      (estadoFiltros.filtros ?? []).some((f) => f.valores.length > 0) ||
+      (estadoFiltros.filtros ?? []).some((f) => (f.valores?.length ?? 0) > 0) ||
       estadoFiltros.somente2026 ||
-      estadoFiltros.mostrarOcultas
+      Boolean(estadoFiltros.mostrarOcultas)
     );
   }, [estadoFiltros]);
 
