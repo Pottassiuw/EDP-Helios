@@ -175,13 +175,21 @@ export function Rateio({ dados, estadoFiltros, onClearFilters, recarregar }: Rat
 
   // Estado de novas medidas a serem salvas no rateio hierárquico
   const [novasMedidasHier, setNovasMedidasHier] = React.useState<Record<number, number>>({});
+  const maeAnteriorRef = React.useRef<string>('');
 
-  // Atualiza as medidas iniciais quando muda a mãe selecionada
+  // Atualiza as medidas iniciais apenas quando muda a mãe selecionada (não em refetches em background)
   React.useEffect(() => {
-    if (!maeRowDetails) {
+    if (!maeRowDetails || !maeSelecionada) {
       setNovasMedidasHier({});
+      maeAnteriorRef.current = '';
       return;
     }
+    // Se a mãe selecionada não mudou, preserva as edições digitadas pelo usuário
+    if (maeAnteriorRef.current === maeSelecionada) {
+      return;
+    }
+    maeAnteriorRef.current = maeSelecionada;
+
     const initial: Record<number, number> = {};
     const [valMae] = extrairValorUnidadeMedida(maeRowDetails.Medida_SAP);
     initial[maeRowDetails.Numero_Nota] = valMae;
@@ -192,7 +200,7 @@ export function Rateio({ dados, estadoFiltros, onClearFilters, recarregar }: Rat
     });
 
     setNovasMedidasHier(initial);
-  }, [maeRowDetails, filhasDaMae]);
+  }, [maeSelecionada, maeRowDetails, filhasDaMae]);
 
   // Cálculos matemáticos do Rateio
   const valMaeTarget = Number(maeRowDetails?.Planejado_DDPM ?? 0);
@@ -345,9 +353,13 @@ export function Rateio({ dados, estadoFiltros, onClearFilters, recarregar }: Rat
   const [selecionadasInd, setSelecionadasInd] = React.useState<Set<number>>(new Set());
   const [novasMedidasInd, setNovasMedidasInd] = React.useState<Record<number, number>>({});
   const [unidadesInd, setUnidadesInd] = React.useState<Record<number, 'km' | 'un'>>({});
+  const inicializadoIndRef = React.useRef(false);
 
-  // Inicializa dicionários de edição individual
+  // Inicializa dicionários de edição individual sem sobrescrever alterações do usuário
   React.useEffect(() => {
+    if (inicializadoIndRef.current || dfDivergentes.length === 0) return;
+    inicializadoIndRef.current = true;
+
     const medMap: Record<number, number> = {};
     const unMap: Record<number, 'km' | 'un'> = {};
 
@@ -460,7 +472,9 @@ export function Rateio({ dados, estadoFiltros, onClearFilters, recarregar }: Rat
       loading: `Disparando robô SAP para ajustar ${correcoes.length} nota(s)... 🤖`,
       success: (res) => {
         setRelatorio(res.relatorio);
-        void recarregar();
+        if (!modoTeste) {
+          void recarregar();
+        }
         return modoTeste
           ? 'Simulação do Robô SAP executada com sucesso!'
           : 'Gravação Real concluída! Planilha IW66 e banco de dados atualizados.';
