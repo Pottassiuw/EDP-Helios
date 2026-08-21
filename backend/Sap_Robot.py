@@ -680,84 +680,77 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                         tbl.verticalScrollbar.position = 0
                     except Exception:
                         pass
-                    time.sleep(0.2)
+                    time.sleep(0.3)
 
+                    # 7.1. Reabre a medida na linha 0 (anula encerramento) para desbloquear exclusão no SAP
+                    try:
+                        tbl.selectedRows = "0"
+                        tbl.getAbsoluteRow(0).selected = True
+                        btn_reabrir = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/btnFC_ERL_ZURUECK")
+                        btn_reabrir.press()
+                        time.sleep(0.5)
+                        if session.Children.Count > 1:
+                            session.findById("wnd[1]").sendVKey(0)
+                            time.sleep(0.3)
+                    except Exception as e_anular:
+                        log_debug(f"Nota {nota} - Aviso ao reabrir linha 0: {e_anular}")
+
+                    # Re-seleciona a linha 0
                     try:
                         tbl.selectedRows = "0"
                         tbl.getAbsoluteRow(0).selected = True
                     except Exception:
                         pass
 
-                    # Se a linha 0 estiver com status MEDE (Encerrada), anula o encerramento antes de deletar
-                    try:
-                        st_0 = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-ASTXT[7,0]").text
-                    except Exception:
-                        st_0 = ""
-
-                    if any(s in st_0.upper() for s in ["MEDE", "ENCE", "ERL", "CONC"]):
-                        log_debug(f"Nota {nota} - Linha 0 está encerrada ({st_0}). Anulando encerramento para permitir exclusão...")
+                    # 7.2. Tenta os métodos de exclusão de linha do SAP
+                    deletou = False
+                    for metodo in ["okcd_mnlo", "okcd_loes", "vkey_14", "btn_loeschen"]:
                         try:
-                            session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/btnFC_ERL_ZURUECK").press()
-                            time.sleep(0.5)
+                            if metodo == "okcd_mnlo":
+                                session.findById("wnd[0]/tbar[0]/okcd").text = "=MNLO"
+                                session.findById("wnd[0]").sendVKey(0)
+                            elif metodo == "okcd_loes":
+                                session.findById("wnd[0]/tbar[0]/okcd").text = "=LOES"
+                                session.findById("wnd[0]").sendVKey(0)
+                            elif metodo == "vkey_14":
+                                session.findById("wnd[0]").sendVKey(14)
+                            elif metodo == "btn_loeschen":
+                                session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/btnLOESCHEN").press()
+
+                            time.sleep(0.4)
+
+                            # Trata diálogo de confirmação wnd[1] se abrir
                             if session.Children.Count > 1:
-                                session.findById("wnd[1]").sendVKey(0)
-                                time.sleep(0.3)
-                        except Exception as e_anular:
-                            log_debug(f"Nota {nota} - Aviso ao anular encerramento da linha 0: {e_anular}")
-
-                    # Re-seleciona a linha 0 antes de pressionar o botão de exclusão
-                    try:
-                        tbl.selectedRows = "0"
-                        tbl.getAbsoluteRow(0).selected = True
-                        session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-QSMNUM[0,0]").setFocus()
-                    except Exception:
-                        pass
-
-                    excluido = False
-                    try:
-                        session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/btnLOESCHEN").press()
-                        excluido = True
-                    except Exception as btn_err:
-                        log_debug(f"Nota {nota} - btnLOESCHEN falhou: {btn_err}. Tentando tecla Shift+F2 (sendVKey 14)...")
-                        try:
-                            session.findById("wnd[0]").sendVKey(14)
-                            excluido = True
-                        except Exception as vkey_err:
-                            log_debug(f"Nota {nota} - sendVKey(14) falhou: {vkey_err}")
-
-                    time.sleep(0.5)
-
-                    if session.Children.Count > 1:
-                        try:
-                            wnd1 = session.findById("wnd[1]")
-                            try:
-                                wnd1.findById("usr/btnSPOP-OPTION1").press()
-                            except Exception:
-                                try:
-                                    wnd1.findById("usr/btnBUTTON_1").press()
-                                except Exception:
+                                wnd1 = session.findById("wnd[1]")
+                                for btn_id in ["usr/btnSPOP-OPTION1", "usr/btnBUTTON_1", "tbar[0]/btn[0]", "tbar[0]/btn[6]"]:
                                     try:
-                                        wnd1.findById("tbar[0]/btn[0]").press()
+                                        wnd1.findById(btn_id).press()
+                                        break
                                     except Exception:
-                                        wnd1.sendVKey(0)
-                            time.sleep(0.5)
-                        except Exception as pop_err:
-                            log_debug(f"Nota {nota} - Aviso popup exclusao: {pop_err}")
+                                        pass
+                                else:
+                                    wnd1.sendVKey(0)
+                                time.sleep(0.4)
+                                deletou = True
+                                log_debug(f"Nota {nota} - Linha 0 excluída com sucesso via {metodo}")
+                                break
+                        except Exception as e_del:
+                            log_debug(f"Nota {nota} - Tentativa de exclusão ({metodo}) falhou: {e_del}")
 
-                    # Fallback: Se o SAP proibir a exclusão física da linha 0, zera a quantidade da linha 0
-                    if not excluido:
+                    # 7.3. Fallback de segurança: se a linha 0 não pôde ser excluída fisicamente, zera a quantidade
+                    if not deletou:
                         try:
-                            log_debug(f"Nota {nota} - Aplicando fallback: zerando quantidade da linha 0 original no SAP...")
+                            log_debug(f"Nota {nota} - Aplicando fallback: zerando quantidade da linha 0 no SAP...")
                             campo_qtd_0 = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-QSMNUM[0,0]")
                             if campo_qtd_0.Changeable:
                                 campo_qtd_0.setFocus()
                                 campo_qtd_0.text = "0"
                                 session.findById("wnd[0]").sendVKey(0)
-                                time.sleep(0.5)
+                                time.sleep(0.3)
                                 if session.Children.Count > 1:
                                     session.findById("wnd[1]").sendVKey(0)
-                        except Exception as zero_err:
-                            log_debug(f"Nota {nota} - Falha no fallback de zerar linha 0: {zero_err}")
+                        except Exception as e_zero:
+                            log_debug(f"Nota {nota} - Falha no fallback de zerar linha 0: {e_zero}")
 
                 log_debug(f"Nota {nota} - Valor alterado com sucesso para '{str_qtd}'")
             except Exception as e:
