@@ -585,9 +585,16 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                             pass
                 else:
                     # ── MODO 2: RECRIAÇÃO NA LINHA 1 + EXCLUSÃO DA LINHA 0 ──────────
-                    log_debug(f"Nota {nota} - Status {status_num} ('{status_text}'): recriando medida na linha 1 e excluindo linha 0")
+                    log_debug(f"Nota {nota} - Status {status_num} ('{status_text}'): aplicando sequência do gravador SAP (Script1.vbs)")
 
-                    # 1. Obtém o código da medida da linha 0 (ex: ELP) ou fallback
+                    # 1. Lê valores da linha 0 para clonar na linha 1
+                    try:
+                        grp_orig = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-MNGRP[1,0]").text.strip()
+                    except Exception:
+                        grp_orig = "MED-FD"
+                    if not grp_orig:
+                        grp_orig = "MED-FD"
+
                     try:
                         cod_orig = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-MNCOD[2,0]").text.strip()
                     except Exception:
@@ -595,42 +602,25 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                     if not cod_orig:
                         cod_orig = "ELP"
 
-                    # 2. Escreve o código na segunda linha
-                    code_field = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-MNCOD[2,1]")
-                    code_field.text = cod_orig
-                    code_field.setFocus()
-                    session.findById("wnd[0]").sendVKey(0)
-                    time.sleep(0.5)
-                    if session.Children.Count > 1:
-                        try:
-                            session.findById("wnd[1]").sendVKey(0)
-                            time.sleep(0.3)
-                        except Exception:
-                            pass
-
-                    # 3. Digita a quantidade na segunda linha
-                    campo_medida_1 = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-QSMNUM[0,1]")
-                    campo_medida_1.setFocus()
-                    time.sleep(0.2)
-                    campo_medida_1.text = str_qtd
-                    session.findById("wnd[0]").sendVKey(0)
-                    time.sleep(0.5)
-                    if session.Children.Count > 1:
-                        try:
-                            session.findById("wnd[1]").sendVKey(0)
-                            time.sleep(0.3)
-                        except Exception:
-                            pass
-
-                    # 4. Copia a descrição da medida original (linha 0) para a nova (linha 1)
                     try:
                         texto_medida = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-MATXT[4,0]").text
-                        if texto_medida:
-                            session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-MATXT[4,1]").text = texto_medida
+                    except Exception:
+                        texto_medida = ""
+
+                    # 2. Seleciona a linha 0 na tabela
+                    try:
+                        tbl.getAbsoluteRow(0).selected = True
                     except Exception:
                         pass
 
-                    # 5. Copia as datas e horas de início/fim
+                    # 3. Preenche os campos da linha 1 (nova medida)
+                    session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-QSMNUM[0,1]").text = str_qtd
+                    session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-MNGRP[1,1]").text = grp_orig
+                    session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-MNCOD[2,1]").text = cod_orig
+                    if texto_medida:
+                        session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-MATXT[4,1]").text = texto_medida
+
+                    # Copia datas se existirem
                     try:
                         dt_inicio = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-PSTER[11,0]").text
                         h_inicio = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-PSTUR[12,0]").text
@@ -644,170 +634,40 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                     except Exception:
                         pass
 
-                    session.findById("wnd[0]").sendVKey(0)
-                    time.sleep(0.5)
-                    # Confirma diálogo de advertência com segurança (apenas se existir wnd[1])
-                    if session.Children.Count > 1:
-                        try:
-                            session.findById("wnd[1]").sendVKey(0)
-                            time.sleep(0.3)
-                        except Exception:
-                            pass
-
-                    # 6. Se for status 99 (Encerrado), copia dados de conclusão e encerra a medida nova
-                    if status_num == 99:
-                        try:
-                            concluido_por = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-ERLNAM[15,0]").text
-                            data_conclusao = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-ERLDAT[16,0]").text
-                            hora_conclusao = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-ERLZEIT[17,0]").text
-
-                            session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-ERLNAM[15,1]").text = concluido_por
-                            session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-ERLDAT[16,1]").text = data_conclusao
-                            session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-ERLZEIT[17,1]").text = hora_conclusao
-
-                            tbl.selectedRows = "1"
-                            tbl.getAbsoluteRow(1).selected = True
-                            session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/btnFC_ERLEDIGT").press()
-                            time.sleep(0.5)
-                            if session.Children.Count > 1:
-                                session.findById("wnd[1]").sendVKey(0)
-                                time.sleep(0.3)
-                        except Exception as e_enc:
-                            log_debug(f"Nota {nota} - Aviso ao encerrar medida na linha 1: {e_enc}")
-
-                    # 7. Exclui a primeira medida original (linha 0)
+                    # 4. Foca no campo de quantidade da linha 0 e define caretPosition = 0 (exatamente como gravado no VBS)
+                    fld_0 = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-QSMNUM[0,0]")
+                    fld_0.setFocus()
                     try:
-                        tbl.verticalScrollbar.position = 0
+                        fld_0.caretPosition = 0
                     except Exception:
                         pass
                     time.sleep(0.3)
 
-                    # 7.1. Reabre a medida na linha 0 (anula encerramento) para desbloquear exclusão no SAP
-                    try:
-                        tbl.selectedRows = "0"
-                        tbl.getAbsoluteRow(0).selected = True
-                        btn_reabrir = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/btnFC_ERL_ZURUECK")
-                        btn_reabrir.press()
-                        time.sleep(0.5)
-                        if session.Children.Count > 1:
-                            session.findById("wnd[1]").sendVKey(0)
-                            time.sleep(0.3)
-                    except Exception as e_anular:
-                        log_debug(f"Nota {nota} - Aviso ao reabrir linha 0: {e_anular}")
-
-                    # 7.2. Seleciona a linha inteira 0 (destaque completo)
-                    try:
-                        tbl.selectedRows = "0"
-                        try:
-                            tbl.getAbsoluteRow(1).selected = False
-                        except Exception:
-                            pass
-                        tbl.getAbsoluteRow(0).selected = True
-                        tbl.currentCellRow = 0
-                    except Exception as e_sel:
-                        log_debug(f"Nota {nota} - Aviso ao selecionar linha 0: {e_sel}")
-
-                    # 7.3. Clica no botão de Eliminar Linha (ícone exato de folha com faixa vermelha / @11@ / @18@ / Zeile löschen)
+                    # 5. Pressiona o botão btnLOESCHEN da tela
                     deletou = False
-                    subscreen_medidas = None
                     try:
-                        subscreen_medidas = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125")
-                    except Exception:
-                        pass
+                        session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/btnLOESCHEN").press()
+                        deletou = True
+                        log_debug(f"Nota {nota} - Botão btnLOESCHEN pressionado com sucesso")
+                    except Exception as e_loeschen:
+                        log_debug(f"Nota {nota} - btnLOESCHEN falhou: {e_loeschen}")
 
-                    def _buscar_e_clicar_eliminar(elem):
-                        try:
-                            tipo = getattr(elem, "Type", "")
-                            if tipo in ["GuiButton", "GuiToolbarButton"]:
-                                icon = str(getattr(elem, "IconName", "") or "").lower()
-                                tooltip = str(getattr(elem, "Tooltip", "") or "").lower()
-                                text = str(getattr(elem, "Text", "") or "").lower()
-                                name = str(getattr(elem, "Name", "") or "").lower()
-                                if any(ic in icon for ic in ["@11@", "@18@", "@0s@", "s_b_dele", "delete", "loesch"]):
-                                    elem.press()
-                                    return True
-                                if any(w in tooltip or w in text or w in name for w in [
-                                    "eliminar linha", "apagar linha", "excluir linha",
-                                    "delete line", "zeile löschen", "zeile loeschen",
-                                    "eliminar", "loeschen"
-                                ]):
-                                    elem.press()
-                                    return True
-                            if hasattr(elem, "Children"):
-                                for c in elem.Children:
-                                    if _buscar_e_clicar_eliminar(c):
-                                        return True
-                        except Exception:
-                            pass
-                        return False
-
-                    # Tentativa 1: Busca o botão dentro da própria subtela de Medidas
-                    if subscreen_medidas:
-                        deletou = _buscar_e_clicar_eliminar(subscreen_medidas)
-                        if deletou:
-                            log_debug(f"Nota {nota} - Clicou no botão Eliminar Linha dentro da subtela de Medidas")
-
-                    # Tentativa 2: Busca na barra de ferramentas de aplicação (tbar[1])
-                    if not deletou:
-                        try:
-                            tbar1 = session.findById("wnd[0]/tbar[1]")
-                            deletou = _buscar_e_clicar_eliminar(tbar1)
-                            if deletou:
-                                log_debug(f"Nota {nota} - Clicou no botão Eliminar Linha na tbar[1]")
-                        except Exception as e_tbar:
-                            log_debug(f"Nota {nota} - Busca em tbar[1] falhou: {e_tbar}")
-
-                    # Tentativa 3: OKCDs nativos do SAP para Eliminar Linha no Table Control
-                    if not deletou:
-                        for metodo in ["okcd_zeld", "okcd_del_row", "okcd_mnlo", "okcd_loes", "vkey_14", "menu_tratar"]:
-                            try:
-                                tbl.selectedRows = "0"
-                                tbl.getAbsoluteRow(0).selected = True
-
-                                if metodo == "okcd_zeld":
-                                    session.findById("wnd[0]/tbar[0]/okcd").text = "=ZELD"
-                                    session.findById("wnd[0]").sendVKey(0)
-                                elif metodo == "okcd_del_row":
-                                    session.findById("wnd[0]/tbar[0]/okcd").text = "=DEL_ROW"
-                                    session.findById("wnd[0]").sendVKey(0)
-                                elif metodo == "okcd_mnlo":
-                                    session.findById("wnd[0]/tbar[0]/okcd").text = "=MNLO"
-                                    session.findById("wnd[0]").sendVKey(0)
-                                elif metodo == "okcd_loes":
-                                    session.findById("wnd[0]/tbar[0]/okcd").text = "=LOES"
-                                    session.findById("wnd[0]").sendVKey(0)
-                                elif metodo == "vkey_14":
-                                    session.findById("wnd[0]").sendVKey(14)
-                                elif metodo == "menu_tratar":
-                                    session.findById("wnd[0]/mbar/mbf_sub[1]/mbf_sub[2]").select()
-
-                                time.sleep(0.4)
-                                if session.Children.Count > 1:
-                                    deletou = True
-                                    log_debug(f"Nota {nota} - Eliminar Linha acionado via {metodo}")
-                                    break
-                            except Exception as e_m:
-                                log_debug(f"Nota {nota} - Método {metodo} falhou: {e_m}")
-
-                    # Trata o diálogo modal de confirmação do SAP wnd[1] ("Deseja eliminar a linha?")
+                    # 6. Confirma o diálogo popup wnd[1]/usr/btnSPOP-OPTION1
                     time.sleep(0.4)
                     if session.Children.Count > 1:
                         try:
                             wnd1 = session.findById("wnd[1]")
-                            for btn_id in ["usr/btnSPOP-OPTION1", "usr/btnBUTTON_1", "tbar[0]/btn[0]", "tbar[0]/btn[6]"]:
+                            try:
+                                wnd1.findById("usr/btnSPOP-OPTION1").press()
+                            except Exception:
                                 try:
-                                    wnd1.findById(btn_id).press()
-                                    deletou = True
-                                    break
+                                    wnd1.findById("usr/btnBUTTON_1").press()
                                 except Exception:
-                                    pass
-                            else:
-                                wnd1.sendVKey(0)
-                                deletou = True
+                                    wnd1.sendVKey(0)
                             time.sleep(0.4)
-                            log_debug(f"Nota {nota} - Diálogo de confirmação de exclusão aceito com sucesso")
+                            log_debug(f"Nota {nota} - Diálogo de confirmação de exclusão aceito")
                         except Exception as pop_err:
-                            log_debug(f"Nota {nota} - Aviso popup exclusao: {pop_err}")
+                            log_debug(f"Nota {nota} - Erro ao aceitar popup de exclusão: {pop_err}")
 
                     # 7.3. Fallback de segurança: se a linha 0 não pôde ser excluída fisicamente, zera a quantidade
                     if not deletou:
