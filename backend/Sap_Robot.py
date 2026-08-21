@@ -620,18 +620,30 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                         session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-PSTER[11,1]").text = dt_inicio
                         session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-PSTUR[12,1]").text = h_inicio
                         session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-PETER[13,1]").text = dt_fim
-                        session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-PETUR[14,1]").text = h_fim
+                        fld_petur = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-PETUR[14,1]")
+                        fld_petur.text = h_fim
+                        fld_petur.setFocus()
+                        try:
+                            fld_petur.caretPosition = 5
+                        except Exception:
+                            pass
                     except Exception:
                         pass
 
-                # 3.1. Fecha eventuais popups de aviso de data (ex: advertência amarela)
-                time.sleep(0.3)
+                # 3.1. Envia Enter na tela principal para validar e fecha em loop todos os popups de "Informação" (check verde)
                 try:
-                    wnd_aviso = session.findById("wnd[1]")
-                    wnd_aviso.sendVKey(0)
-                    time.sleep(0.3)
+                    session.findById("wnd[0]").sendVKey(0)
                 except Exception:
                     pass
+                time.sleep(0.3)
+
+                for _ in range(5):
+                    try:
+                        wnd_info = session.findById("wnd[1]")
+                        wnd_info.sendVKey(0) # Pressiona o check verde
+                        time.sleep(0.3)
+                    except Exception:
+                        break
 
                 # 4. txtVIQMSM-QSMNUM[0,0].setFocus e caretPosition = 0 (exatamente como gravado)
                 fld_0 = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-QSMNUM[0,0]")
