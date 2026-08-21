@@ -35,6 +35,10 @@ LAYOUT_IW66 = "/GALVAO"
 CAMINHO_SAP_LOGON = r"C:\Program Files (x86)\SAP\FrontEnd\SAPgui\saplogon.exe"
 # endregion
 
+def log_debug(msg: str):
+    print(f"[SapRobot] {msg}")
+
+
 # region Chapter 2. CREDENTIALS HELPER
 def obter_credenciais_sap() -> tuple[str, str]:
     """
