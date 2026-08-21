@@ -637,56 +637,48 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                 session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/btnLOESCHEN").press()
                 time.sleep(0.5)
 
-                # 6. Confirma o diálogo popup de exclusão clicando em "Sim" (multi-camadas)
-                time.sleep(0.5)
+                # 6. Confirma a exclusão clicando exclusivamente em "Sim" (Option 1)
+                time.sleep(0.4)
                 confirmou = False
 
-                # Camada A: session.findById("wnd[1]")
+                # 6.1. Clica no botão "Sim" (usr/btnSPOP-OPTION1)
                 try:
                     wnd1 = session.findById("wnd[1]")
-                    for btn_id in ["usr/btnSPOP-OPTION1", "usr/btnBUTTON_1", "usr/btnSPOP-VAROPTION1", "tbar[0]/btn[0]"]:
+                    try:
+                        wnd1.findById("usr/btnSPOP-OPTION1").press()
+                        confirmou = True
+                        log_debug(f"Nota {nota} - Botão 'Sim' (btnSPOP-OPTION1) pressionado no wnd[1]")
+                    except Exception:
                         try:
-                            wnd1.findById(btn_id).press()
+                            wnd1.findById("usr/btnBUTTON_1").press()
                             confirmou = True
-                            log_debug(f"Nota {nota} - Confirmado 'Sim' via wnd[1] ({btn_id})")
-                            break
+                            log_debug(f"Nota {nota} - Botão 'Sim' (btnBUTTON_1) pressionado no wnd[1]")
                         except Exception:
                             pass
-                    if not confirmou:
-                        wnd1.sendVKey(0)
-                        confirmou = True
-                        log_debug(f"Nota {nota} - Confirmado 'Sim' via wnd[1].sendVKey(0)")
                 except Exception as e_wnd1:
-                    log_debug(f"Nota {nota} - wnd[1] busca: {e_wnd1}")
+                    log_debug(f"Nota {nota} - wnd[1] erro ao buscar botão Sim: {e_wnd1}")
 
-                # Camada B: session.ActiveWindow (caso a janela tenha outro índice)
-                try:
-                    act_win = session.ActiveWindow
-                    if act_win and getattr(act_win, "Name", "") != "wnd[0]":
-                        for btn_id in ["usr/btnSPOP-OPTION1", "usr/btnBUTTON_1", "tbar[0]/btn[0]"]:
-                            try:
-                                act_win.findById(btn_id).press()
-                                confirmou = True
-                                log_debug(f"Nota {nota} - Confirmado 'Sim' via ActiveWindow ({btn_id})")
-                                break
-                            except Exception:
-                                pass
-                        if not confirmou:
-                            act_win.sendVKey(0)
+                # 6.2. Se ainda não confirmou, tenta via ActiveWindow
+                if not confirmou:
+                    try:
+                        act_win = session.ActiveWindow
+                        if act_win and getattr(act_win, "Name", "") != "wnd[0]":
+                            act_win.findById("usr/btnSPOP-OPTION1").press()
                             confirmou = True
-                            log_debug(f"Nota {nota} - Confirmado 'Sim' via ActiveWindow.sendVKey(0)")
-                except Exception as e_act:
-                    log_debug(f"Nota {nota} - ActiveWindow busca: {e_act}")
+                            log_debug(f"Nota {nota} - Botão 'Sim' pressionado via ActiveWindow")
+                    except Exception:
+                        pass
 
-                # Camada C: WScript.Shell SendKeys Enter (garantia de teclado nativo do Windows)
-                try:
-                    shell = win32com.client.Dispatch("WScript.Shell")
-                    shell.AppActivate(session.findById("wnd[0]").text)
-                    time.sleep(0.2)
-                    shell.SendKeys("{ENTER}")
-                    log_debug(f"Nota {nota} - Enviado SendKeys ENTER de confirmação")
-                except Exception:
-                    pass
+                # 6.3. Fallback de teclado: Alt+S (atalho nativo para "Sim" no SAP em português)
+                if not confirmou:
+                    try:
+                        shell = win32com.client.Dispatch("WScript.Shell")
+                        shell.AppActivate(session.findById("wnd[0]").text)
+                        time.sleep(0.2)
+                        shell.SendKeys("%s") # Alt+S para "Sim"
+                        log_debug(f"Nota {nota} - Enviado atalho Alt+S para confirmar Sim")
+                    except Exception:
+                        pass
 
                 time.sleep(0.5)
 
