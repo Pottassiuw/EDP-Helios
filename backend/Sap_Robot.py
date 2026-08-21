@@ -564,17 +564,20 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                 except Exception:
                     pass
 
-                # Regra SAP: Apenas notas no status 27 podem ter medidas editadas diretamente na linha 0.
-                # Para todos os outros status (10, 20, 51, 53, etc.), cria na linha 1 e apaga a linha 0 original.
-                direto = (status_num == 27)
+                # Condição exata da Macro VBA:
+                # If (Status <= 27 And Not Status = 10 And Not Status = 20)
+                edicao_direta = (status_num <= 27 and status_num not in [10, 20] and status_num > 0)
 
-                if direto:
-                    # ── MODO 1: EDIÇÃO DIRETA NA LINHA 0 (APENAS STATUS 27) ──────────
-                    log_debug(f"Nota {nota} - Status 27: alterando medida diretamente na linha 0")
+                if edicao_direta:
+                    # ── MODO 1: EDIÇÃO DIRETA NA LINHA 0 (STATUS <= 27 EXCETO 10 E 20) ──────────
+                    log_debug(f"Nota {nota} - Status {status_num}: alterando medida diretamente na linha 0 (conforme Macro VBA)")
                     campo_medida_0 = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-QSMNUM[0,0]")
-                    campo_medida_0.setFocus()
-                    time.sleep(0.2)
                     campo_medida_0.text = str_qtd
+                    campo_medida_0.setFocus()
+                    try:
+                        campo_medida_0.caretPosition = 0
+                    except Exception:
+                        pass
                     session.findById("wnd[0]").sendVKey(0)
                     time.sleep(0.5)
                     if session.Children.Count > 1:
@@ -585,42 +588,50 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                             pass
                 else:
                     # ── MODO 2: RECRIAÇÃO NA LINHA 1 + EXCLUSÃO DA LINHA 0 ──────────
-                    log_debug(f"Nota {nota} - Status {status_num} ('{status_text}'): aplicando sequência do gravador SAP (Script1.vbs)")
+                    log_debug(f"Nota {nota} - Status {status_num}: recriando na linha 1 e excluindo linha 0 (conforme Macro VBA)")
 
-                    # 1. Lê valores da linha 0 para clonar na linha 1
+                    # 1. Cria nova medida com código ELP
+                    code_fld = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-MNCOD[2,1]")
+                    code_fld.text = "ELP"
+                    code_fld.setFocus()
                     try:
-                        grp_orig = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-MNGRP[1,0]").text.strip()
+                        code_fld.caretPosition = 3
                     except Exception:
-                        grp_orig = "MED-FD"
-                    if not grp_orig:
-                        grp_orig = "MED-FD"
+                        pass
+                    session.findById("wnd[0]").sendVKey(0)
+                    time.sleep(0.5)
+                    if session.Children.Count > 1:
+                        try:
+                            session.findById("wnd[1]").sendVKey(0)
+                            time.sleep(0.3)
+                        except Exception:
+                            pass
 
+                    # 2. Digita a quantidade na segunda linha
+                    qtd_fld = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-QSMNUM[0,1]")
+                    qtd_fld.text = str_qtd
+                    qtd_fld.setFocus()
                     try:
-                        cod_orig = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-MNCOD[2,0]").text.strip()
+                        qtd_fld.caretPosition = 3
                     except Exception:
-                        cod_orig = "ELP"
-                    if not cod_orig:
-                        cod_orig = "ELP"
+                        pass
+                    session.findById("wnd[0]").sendVKey(0)
+                    time.sleep(0.5)
+                    if session.Children.Count > 1:
+                        try:
+                            session.findById("wnd[1]").sendVKey(0)
+                            time.sleep(0.3)
+                        except Exception:
+                            pass
 
+                    # 3. Pega texto da medida e copia para linha 1
                     try:
                         texto_medida = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-MATXT[4,0]").text
-                    except Exception:
-                        texto_medida = ""
-
-                    # 2. Seleciona a linha 0 na tabela
-                    try:
-                        tbl.getAbsoluteRow(0).selected = True
+                        session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-MATXT[4,1]").text = texto_medida
                     except Exception:
                         pass
 
-                    # 3. Preenche os campos da linha 1 (nova medida)
-                    session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-QSMNUM[0,1]").text = str_qtd
-                    session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-MNGRP[1,1]").text = grp_orig
-                    session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-MNCOD[2,1]").text = cod_orig
-                    if texto_medida:
-                        session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-MATXT[4,1]").text = texto_medida
-
-                    # Copia datas se existirem
+                    # 4. Pega as datas e coloca na linha 1
                     try:
                         dt_inicio = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-PSTER[11,0]").text
                         h_inicio = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-PSTUR[12,0]").text
@@ -630,59 +641,75 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                         if dt_inicio: session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-PSTER[11,1]").text = dt_inicio
                         if h_inicio: session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-PSTUR[12,1]").text = h_inicio
                         if dt_fim: session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-PETER[13,1]").text = dt_fim
-                        if h_fim: session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-PETUR[14,1]").text = h_fim
+                        if h_fim:
+                            session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-PETUR[14,1]").text = h_fim
+                            fld_fim = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-PETUR[14,1]")
+                            fld_fim.setFocus()
+                            try:
+                                fld_fim.caretPosition = 5
+                            except Exception:
+                                pass
+                            session.findById("wnd[0]").sendVKey(0)
+                            time.sleep(0.5)
+                            if session.Children.Count > 1:
+                                try:
+                                    session.findById("wnd[1]").sendVKey(0)
+                                    time.sleep(0.3)
+                                except Exception:
+                                    pass
                     except Exception:
                         pass
 
-                    # 4. Foca no campo de quantidade da linha 0 e define caretPosition = 0 (exatamente como gravado no VBS)
-                    fld_0 = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-QSMNUM[0,0]")
-                    fld_0.setFocus()
+                    # 5. Se status 99, copia conclusão e encerra na linha 1
+                    if status_num == 99:
+                        try:
+                            concluido_por = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-ERLNAM[15,0]").text
+                            data_conclusao = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-ERLDAT[16,0]").text
+                            hora_da_conclusao = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-ERLZEIT[17,0]").text
+
+                            session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-ERLNAM[15,1]").text = concluido_por
+                            session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-ERLDAT[16,1]").text = data_conclusao
+                            fld_ez = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-ERLZEIT[17,1]")
+                            fld_ez.text = hora_da_conclusao
+                            fld_ez.setFocus()
+                            try:
+                                fld_ez.caretPosition = 8
+                            except Exception:
+                                pass
+
+                            tbl.getAbsoluteRow(1).selected = True
+                            fld_q1 = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-QSMNUM[0,1]")
+                            fld_q1.setFocus()
+                            try:
+                                fld_q1.caretPosition = 0
+                            except Exception:
+                                pass
+                            session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/btnFC_ERLEDIGT").press()
+                            time.sleep(0.5)
+                            if session.Children.Count > 1:
+                                session.findById("wnd[1]").sendVKey(0)
+                                time.sleep(0.3)
+                        except Exception as e_enc:
+                            log_debug(f"Nota {nota} - Aviso ao encerrar medida na linha 1: {e_enc}")
+
+                    # 6. Exclui a medida original (linha 0) - EXATAMENTE como na Macro VBA
+                    tbl.getAbsoluteRow(0).selected = True
+                    fld_q0 = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-QSMNUM[0,0]")
+                    fld_q0.setFocus()
                     try:
-                        fld_0.caretPosition = 0
+                        fld_q0.caretPosition = 0
                     except Exception:
                         pass
-                    time.sleep(0.3)
+                    time.sleep(0.2)
 
-                    # 5. Pressiona o botão btnLOESCHEN da tela
-                    deletou = False
-                    try:
-                        session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/btnLOESCHEN").press()
-                        deletou = True
-                        log_debug(f"Nota {nota} - Botão btnLOESCHEN pressionado com sucesso")
-                    except Exception as e_loeschen:
-                        log_debug(f"Nota {nota} - btnLOESCHEN falhou: {e_loeschen}")
-
-                    # 6. Confirma o diálogo popup wnd[1]/usr/btnSPOP-OPTION1
+                    session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/btnLOESCHEN").press()
                     time.sleep(0.4)
                     if session.Children.Count > 1:
                         try:
-                            wnd1 = session.findById("wnd[1]")
-                            try:
-                                wnd1.findById("usr/btnSPOP-OPTION1").press()
-                            except Exception:
-                                try:
-                                    wnd1.findById("usr/btnBUTTON_1").press()
-                                except Exception:
-                                    wnd1.sendVKey(0)
-                            time.sleep(0.4)
-                            log_debug(f"Nota {nota} - Diálogo de confirmação de exclusão aceito")
-                        except Exception as pop_err:
-                            log_debug(f"Nota {nota} - Erro ao aceitar popup de exclusão: {pop_err}")
-
-                    # 7.3. Fallback de segurança: se a linha 0 não pôde ser excluída fisicamente, zera a quantidade
-                    if not deletou:
-                        try:
-                            log_debug(f"Nota {nota} - Aplicando fallback: zerando quantidade da linha 0 no SAP...")
-                            campo_qtd_0 = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-QSMNUM[0,0]")
-                            if campo_qtd_0.Changeable:
-                                campo_qtd_0.setFocus()
-                                campo_qtd_0.text = "0"
-                                session.findById("wnd[0]").sendVKey(0)
-                                time.sleep(0.3)
-                                if session.Children.Count > 1:
-                                    session.findById("wnd[1]").sendVKey(0)
-                        except Exception as e_zero:
-                            log_debug(f"Nota {nota} - Falha no fallback de zerar linha 0: {e_zero}")
+                            session.findById("wnd[1]/usr/btnSPOP-OPTION1").press()
+                            time.sleep(0.3)
+                        except Exception:
+                            session.findById("wnd[1]").sendVKey(0)
 
                 log_debug(f"Nota {nota} - Valor alterado com sucesso para '{str_qtd}'")
             except Exception as e:
