@@ -486,7 +486,7 @@ def _credenciais_sap_do_payload(payload: Optional[dict]) -> Optional[dict]:
     request, não de um credenciais.json compartilhado. Se algum campo faltar, retorna
     None e o robô cai no fallback (credenciais.json), preservando a execução agendada
     via Rodar_Sap_Robot.bat, que não passa por esta rota."""
-    if not payload:
+    if not isinstance(payload, dict):
         return None
     login = str(payload.get("login_sap") or "").strip()
     senha = str(payload.get("senha_sap") or "")
@@ -563,7 +563,7 @@ def sync_sap(tasks: BackgroundTasks, x_user: Optional[str] = Header(default="Sis
         estado = sap_sync.reservar()
     except sap_sync.SapSyncEmAndamento as exc:
         raise HTTPException(status_code=409, detail=str(exc))
-    tasks.add_task(sap_sync.executar, lambda: _rotina_sap_background(credenciais_sap))
+    tasks.add_task(sap_sync.executar, lambda: _rotina_sap_background(credenciais_sap) if credenciais_sap else _rotina_sap_background())
     return {
         "mensagem": "Sincronização SAP iniciada em background.",
         "sap": estado,

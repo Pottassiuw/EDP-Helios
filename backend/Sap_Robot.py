@@ -476,9 +476,8 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                 session.findById("wnd[0]/tbar[0]/okcd").text = "/n"
                 session.findById("wnd[0]").sendVKey(0)
 
-            # 2.5. Detecção de Status e Escolha do Modo de Edição (Regras da Macro VBA)
+            # 2.5. Detecção de Status e Log Informativo
             status_text = ""
-            # Tenta ler o status do usuário a partir dos subscreens típicos da IW22
             for num in ["1050", "1040", "1010", "1020", "1030"]:
                 try:
                     status_text = session.findById(f"wnd[0]/usr/subSCREEN_1:SAPLIQS0:{num}/txtRIWO00-ASTXT").text
@@ -521,11 +520,6 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                 time.sleep(1.0)
                 continue
 
-            # Regra da macro:
-            # - Se status for <= 27 e não for 10 ou 20, altera direto na linha 0.
-            # - Caso contrário (se for status 10, 20 ou > 27 como 51, 53, etc.), recria a medida na linha 1 e deleta a original.
-            direto = (status_num <= 27 and status_num != 10 and status_num != 20 and status_num > 0)
-
             # 3. Validação de Acesso na aba TAB10 (Medidas)
             try:
                 session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10").select()
@@ -533,7 +527,6 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                 session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03").select()
                 time.sleep(1.0) # Atraso após abrir a sub-aba de Medidas
 
-                # Apenas verifica se a tabela existe
                 table_control = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2")
                 is_changeable = True
             except Exception as e:
@@ -546,16 +539,17 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                 session.findById("wnd[0]").sendVKey(0)
                 time.sleep(0.5)
                 try:
-                    session.findById("wnd[1]/usr/btnSPOP-OPTION2").press()
+                    if session.Children.Count > 1:
+                        session.findById("wnd[1]/usr/btnSPOP-OPTION2").press()
                     time.sleep(0.5)
                 except:
                     pass
                 continue
 
-            # 4. Digita a quantidade
+            # 4. Formata a quantidade e determina se a linha 0 pode ser editada diretamente
             str_qtd = formatar_quantidade_sap(quantidade, unidade)
             try:
-                # Tenta focar a janela do SAP
+                # Foca a janela do SAP
                 try:
                     sap_title = session.findById("wnd[0]").text
                     shell = win32com.client.Dispatch("WScript.Shell")
@@ -564,90 +558,147 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                 except Exception as focus_err:
                     log_debug(f"Nota {nota} - Aviso: Não foi possível focar a janela do SAP: {focus_err}")
 
-                shell = win32com.client.Dispatch("WScript.Shell")
+                tbl = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2")
+                try:
+                    tbl.verticalScrollbar.position = 0
+                except Exception:
+                    pass
+
+                # Verifica o status da medida na linha 0
+                try:
+                    status_linha_0 = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-ASTXT[7,0]").text
+                except Exception:
+                    status_linha_0 = ""
+
+                # Se a linha 0 estiver com status de encerramento (MEDE/ENCE), tenta anular encerramento para reabrir e liberar edição
+                if any(s in status_linha_0.upper() for s in ["MEDE", "ENCE", "ERL", "CONC"]):
+                    log_debug(f"Nota {nota} - Linha 0 está encerrada ({status_linha_0}). Tentando anular encerramento (btnFC_ERL_ZURUECK)...")
+                    try:
+                        tbl.selectedRows = "0"
+                        tbl.getAbsoluteRow(0).selected = True
+                        session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/btnFC_ERL_ZURUECK").press()
+                        time.sleep(0.5)
+                        if session.Children.Count > 1:
+                            session.findById("wnd[1]").sendVKey(0)
+                            time.sleep(0.3)
+                    except Exception as e_anular:
+                        log_debug(f"Nota {nota} - Aviso ao anular encerramento inicial da linha 0: {e_anular}")
+
+                # Valida se o campo da linha 0 está editável (Changeable)
+                campo_medida_0 = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-QSMNUM[0,0]")
+                direto = False
+                try:
+                    direto = bool(campo_medida_0.Changeable)
+                except Exception:
+                    direto = False
 
                 if direto:
-                    log_debug(f"Nota {nota} - Alterando medida diretamente na linha 0 (Status: {status_text})")
-                    campo_medida = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-QSMNUM[0,0]")
-                    campo_medida.setFocus()
+                    # ── MODO 1: EDIÇÃO DIRETA NA LINHA 0 ─────────────────────────────
+                    log_debug(f"Nota {nota} - Campo editável: alterando medida diretamente na linha 0 (Status: {status_text})")
+                    campo_medida_0.setFocus()
                     time.sleep(0.2)
-
-                    shell.SendKeys("^a")
-                    time.sleep(0.1)
-                    shell.SendKeys("{BACKSPACE}")
-                    time.sleep(0.1)
-                    shell.SendKeys(str_qtd)
-                    time.sleep(0.2)
-
+                    campo_medida_0.text = str_qtd
                     session.findById("wnd[0]").sendVKey(0)
-                    time.sleep(1.0)
+                    time.sleep(0.5)
+                    if session.Children.Count > 1:
+                        try:
+                            session.findById("wnd[1]").sendVKey(0)
+                            time.sleep(0.3)
+                        except Exception:
+                            pass
                 else:
-                    log_debug(f"Nota {nota} - Recriando medida na linha 1 e excluindo a linha 0 (Status: {status_text})")
-                    # 1. Escreve "ELP" no código da segunda linha
+                    # ── MODO 2: RECRIAÇÃO NA LINHA 1 + EXCLUSÃO DA LINHA 0 ──────────
+                    log_debug(f"Nota {nota} - Campo bloqueado: recriando medida na linha 1 e excluindo a linha 0 (Status: {status_text})")
+
+                    # 1. Obtém o código da medida da linha 0 (ex: ELP) ou fallback
+                    try:
+                        cod_orig = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-MNCOD[2,0]").text.strip()
+                    except Exception:
+                        cod_orig = "ELP"
+                    if not cod_orig:
+                        cod_orig = "ELP"
+
+                    # 2. Escreve o código na segunda linha
                     code_field = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-MNCOD[2,1]")
-                    code_field.text = "ELP"
+                    code_field.text = cod_orig
                     code_field.setFocus()
                     session.findById("wnd[0]").sendVKey(0)
                     time.sleep(0.5)
-
-                    # 2. Digita a quantidade na segunda linha
-                    campo_medida = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-QSMNUM[0,1]")
-                    campo_medida.setFocus()
-                    time.sleep(0.2)
-
-                    shell.SendKeys("^a")
-                    time.sleep(0.1)
-                    shell.SendKeys("{BACKSPACE}")
-                    time.sleep(0.1)
-                    shell.SendKeys(str_qtd)
-                    time.sleep(0.2)
-
-                    session.findById("wnd[0]").sendVKey(0)
-                    time.sleep(0.5)
-
-                    # 3. Copia a descrição da medida original (linha 0) para a nova (linha 1)
-                    texto_medida = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-MATXT[4,0]").text
-                    session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-MATXT[4,1]").text = texto_medida
-
-                    # 4. Copia as datas e horas de início/fim
-                    dt_inicio = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-PSTER[11,0]").text
-                    h_inicio = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-PSTUR[12,0]").text
-                    dt_fim = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-PETER[13,0]").text
-                    h_fim = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-PETUR[14,0]").text
-
-                    session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-PSTER[11,1]").text = dt_inicio
-                    session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-PSTUR[12,1]").text = h_inicio
-                    session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-PETER[13,1]").text = dt_fim
-                    session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-PETUR[14,1]").text = h_fim
-
-                    session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-PETUR[14,1]").setFocus()
-                    session.findById("wnd[0]").sendVKey(0)
-                    time.sleep(0.5)
-                    session.findById("wnd[1]").sendVKey(0) # Confirma diálogo de advertência
-                    time.sleep(0.5)
-
-                    # 5. Se for status 99 (Encerrado), copia dados de conclusão e encerra a medida
-                    if status_num == 99:
-                        concluido_por = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-ERLNAM[15,0]").text
-                        data_conclusao = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-ERLDAT[16,0]").text
-                        hora_conclusao = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-ERLZEIT[17,0]").text
-
-                        session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-ERLNAM[15,1]").text = concluido_por
-                        session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-ERLDAT[16,1]").text = data_conclusao
-                        session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-ERLZEIT[17,1]").text = hora_conclusao
-
-                        # Encerra a segunda medida
+                    if session.Children.Count > 1:
                         try:
-                            tbl = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2")
-                            tbl.getAbsoluteRow(1).Selected = True
-                            session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-QSMNUM[0,1]").setFocus()
+                            session.findById("wnd[1]").sendVKey(0)
+                            time.sleep(0.3)
+                        except Exception:
+                            pass
+
+                    # 3. Digita a quantidade na segunda linha
+                    campo_medida_1 = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-QSMNUM[0,1]")
+                    campo_medida_1.setFocus()
+                    time.sleep(0.2)
+                    campo_medida_1.text = str_qtd
+                    session.findById("wnd[0]").sendVKey(0)
+                    time.sleep(0.5)
+                    if session.Children.Count > 1:
+                        try:
+                            session.findById("wnd[1]").sendVKey(0)
+                            time.sleep(0.3)
+                        except Exception:
+                            pass
+
+                    # 4. Copia a descrição da medida original (linha 0) para a nova (linha 1)
+                    try:
+                        texto_medida = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-MATXT[4,0]").text
+                        if texto_medida:
+                            session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-MATXT[4,1]").text = texto_medida
+                    except Exception:
+                        pass
+
+                    # 5. Copia as datas e horas de início/fim
+                    try:
+                        dt_inicio = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-PSTER[11,0]").text
+                        h_inicio = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-PSTUR[12,0]").text
+                        dt_fim = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-PETER[13,0]").text
+                        h_fim = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-PETUR[14,0]").text
+
+                        if dt_inicio: session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-PSTER[11,1]").text = dt_inicio
+                        if h_inicio: session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-PSTUR[12,1]").text = h_inicio
+                        if dt_fim: session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-PETER[13,1]").text = dt_fim
+                        if h_fim: session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-PETUR[14,1]").text = h_fim
+                    except Exception:
+                        pass
+
+                    session.findById("wnd[0]").sendVKey(0)
+                    time.sleep(0.5)
+                    # Confirma diálogo de advertência com segurança (apenas se existir wnd[1])
+                    if session.Children.Count > 1:
+                        try:
+                            session.findById("wnd[1]").sendVKey(0)
+                            time.sleep(0.3)
+                        except Exception:
+                            pass
+
+                    # 6. Se for status 99 (Encerrado), copia dados de conclusão e encerra a medida nova
+                    if status_num == 99:
+                        try:
+                            concluido_por = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-ERLNAM[15,0]").text
+                            data_conclusao = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-ERLDAT[16,0]").text
+                            hora_conclusao = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-ERLZEIT[17,0]").text
+
+                            session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-ERLNAM[15,1]").text = concluido_por
+                            session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-ERLDAT[16,1]").text = data_conclusao
+                            session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-ERLZEIT[17,1]").text = hora_conclusao
+
+                            tbl.selectedRows = "1"
+                            tbl.getAbsoluteRow(1).selected = True
                             session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/btnFC_ERLEDIGT").press()
                             time.sleep(0.5)
+                            if session.Children.Count > 1:
+                                session.findById("wnd[1]").sendVKey(0)
+                                time.sleep(0.3)
                         except Exception as e_enc:
-                            log_debug(f"Nota {nota} - Aviso ao encerrar medida: {e_enc}")
+                            log_debug(f"Nota {nota} - Aviso ao encerrar medida na linha 1: {e_enc}")
 
-                    # 6. Exclui a primeira medida original (linha 0)
-                    tbl = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2")
+                    # 7. Exclui a primeira medida original (linha 0)
                     try:
                         tbl.verticalScrollbar.position = 0
                     except Exception:
@@ -655,26 +706,32 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                     time.sleep(0.2)
 
                     try:
-                        tbl.getAbsoluteRow(0).Selected = True
+                        tbl.selectedRows = "0"
+                        tbl.getAbsoluteRow(0).selected = True
                     except Exception:
                         pass
 
-                    # Se a linha 0 estiver com status MEDE (Encerrada/Concluída), o SAP bloqueia a exclusão e edição.
-                    # Pressiona o botão 'Anular encerramento' (btnFC_ERL_ZURUECK) para reabrir a medida (voltar p/ MEDA) antes de deletar.
+                    # Se a linha 0 estiver com status MEDE (Encerrada), anula o encerramento antes de deletar
                     try:
-                        status_linha_0 = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-ASTXT[7,0]").text
+                        st_0 = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-ASTXT[7,0]").text
                     except Exception:
-                        status_linha_0 = ""
+                        st_0 = ""
 
-                    if any(s in status_linha_0.upper() for s in ["MEDE", "ENCE", "ERL", "CONC"]):
-                        log_debug(f"Nota {nota} - Linha 0 está encerrada ({status_linha_0}). Anulando encerramento (btnFC_ERL_ZURUECK) para reabrir e permitir exclusão...")
+                    if any(s in st_0.upper() for s in ["MEDE", "ENCE", "ERL", "CONC"]):
+                        log_debug(f"Nota {nota} - Linha 0 está encerrada ({st_0}). Anulando encerramento para permitir exclusão...")
                         try:
                             session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/btnFC_ERL_ZURUECK").press()
                             time.sleep(0.5)
+                            if session.Children.Count > 1:
+                                session.findById("wnd[1]").sendVKey(0)
+                                time.sleep(0.3)
                         except Exception as e_anular:
                             log_debug(f"Nota {nota} - Aviso ao anular encerramento da linha 0: {e_anular}")
 
+                    # Re-seleciona a linha 0 antes de pressionar o botão de exclusão
                     try:
+                        tbl.selectedRows = "0"
+                        tbl.getAbsoluteRow(0).selected = True
                         session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-QSMNUM[0,0]").setFocus()
                     except Exception:
                         pass
@@ -684,7 +741,7 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                         session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/btnLOESCHEN").press()
                         excluido = True
                     except Exception as btn_err:
-                        log_debug(f"Nota {nota} - btnLOESCHEN falhou: {btn_err}. Tentando tecla de atalho Shift+F2 (sendVKey 14)...")
+                        log_debug(f"Nota {nota} - btnLOESCHEN falhou: {btn_err}. Tentando tecla Shift+F2 (sendVKey 14)...")
                         try:
                             session.findById("wnd[0]").sendVKey(14)
                             excluido = True
@@ -707,18 +764,18 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                         except Exception as pop_err:
                             log_debug(f"Nota {nota} - Aviso popup exclusao: {pop_err}")
 
-                    # Fallback: Se o SAP proibir a exclusão física da linha 0 (ex: medida encerrada/bloqueada pelo SAP), zera a quantidade da linha 0
+                    # Fallback: Se o SAP proibir a exclusão física da linha 0, zera a quantidade da linha 0
                     if not excluido:
                         try:
                             log_debug(f"Nota {nota} - Aplicando fallback: zerando quantidade da linha 0 original no SAP...")
                             campo_qtd_0 = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-QSMNUM[0,0]")
-                            campo_qtd_0.setFocus()
-                            shell.SendKeys("^a")
-                            time.sleep(0.1)
-                            shell.SendKeys("{BACKSPACE}")
-                            time.sleep(0.1)
-                            shell.SendKeys("0")
-                            session.findById("wnd[0]").sendVKey(0)
+                            if campo_qtd_0.Changeable:
+                                campo_qtd_0.setFocus()
+                                campo_qtd_0.text = "0"
+                                session.findById("wnd[0]").sendVKey(0)
+                                time.sleep(0.5)
+                                if session.Children.Count > 1:
+                                    session.findById("wnd[1]").sendVKey(0)
                         except Exception as zero_err:
                             log_debug(f"Nota {nota} - Falha no fallback de zerar linha 0: {zero_err}")
 
@@ -741,7 +798,8 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                 session.findById("wnd[0]").sendVKey(0)
                 time.sleep(0.5)
                 try:
-                    session.findById("wnd[1]/usr/btnSPOP-OPTION2").press()
+                    if session.Children.Count > 1:
+                        session.findById("wnd[1]/usr/btnSPOP-OPTION2").press()
                     time.sleep(1.0)
                 except:
                     pass
@@ -768,7 +826,8 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                     session.findById("wnd[0]").sendVKey(0)
                     time.sleep(0.5)
                     try:
-                        session.findById("wnd[1]/usr/btnSPOP-OPTION2").press()
+                        if session.Children.Count > 1:
+                            session.findById("wnd[1]/usr/btnSPOP-OPTION2").press()
                         time.sleep(0.5)
                     except:
                         pass
@@ -782,7 +841,8 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                 session.findById("wnd[0]").sendVKey(0)
                 time.sleep(0.5)
                 try:
-                    session.findById("wnd[1]/usr/btnSPOP-OPTION2").press()
+                    if session.Children.Count > 1:
+                        session.findById("wnd[1]/usr/btnSPOP-OPTION2").press()
                 except:
                     pass
             except:
