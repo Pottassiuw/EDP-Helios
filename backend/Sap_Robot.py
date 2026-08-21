@@ -637,30 +637,58 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                 session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/btnLOESCHEN").press()
                 time.sleep(0.5)
 
-                # 6. Confirma o diálogo popup de exclusão clicando em "Sim" (diretamente como no VBS)
-                time.sleep(0.4)
+                # 6. Confirma o diálogo popup de exclusão clicando em "Sim" (multi-camadas)
+                time.sleep(0.5)
+                confirmou = False
+
+                # Camada A: session.findById("wnd[1]")
                 try:
                     wnd1 = session.findById("wnd[1]")
-                    clicou_sim = False
-                    for btn_id in [
-                        "usr/btnSPOP-OPTION1",
-                        "usr/btnBUTTON_1",
-                        "usr/btnSPOP-VAROPTION1",
-                        "tbar[0]/btn[0]"
-                    ]:
+                    for btn_id in ["usr/btnSPOP-OPTION1", "usr/btnBUTTON_1", "usr/btnSPOP-VAROPTION1", "tbar[0]/btn[0]"]:
                         try:
                             wnd1.findById(btn_id).press()
-                            clicou_sim = True
-                            log_debug(f"Nota {nota} - Confirmado 'Sim' na exclusão via {btn_id}")
+                            confirmou = True
+                            log_debug(f"Nota {nota} - Confirmado 'Sim' via wnd[1] ({btn_id})")
                             break
                         except Exception:
                             pass
-                    if not clicou_sim:
+                    if not confirmou:
                         wnd1.sendVKey(0)
-                        log_debug(f"Nota {nota} - Confirmado popup via sendVKey(0)")
-                    time.sleep(0.4)
+                        confirmou = True
+                        log_debug(f"Nota {nota} - Confirmado 'Sim' via wnd[1].sendVKey(0)")
                 except Exception as e_wnd1:
-                    log_debug(f"Nota {nota} - wnd[1] não encontrado ou já fechado: {e_wnd1}")
+                    log_debug(f"Nota {nota} - wnd[1] busca: {e_wnd1}")
+
+                # Camada B: session.ActiveWindow (caso a janela tenha outro índice)
+                try:
+                    act_win = session.ActiveWindow
+                    if act_win and getattr(act_win, "Name", "") != "wnd[0]":
+                        for btn_id in ["usr/btnSPOP-OPTION1", "usr/btnBUTTON_1", "tbar[0]/btn[0]"]:
+                            try:
+                                act_win.findById(btn_id).press()
+                                confirmou = True
+                                log_debug(f"Nota {nota} - Confirmado 'Sim' via ActiveWindow ({btn_id})")
+                                break
+                            except Exception:
+                                pass
+                        if not confirmou:
+                            act_win.sendVKey(0)
+                            confirmou = True
+                            log_debug(f"Nota {nota} - Confirmado 'Sim' via ActiveWindow.sendVKey(0)")
+                except Exception as e_act:
+                    log_debug(f"Nota {nota} - ActiveWindow busca: {e_act}")
+
+                # Camada C: WScript.Shell SendKeys Enter (garantia de teclado nativo do Windows)
+                try:
+                    shell = win32com.client.Dispatch("WScript.Shell")
+                    shell.AppActivate(session.findById("wnd[0]").text)
+                    time.sleep(0.2)
+                    shell.SendKeys("{ENTER}")
+                    log_debug(f"Nota {nota} - Enviado SendKeys ENTER de confirmação")
+                except Exception:
+                    pass
+
+                time.sleep(0.5)
 
                 log_debug(f"Nota {nota} - Valor alterado com sucesso para '{str_qtd}'")
             except Exception as e:
