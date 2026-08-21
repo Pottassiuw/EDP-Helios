@@ -190,7 +190,24 @@ def extrair_data_sap(descricao: Any) -> str:
 
 
 def _ler_export_medidas() -> pd.DataFrame | None:
-    return db.carregar_base_dataframe("base_iw66")
+    df_sqlite = db.carregar_base_dataframe("base_iw66")
+    if df_sqlite is not None and not df_sqlite.empty:
+        return df_sqlite
+
+    caminho = config.CAMINHO_BASE_IW66
+    if caminho and os.path.exists(caminho):
+        try:
+            df_excel = pd.read_excel(caminho, engine="openpyxl")
+            if df_excel is not None and not df_excel.empty:
+                try:
+                    db.salvar_base_dataframe("base_iw66", df_excel)
+                except Exception:
+                    pass
+                return df_excel
+        except Exception as e:
+            print(f"Aviso ao carregar IW66 do Excel da rede '{caminho}': {e}")
+
+    return None
 
 
 def _comparar_medida_planejado(medida_str: str, planejado_val) -> str:
