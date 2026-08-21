@@ -27,8 +27,8 @@ export function useInputData() {
   const qc = useQueryClient();
 
   // Seed do IndexedDB: só se a query ainda não tem dado (rede pode ter
-  // chegado antes). updatedAt antigo marca o seed como stale, então o
-  // próprio React Query dispara a revalidação — sem estado manual.
+  // chegado antes). updatedAt=0 marca o seed como stale, então o
+  // próprio React Query dispara a revalidação imediata — sem estado manual.
   React.useEffect(() => {
     let cancelado = false;
     void lerSnapshot(SNAPSHOT_INPUT).then((snap) => {
@@ -41,7 +41,7 @@ export function useInputData() {
   return useQuery({
     queryKey: INPUT_DADOS_KEY,
     queryFn: buscarEGravar,
-    staleTime: 300_000,
+    staleTime: 30_000,
     retry: 1,
   });
 }

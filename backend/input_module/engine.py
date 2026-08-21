@@ -912,8 +912,13 @@ def get_dataset(forcar: bool = False) -> pd.DataFrame:
     with _cache_lock:
         versao = db.obter_versao_dataset()
         expirado = time.time() - _cache["quando"] > _CACHE_TTL_SEGUNDOS
+        medidas_zeradas = (
+            _cache["df"] is not None
+            and "Medida_SAP" in _cache["df"].columns
+            and (_cache["df"]["Medida_SAP"] != "-").sum() == 0
+        )
         if (forcar or _cache["df"] is None or expirado
-                or _cache["versao"] != versao):
+                or _cache["versao"] != versao or medidas_zeradas):
             df_res = enriquecer_dados()
             colunas_existentes = [col for col in config.COLUNAS_PAINEL if col in df_res.columns]
             colunas_extras = [col for col in df_res.columns if col not in colunas_existentes]
