@@ -723,7 +723,7 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                     except Exception:
                         pass
 
-                    # 7. Exclui a medida original (linha 0)
+                    # 7. Seleciona a linha inteira 0 (botão lateral do cabeçalho da linha)
                     try:
                         tbl.verticalScrollbar.position = 0
                     except Exception:
@@ -733,21 +733,16 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                     try:
                         tbl.selectedRows = "0"
                         tbl.getAbsoluteRow(0).selected = True
-                    except Exception:
-                        pass
-
-                    fld_q0 = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-QSMNUM[0,0]")
-                    fld_q0.setFocus()
-                    try:
-                        fld_q0.caretPosition = 0
-                    except Exception:
-                        pass
-                    time.sleep(0.2)
+                        tbl.setFocus()
+                    except Exception as e_sel:
+                        log_debug(f"Nota {nota} - Aviso ao selecionar linha 0: {e_sel}")
+                    time.sleep(0.3)
 
                     deletou = False
                     try:
                         session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/btnLOESCHEN").press()
                         deletou = True
+                        log_debug(f"Nota {nota} - btnLOESCHEN pressionado com sucesso")
                     except Exception as e_loesch:
                         log_debug(f"Nota {nota} - btnLOESCHEN falhou: {e_loesch}")
 
