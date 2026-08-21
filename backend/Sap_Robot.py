@@ -697,38 +697,80 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
 
                     # 7.2. Seleciona a linha inteira 0 (destaque completo)
                     try:
-                        tbl.currentCellRow = 0
                         tbl.selectedRows = "0"
+                        try:
+                            tbl.getAbsoluteRow(1).selected = False
+                        except Exception:
+                            pass
                         tbl.getAbsoluteRow(0).selected = True
+                        tbl.currentCellRow = 0
                     except Exception as e_sel:
                         log_debug(f"Nota {nota} - Aviso ao selecionar linha 0: {e_sel}")
 
-                    # 7.3. Tenta os métodos de "Apagar Linha" do SAP (botão de lixeira, tbar[1], okcd, menu)
+                    # 7.3. Clica no botão de Eliminar Linha (ícone exato de folha com faixa vermelha / @11@ / @18@ / Zeile löschen)
                     deletou = False
-
-                    # Método 1: Busca botão "Eliminar linha" na barra de ferramentas de aplicação (tbar[1])
+                    subscreen_medidas = None
                     try:
-                        tbar1 = session.findById("wnd[0]/tbar[1]")
-                        for child in tbar1.Children:
-                            tt = str(getattr(child, "Tooltip", "") or getattr(child, "text", "")).lower()
-                            if any(w in tt for w in ["eliminar linha", "apagar linha", "excluir linha", "delete line", "löschen", "eliminar", "excluir"]):
-                                child.press()
-                                time.sleep(0.4)
-                                deletou = True
-                                log_debug(f"Nota {nota} - Clicou no botão de eliminar linha em tbar[1]: '{tt}'")
-                                break
-                    except Exception as e_tbar:
-                        log_debug(f"Nota {nota} - Busca em tbar[1] falhou: {e_tbar}")
+                        subscreen_medidas = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125")
+                    except Exception:
+                        pass
 
-                    # Método 2: OKCDs nativos do SAP e atalhos de exclusão de linha
+                    def _buscar_e_clicar_eliminar(elem):
+                        try:
+                            tipo = getattr(elem, "Type", "")
+                            if tipo in ["GuiButton", "GuiToolbarButton"]:
+                                icon = str(getattr(elem, "IconName", "") or "").lower()
+                                tooltip = str(getattr(elem, "Tooltip", "") or "").lower()
+                                text = str(getattr(elem, "Text", "") or "").lower()
+                                name = str(getattr(elem, "Name", "") or "").lower()
+                                if any(ic in icon for ic in ["@11@", "@18@", "@0s@", "s_b_dele", "delete", "loesch"]):
+                                    elem.press()
+                                    return True
+                                if any(w in tooltip or w in text or w in name for w in [
+                                    "eliminar linha", "apagar linha", "excluir linha",
+                                    "delete line", "zeile löschen", "zeile loeschen",
+                                    "eliminar", "loeschen"
+                                ]):
+                                    elem.press()
+                                    return True
+                            if hasattr(elem, "Children"):
+                                for c in elem.Children:
+                                    if _buscar_e_clicar_eliminar(c):
+                                        return True
+                        except Exception:
+                            pass
+                        return False
+
+                    # Tentativa 1: Busca o botão dentro da própria subtela de Medidas
+                    if subscreen_medidas:
+                        deletou = _buscar_e_clicar_eliminar(subscreen_medidas)
+                        if deletou:
+                            log_debug(f"Nota {nota} - Clicou no botão Eliminar Linha dentro da subtela de Medidas")
+
+                    # Tentativa 2: Busca na barra de ferramentas de aplicação (tbar[1])
                     if not deletou:
-                        for metodo in ["okcd_mnlo", "okcd_loes", "vkey_14", "btn_loeschen", "menu_tratar"]:
+                        try:
+                            tbar1 = session.findById("wnd[0]/tbar[1]")
+                            deletou = _buscar_e_clicar_eliminar(tbar1)
+                            if deletou:
+                                log_debug(f"Nota {nota} - Clicou no botão Eliminar Linha na tbar[1]")
+                        except Exception as e_tbar:
+                            log_debug(f"Nota {nota} - Busca em tbar[1] falhou: {e_tbar}")
+
+                    # Tentativa 3: OKCDs nativos do SAP para Eliminar Linha no Table Control
+                    if not deletou:
+                        for metodo in ["okcd_zeld", "okcd_del_row", "okcd_mnlo", "okcd_loes", "vkey_14", "menu_tratar"]:
                             try:
-                                # Garante que a linha 0 continua selecionada
                                 tbl.selectedRows = "0"
                                 tbl.getAbsoluteRow(0).selected = True
 
-                                if metodo == "okcd_mnlo":
+                                if metodo == "okcd_zeld":
+                                    session.findById("wnd[0]/tbar[0]/okcd").text = "=ZELD"
+                                    session.findById("wnd[0]").sendVKey(0)
+                                elif metodo == "okcd_del_row":
+                                    session.findById("wnd[0]/tbar[0]/okcd").text = "=DEL_ROW"
+                                    session.findById("wnd[0]").sendVKey(0)
+                                elif metodo == "okcd_mnlo":
                                     session.findById("wnd[0]/tbar[0]/okcd").text = "=MNLO"
                                     session.findById("wnd[0]").sendVKey(0)
                                 elif metodo == "okcd_loes":
@@ -736,19 +778,19 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                                     session.findById("wnd[0]").sendVKey(0)
                                 elif metodo == "vkey_14":
                                     session.findById("wnd[0]").sendVKey(14)
-                                elif metodo == "btn_loeschen":
-                                    session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/btnLOESCHEN").press()
                                 elif metodo == "menu_tratar":
                                     session.findById("wnd[0]/mbar/mbf_sub[1]/mbf_sub[2]").select()
 
                                 time.sleep(0.4)
                                 if session.Children.Count > 1:
                                     deletou = True
+                                    log_debug(f"Nota {nota} - Eliminar Linha acionado via {metodo}")
                                     break
                             except Exception as e_m:
-                                log_debug(f"Nota {nota} - Método de exclusão {metodo} falhou: {e_m}")
+                                log_debug(f"Nota {nota} - Método {metodo} falhou: {e_m}")
 
                     # Trata o diálogo modal de confirmação do SAP wnd[1] ("Deseja eliminar a linha?")
+                    time.sleep(0.4)
                     if session.Children.Count > 1:
                         try:
                             wnd1 = session.findById("wnd[1]")
