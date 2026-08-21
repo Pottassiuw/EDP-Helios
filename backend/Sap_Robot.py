@@ -624,6 +624,15 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                     except Exception:
                         pass
 
+                # 3.1. Fecha eventuais popups de aviso de data (ex: advertência amarela)
+                time.sleep(0.3)
+                try:
+                    wnd_aviso = session.findById("wnd[1]")
+                    wnd_aviso.sendVKey(0)
+                    time.sleep(0.3)
+                except Exception:
+                    pass
+
                 # 4. txtVIQMSM-QSMNUM[0,0].setFocus e caretPosition = 0 (exatamente como gravado)
                 fld_0 = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-QSMNUM[0,0]")
                 fld_0.setFocus()
