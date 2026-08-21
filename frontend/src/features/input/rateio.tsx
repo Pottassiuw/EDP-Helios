@@ -67,13 +67,12 @@ export function Rateio({ dados, estadoFiltros, onClearFilters, recarregar }: Rat
     localStorage.setItem('sap_user', val);
   };
 
-  // Checa se há filtros ativos do painel restringindo a exibição
+  // Checa se há filtros ativos de busca ou coluna no painel restringindo a exibição (desconsidera somente2026, que é o padrão do ano atual)
   const temFiltrosAtivos = React.useMemo(() => {
     if (!estadoFiltros) return false;
     return (
       (estadoFiltros.busca ?? '').trim() !== '' ||
       (estadoFiltros.filtros ?? []).some((f) => (f.valores?.length ?? 0) > 0) ||
-      estadoFiltros.somente2026 ||
       Boolean(estadoFiltros.mostrarOcultas)
     );
   }, [estadoFiltros]);
