@@ -13,6 +13,7 @@ import {
   ehNotaMaeValida,
   extrairValorUnidadeMedida,
   limparNotaMae,
+  replicarMedidaParaFilhas,
 } from './rateio-lib';
 import {
   Search,
@@ -21,6 +22,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Zap,
+  Copy,
   CheckCircle2,
   AlertCircle,
   CheckSquare,
@@ -270,6 +272,21 @@ export function Rateio({ dados, estadoFiltros, onClearFilters, recarregar }: Rat
     });
     setNovasMedidasHier(next);
     toast.info('🎯 Medida total concentrada na Nota Mãe (filhas zeradas).');
+  };
+
+  const copiarMaeParaFilhas = () => {
+    if (!maeRowDetails) return;
+    const valorMae = novasMedidasHier[maeRowDetails.Numero_Nota] ?? valMaeTarget;
+    const next = replicarMedidaParaFilhas(
+      valorMae,
+      filhasDaMae.map((f) => f.Numero_Nota),
+      {
+        ...novasMedidasHier,
+        [maeRowDetails.Numero_Nota]: valorMae,
+      }
+    );
+    setNovasMedidasHier(next);
+    toast.success(`📋 Medida da Mãe (${valorMae} ${undMae}) copiada para todas as ${filhasDaMae.length} notas filhas.`);
   };
 
   const restaurarOriginal = () => {
@@ -762,6 +779,15 @@ export function Rateio({ dados, estadoFiltros, onClearFilters, recarregar }: Rat
                       <Button
                         variant="outline"
                         size="sm"
+                        onClick={copiarMaeParaFilhas}
+                        className="h-8 text-xs font-medium gap-1.5"
+                        title="Copia a medida da Nota Mãe para todas as notas filhas do grupo"
+                      >
+                        <Copy size={13} /> Copiar Mãe p/ Filhas
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
                         onClick={restaurarOriginal}
                         className="h-8 text-xs font-medium gap-1.5 text-text-mute hover:text-foreground"
                       >
@@ -817,16 +843,26 @@ export function Rateio({ dados, estadoFiltros, onClearFilters, recarregar }: Rat
                             />
                           </td>
                           <td className="py-2 px-3 text-center">
-                            {Math.abs(diferenca) > 1e-5 && (
+                            <div className="flex items-center justify-center gap-1.5">
                               <button
                                 type="button"
-                                onClick={() => fecharRestanteEm(maeRowDetails.Numero_Nota)}
-                                className="text-[11px] font-medium text-primary hover:underline cursor-pointer bg-primary/10 hover:bg-primary/20 px-2 py-1 rounded-md transition-colors"
-                                title="Jogar a diferença restante nesta nota"
+                                onClick={copiarMaeParaFilhas}
+                                className="text-[11px] font-medium text-accent hover:text-accent-hover cursor-pointer bg-accent/10 hover:bg-accent/20 px-2 py-1 rounded-md transition-colors inline-flex items-center gap-1"
+                                title="Copiar este valor para todas as notas filhas"
                               >
-                                + Restante
+                                <Copy size={11} /> p/ Filhas
                               </button>
-                            )}
+                              {Math.abs(diferenca) > 1e-5 && (
+                                <button
+                                  type="button"
+                                  onClick={() => fecharRestanteEm(maeRowDetails.Numero_Nota)}
+                                  className="text-[11px] font-medium text-primary hover:underline cursor-pointer bg-primary/10 hover:bg-primary/20 px-2 py-1 rounded-md transition-colors"
+                                  title="Jogar a diferença restante nesta nota"
+                                >
+                                  + Restante
+                                </button>
+                              )}
+                            </div>
                           </td>
                         </tr>
 

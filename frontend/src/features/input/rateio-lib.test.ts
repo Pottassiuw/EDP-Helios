@@ -5,6 +5,7 @@ import {
   ehNotaMaeValida,
   extrairValorUnidadeMedida,
   limparNotaMae,
+  replicarMedidaParaFilhas,
 } from './rateio-lib';
 
 describe('ehNotaAtiva', () => {
@@ -39,5 +40,18 @@ describe('extrairValorUnidadeMedida', () => {
     expect(extrairValorUnidadeMedida('4 UN')).toEqual([4, 'un']);
     expect(extrairValorUnidadeMedida('-')).toEqual([0, null]);
     expect(extrairValorUnidadeMedida('sem medida')).toEqual([0, null]);
+  });
+});
+
+describe('replicarMedidaParaFilhas', () => {
+  it('copia o valor da nota mãe para todas as notas filhas', () => {
+    const estado = { 100: 2.5, 201: 0, 202: 1.0 };
+    const resultado = replicarMedidaParaFilhas(2.5, [201, 202, 203], estado);
+    expect(resultado).toEqual({
+      100: 2.5,
+      201: 2.5,
+      202: 2.5,
+      203: 2.5,
+    });
   });
 });

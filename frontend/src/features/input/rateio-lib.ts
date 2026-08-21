@@ -31,3 +31,15 @@ export function extrairValorUnidadeMedida(medida: string | number | null | undef
   if (normalizada.includes('un')) return [valor, 'un'];
   return [valor, null];
 }
+
+export function replicarMedidaParaFilhas(
+  valorMae: number,
+  filhasIds: number[],
+  estadoAtual: Record<number, number> = {}
+): Record<number, number> {
+  const proximo = { ...estadoAtual };
+  filhasIds.forEach((id) => {
+    proximo[id] = valorMae;
+  });
+  return proximo;
+}
