@@ -695,47 +695,77 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                     except Exception as e_anular:
                         log_debug(f"Nota {nota} - Aviso ao reabrir linha 0: {e_anular}")
 
-                    # Re-seleciona a linha 0
+                    # 7.2. Seleciona a linha inteira 0 (destaque completo)
                     try:
+                        tbl.currentCellRow = 0
                         tbl.selectedRows = "0"
                         tbl.getAbsoluteRow(0).selected = True
-                    except Exception:
-                        pass
+                    except Exception as e_sel:
+                        log_debug(f"Nota {nota} - Aviso ao selecionar linha 0: {e_sel}")
 
-                    # 7.2. Tenta os métodos de exclusão de linha do SAP
+                    # 7.3. Tenta os métodos de "Apagar Linha" do SAP (botão de lixeira, tbar[1], okcd, menu)
                     deletou = False
-                    for metodo in ["okcd_mnlo", "okcd_loes", "vkey_14", "btn_loeschen"]:
-                        try:
-                            if metodo == "okcd_mnlo":
-                                session.findById("wnd[0]/tbar[0]/okcd").text = "=MNLO"
-                                session.findById("wnd[0]").sendVKey(0)
-                            elif metodo == "okcd_loes":
-                                session.findById("wnd[0]/tbar[0]/okcd").text = "=LOES"
-                                session.findById("wnd[0]").sendVKey(0)
-                            elif metodo == "vkey_14":
-                                session.findById("wnd[0]").sendVKey(14)
-                            elif metodo == "btn_loeschen":
-                                session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/btnLOESCHEN").press()
 
-                            time.sleep(0.4)
-
-                            # Trata diálogo de confirmação wnd[1] se abrir
-                            if session.Children.Count > 1:
-                                wnd1 = session.findById("wnd[1]")
-                                for btn_id in ["usr/btnSPOP-OPTION1", "usr/btnBUTTON_1", "tbar[0]/btn[0]", "tbar[0]/btn[6]"]:
-                                    try:
-                                        wnd1.findById(btn_id).press()
-                                        break
-                                    except Exception:
-                                        pass
-                                else:
-                                    wnd1.sendVKey(0)
+                    # Método 1: Busca botão "Eliminar linha" na barra de ferramentas de aplicação (tbar[1])
+                    try:
+                        tbar1 = session.findById("wnd[0]/tbar[1]")
+                        for child in tbar1.Children:
+                            tt = str(getattr(child, "Tooltip", "") or getattr(child, "text", "")).lower()
+                            if any(w in tt for w in ["eliminar linha", "apagar linha", "excluir linha", "delete line", "löschen", "eliminar", "excluir"]):
+                                child.press()
                                 time.sleep(0.4)
                                 deletou = True
-                                log_debug(f"Nota {nota} - Linha 0 excluída com sucesso via {metodo}")
+                                log_debug(f"Nota {nota} - Clicou no botão de eliminar linha em tbar[1]: '{tt}'")
                                 break
-                        except Exception as e_del:
-                            log_debug(f"Nota {nota} - Tentativa de exclusão ({metodo}) falhou: {e_del}")
+                    except Exception as e_tbar:
+                        log_debug(f"Nota {nota} - Busca em tbar[1] falhou: {e_tbar}")
+
+                    # Método 2: OKCDs nativos do SAP e atalhos de exclusão de linha
+                    if not deletou:
+                        for metodo in ["okcd_mnlo", "okcd_loes", "vkey_14", "btn_loeschen", "menu_tratar"]:
+                            try:
+                                # Garante que a linha 0 continua selecionada
+                                tbl.selectedRows = "0"
+                                tbl.getAbsoluteRow(0).selected = True
+
+                                if metodo == "okcd_mnlo":
+                                    session.findById("wnd[0]/tbar[0]/okcd").text = "=MNLO"
+                                    session.findById("wnd[0]").sendVKey(0)
+                                elif metodo == "okcd_loes":
+                                    session.findById("wnd[0]/tbar[0]/okcd").text = "=LOES"
+                                    session.findById("wnd[0]").sendVKey(0)
+                                elif metodo == "vkey_14":
+                                    session.findById("wnd[0]").sendVKey(14)
+                                elif metodo == "btn_loeschen":
+                                    session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/btnLOESCHEN").press()
+                                elif metodo == "menu_tratar":
+                                    session.findById("wnd[0]/mbar/mbf_sub[1]/mbf_sub[2]").select()
+
+                                time.sleep(0.4)
+                                if session.Children.Count > 1:
+                                    deletou = True
+                                    break
+                            except Exception as e_m:
+                                log_debug(f"Nota {nota} - Método de exclusão {metodo} falhou: {e_m}")
+
+                    # Trata o diálogo modal de confirmação do SAP wnd[1] ("Deseja eliminar a linha?")
+                    if session.Children.Count > 1:
+                        try:
+                            wnd1 = session.findById("wnd[1]")
+                            for btn_id in ["usr/btnSPOP-OPTION1", "usr/btnBUTTON_1", "tbar[0]/btn[0]", "tbar[0]/btn[6]"]:
+                                try:
+                                    wnd1.findById(btn_id).press()
+                                    deletou = True
+                                    break
+                                except Exception:
+                                    pass
+                            else:
+                                wnd1.sendVKey(0)
+                                deletou = True
+                            time.sleep(0.4)
+                            log_debug(f"Nota {nota} - Diálogo de confirmação de exclusão aceito com sucesso")
+                        except Exception as pop_err:
+                            log_debug(f"Nota {nota} - Aviso popup exclusao: {pop_err}")
 
                     # 7.3. Fallback de segurança: se a linha 0 não pôde ser excluída fisicamente, zera a quantidade
                     if not deletou:
