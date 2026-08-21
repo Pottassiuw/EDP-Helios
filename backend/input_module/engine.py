@@ -794,10 +794,30 @@ def enriquecer_dados():
     # --- 3.12. INTEGRAÇÃO SAP: MEDIDAS IW66 ---
     df['Medida_SAP'] = "-"
     df_medidas_raw = _ler_export_medidas()
-    if df_medidas_raw is not None:
+    if df_medidas_raw is not None and not df_medidas_raw.empty:
         try:
             df_m = df_medidas_raw.copy()
-            df_m['Nota'] = df_m['Nota'].dropna().astype(int).astype(str).str.strip()
+
+            # Normalização resiliente das colunas do IW66 (trata encoding do SQLite ex: Denominao / N de ordenao)
+            novas_cols = {}
+            for col in df_m.columns:
+                c_norm = unicodedata.normalize('NFKD', str(col)).encode('ascii', 'ignore').decode('utf-8').lower()
+                if 'denomina' in c_norm and 'conjunto' in c_norm:
+                    novas_cols[col] = 'Denominação do conjunto'
+                elif 'ordena' in c_norm:
+                    novas_cols[col] = 'Nº de ordenação'
+                elif 'texto' in c_norm and 'medida' in c_norm:
+                    novas_cols[col] = 'Texto medida'
+                elif 'descri' in c_norm:
+                    novas_cols[col] = 'Descrição'
+                elif c_norm == 'nota' or c_norm.startswith('nota'):
+                    novas_cols[col] = 'Nota'
+
+            if novas_cols:
+                df_m = df_m.rename(columns=novas_cols)
+
+            df_m['Nota'] = pd.to_numeric(df_m['Nota'], errors='coerce').fillna(0).astype(int).astype(str).str.strip()
+            df_m = df_m[df_m['Nota'] != '0']
 
             _UN_DENOMS = {"POSTE", "TRANSFORMADOR", "TRANSF", "TRAFO", "SUBST", "CHAVE",
                           "RELIGADOR", "SECCIONALIZADOR", "DISJUNTOR", "DJ", "BF", "LBS",
@@ -853,7 +873,9 @@ def enriquecer_dados():
 
             grouped["Medida_SAP_Str"] = grouped.apply(_format_medida, axis=1)
             dict_medidas = dict(zip(grouped["Nota"], grouped["Medida_SAP_Str"]))
-            df["Medida_SAP"] = df["Numero_Nota"].astype(str).str.strip().map(dict_medidas).fillna("-")
+
+            num_nota_clean = pd.to_numeric(df["Numero_Nota"], errors='coerce').fillna(0).astype(int).astype(str).str.strip()
+            df["Medida_SAP"] = num_nota_clean.map(dict_medidas).fillna("-")
         except Exception as e:
             print(f"Erro ao processar medidas IW66: {e}")
             df["Medida_SAP"] = "Erro"

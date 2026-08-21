@@ -136,6 +136,7 @@ def criar_notas(notas: list[NovaNota], usuario: str, origem: str = "manual",
 
 
 def atualizar_medidas_excel_local(lista_correcao: list[dict], relatorio_sap: list[dict]) -> None:
+    import unicodedata
     caminho = config.CAMINHO_BASE_IW66
     if not os.path.exists(caminho):
         print(f"Aviso: Planilha IW66 local não encontrada em '{caminho}'. Ignorando atualização de arquivo físico.")
@@ -143,27 +144,48 @@ def atualizar_medidas_excel_local(lista_correcao: list[dict], relatorio_sap: lis
     temporario = None
     try:
         df_m = pd.read_excel(caminho, engine="openpyxl")
-        df_m['Nota'] = df_m['Nota'].fillna(0).astype(int).astype(str)
-        
+
+        # Normalização de nomes de colunas
+        novas_cols = {}
+        for col in df_m.columns:
+            c_norm = unicodedata.normalize('NFKD', str(col)).encode('ascii', 'ignore').decode('utf-8').lower()
+            if 'ordena' in c_norm:
+                novas_cols[col] = 'Nº de ordenação'
+            elif c_norm == 'nota' or c_norm.startswith('nota'):
+                novas_cols[col] = 'Nota'
+            elif 'denomina' in c_norm and 'conjunto' in c_norm:
+                novas_cols[col] = 'Denominação do conjunto'
+            elif 'texto' in c_norm and 'medida' in c_norm:
+                novas_cols[col] = 'Texto medida'
+            elif 'descri' in c_norm:
+                novas_cols[col] = 'Descrição'
+        if novas_cols:
+            df_m = df_m.rename(columns=novas_cols)
+
+        df_m['Nota_limpa'] = pd.to_numeric(df_m['Nota'], errors='coerce').fillna(0).astype(int).astype(str).str.strip()
+
         for res in relatorio_sap:
             if res.get("Status") == "OK":
                 nota_id_str = str(int(res.get("Nota")))
-                item_corr = next(item for item in lista_correcao if str(int(item["nota"])) == nota_id_str)
+                item_corr = next((item for item in lista_correcao if str(int(item["nota"])) == nota_id_str), None)
+                if not item_corr:
+                    continue
                 qtd_gravada = item_corr["quantidade"]
                 und_gravada = item_corr["unidade"]
-                
-                # Nº de ordenação guarda metros ou un
                 valor_m_ou_un = qtd_gravada * 1000 if und_gravada == 'km' else qtd_gravada
-                
-                mask = df_m['Nota'] == nota_id_str
+
+                mask = df_m['Nota_limpa'] == nota_id_str
                 if mask.any():
                     df_m.loc[mask, 'Nº de ordenação'] = valor_m_ou_un
                 else:
-                    nova_linha = {col: "" for col in df_m.columns}
+                    nova_linha = {col: "" for col in df_m.columns if col != 'Nota_limpa'}
                     nova_linha['Nota'] = int(nota_id_str)
                     nova_linha['Nº de ordenação'] = valor_m_ou_un
                     df_m = pd.concat([df_m, pd.DataFrame([nova_linha])], ignore_index=True)
-                    
+
+        if 'Nota_limpa' in df_m.columns:
+            df_m = df_m.drop(columns=['Nota_limpa'])
+
         diretorio = os.path.dirname(os.path.abspath(caminho))
         with tempfile.NamedTemporaryFile(
                 dir=diretorio, prefix=".iw66_", suffix=".xlsx", delete=False) as arquivo:
