@@ -564,37 +564,14 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                 except Exception:
                     pass
 
-                # Verifica o status da medida na linha 0
-                try:
-                    status_linha_0 = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-ASTXT[7,0]").text
-                except Exception:
-                    status_linha_0 = ""
-
-                # Se a linha 0 estiver com status de encerramento (MEDE/ENCE), tenta anular encerramento para reabrir e liberar edição
-                if any(s in status_linha_0.upper() for s in ["MEDE", "ENCE", "ERL", "CONC"]):
-                    log_debug(f"Nota {nota} - Linha 0 está encerrada ({status_linha_0}). Tentando anular encerramento (btnFC_ERL_ZURUECK)...")
-                    try:
-                        tbl.selectedRows = "0"
-                        tbl.getAbsoluteRow(0).selected = True
-                        session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/btnFC_ERL_ZURUECK").press()
-                        time.sleep(0.5)
-                        if session.Children.Count > 1:
-                            session.findById("wnd[1]").sendVKey(0)
-                            time.sleep(0.3)
-                    except Exception as e_anular:
-                        log_debug(f"Nota {nota} - Aviso ao anular encerramento inicial da linha 0: {e_anular}")
-
-                # Valida se o campo da linha 0 está editável (Changeable)
-                campo_medida_0 = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-QSMNUM[0,0]")
-                direto = False
-                try:
-                    direto = bool(campo_medida_0.Changeable)
-                except Exception:
-                    direto = False
+                # Regra SAP: Apenas notas no status 27 podem ter medidas editadas diretamente na linha 0.
+                # Para todos os outros status (10, 20, 51, 53, etc.), cria na linha 1 e apaga a linha 0 original.
+                direto = (status_num == 27)
 
                 if direto:
-                    # ── MODO 1: EDIÇÃO DIRETA NA LINHA 0 ─────────────────────────────
-                    log_debug(f"Nota {nota} - Campo editável: alterando medida diretamente na linha 0 (Status: {status_text})")
+                    # ── MODO 1: EDIÇÃO DIRETA NA LINHA 0 (APENAS STATUS 27) ──────────
+                    log_debug(f"Nota {nota} - Status 27: alterando medida diretamente na linha 0")
+                    campo_medida_0 = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-QSMNUM[0,0]")
                     campo_medida_0.setFocus()
                     time.sleep(0.2)
                     campo_medida_0.text = str_qtd
@@ -608,7 +585,7 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                             pass
                 else:
                     # ── MODO 2: RECRIAÇÃO NA LINHA 1 + EXCLUSÃO DA LINHA 0 ──────────
-                    log_debug(f"Nota {nota} - Campo bloqueado: recriando medida na linha 1 e excluindo a linha 0 (Status: {status_text})")
+                    log_debug(f"Nota {nota} - Status {status_num} ('{status_text}'): recriando medida na linha 1 e excluindo linha 0")
 
                     # 1. Obtém o código da medida da linha 0 (ex: ELP) ou fallback
                     try:
@@ -759,7 +736,10 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                                 try:
                                     wnd1.findById("usr/btnBUTTON_1").press()
                                 except Exception:
-                                    wnd1.sendVKey(0)
+                                    try:
+                                        wnd1.findById("tbar[0]/btn[0]").press()
+                                    except Exception:
+                                        wnd1.sendVKey(0)
                             time.sleep(0.5)
                         except Exception as pop_err:
                             log_debug(f"Nota {nota} - Aviso popup exclusao: {pop_err}")
