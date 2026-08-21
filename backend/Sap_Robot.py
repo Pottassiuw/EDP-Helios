@@ -564,14 +564,21 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                 except Exception:
                     pass
 
-                # Condição exata da Macro VBA:
-                # If (Status <= 27 And Not Status = 10 And Not Status = 20)
-                edicao_direta = (status_num <= 27 and status_num not in [10, 20] and status_num > 0)
+                # Checa se a linha 0 é editável diretamente no SAP GUI
+                campo_medida_0 = None
+                eh_editavel_direto = False
+                try:
+                    campo_medida_0 = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-QSMNUM[0,0]")
+                    eh_editavel_direto = bool(getattr(campo_medida_0, "Changeable", False))
+                except Exception:
+                    eh_editavel_direto = False
+
+                # Edição direta só se for permitido pelo SAP (Changeable=True) e status compatível
+                edicao_direta = eh_editavel_direto and (status_num <= 27 and status_num not in [10, 20] and status_num > 0)
 
                 if edicao_direta:
-                    # ── MODO 1: EDIÇÃO DIRETA NA LINHA 0 (STATUS <= 27 EXCETO 10 E 20) ──────────
-                    log_debug(f"Nota {nota} - Status {status_num}: alterando medida diretamente na linha 0 (conforme Macro VBA)")
-                    campo_medida_0 = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-QSMNUM[0,0]")
+                    # ── MODO 1: EDIÇÃO DIRETA NA LINHA 0 ──────────
+                    log_debug(f"Nota {nota} - Status {status_num} (Changeable=True): alterando medida diretamente na linha 0")
                     campo_medida_0.text = str_qtd
                     campo_medida_0.setFocus()
                     try:
@@ -588,7 +595,7 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                             pass
                 else:
                     # ── MODO 2: RECRIAÇÃO NA LINHA 1 + EXCLUSÃO DA LINHA 0 ──────────
-                    log_debug(f"Nota {nota} - Status {status_num}: recriando na linha 1 e excluindo linha 0 (conforme Macro VBA)")
+                    log_debug(f"Nota {nota} - Status {status_num} (Changeable={eh_editavel_direto}): recriando na linha 1 e excluindo linha 0")
 
                     # 1. Cria nova medida com código ELP
                     code_fld = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/ctxtVIQMSM-MNCOD[2,1]")
@@ -692,8 +699,39 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                         except Exception as e_enc:
                             log_debug(f"Nota {nota} - Aviso ao encerrar medida na linha 1: {e_enc}")
 
-                    # 6. Exclui a medida original (linha 0) - EXATAMENTE como na Macro VBA
-                    tbl.getAbsoluteRow(0).selected = True
+                    # 6. Reposiciona o scroll no topo absoluto (linha 0)
+                    try:
+                        tbl.verticalScrollbar.position = 0
+                    except Exception:
+                        pass
+                    time.sleep(0.3)
+
+                    # 6.1. Se a medida original estiver encerrada (MEDE), reabre para habilitar a exclusão
+                    try:
+                        tbl.selectedRows = "0"
+                        tbl.getAbsoluteRow(0).selected = True
+                        btn_reabrir = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/btnFC_ERL_ZURUECK")
+                        btn_reabrir.press()
+                        time.sleep(0.4)
+                        if session.Children.Count > 1:
+                            session.findById("wnd[1]").sendVKey(0)
+                            time.sleep(0.2)
+                    except Exception:
+                        pass
+
+                    # 7. Exclui a medida original (linha 0)
+                    try:
+                        tbl.verticalScrollbar.position = 0
+                    except Exception:
+                        pass
+                    time.sleep(0.2)
+
+                    try:
+                        tbl.selectedRows = "0"
+                        tbl.getAbsoluteRow(0).selected = True
+                    except Exception:
+                        pass
+
                     fld_q0 = session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/tblSAPLIQS0MASSNAH_VIEWER2/txtVIQMSM-QSMNUM[0,0]")
                     fld_q0.setFocus()
                     try:
@@ -702,14 +740,39 @@ def alterar_medidas_sap(lista_notas_correcao, login_sap=None, senha_sap=None, mo
                         pass
                     time.sleep(0.2)
 
-                    session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/btnLOESCHEN").press()
+                    deletou = False
+                    try:
+                        session.findById("wnd[0]/usr/tabsTAB_GROUP_10/tabp10\\TAB10/ssubSUB_GROUP_10:SAPLIQS0:7210/tabsTAB_GROUP_20/tabp20\\TAB03/ssubSUB_GROUP_20:SAPLIQS0:7125/btnLOESCHEN").press()
+                        deletou = True
+                    except Exception as e_loesch:
+                        log_debug(f"Nota {nota} - btnLOESCHEN falhou: {e_loesch}")
+
+                    if not deletou:
+                        try:
+                            session.findById("wnd[0]").sendVKey(14) # Shift+F2
+                            deletou = True
+                        except Exception:
+                            pass
+
+                    if not deletou:
+                        try:
+                            session.findById("wnd[0]/tbar[0]/okcd").text = "=LOES"
+                            session.findById("wnd[0]").sendVKey(0)
+                            deletou = True
+                        except Exception:
+                            pass
+
                     time.sleep(0.4)
                     if session.Children.Count > 1:
-                        try:
-                            session.findById("wnd[1]/usr/btnSPOP-OPTION1").press()
-                            time.sleep(0.3)
-                        except Exception:
-                            session.findById("wnd[1]").sendVKey(0)
+                        wnd1 = session.findById("wnd[1]")
+                        for btn_name in ["usr/btnSPOP-OPTION1", "usr/btnBUTTON_1", "tbar[0]/btn[0]"]:
+                            try:
+                                wnd1.findById(btn_name).press()
+                                break
+                            except Exception:
+                                pass
+                        else:
+                            wnd1.sendVKey(0)
 
                 log_debug(f"Nota {nota} - Valor alterado com sucesso para '{str_qtd}'")
             except Exception as e:
