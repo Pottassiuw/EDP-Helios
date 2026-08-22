@@ -969,6 +969,102 @@ def test_service_criar_notas_duplicata_no_lote(banco_temporario):
         service.criar_notas([n, n], usuario="teste")
 
 
+def test_inserir_notas_novas_concorrente_apenas_uma_vence(
+    banco_temporario, monkeypatch
+):
+    """INSERT puro sob concorrência: a PRIMARY KEY de Numero_Nota decide o
+    vencedor sem depender de checagem prévia — a perdedora nunca sobrescreve
+    nem persiste parcialmente (issue #18, camada de persistência)."""
+    from input_module import db
+
+    get_connection_original = db.get_db_connection
+    conexoes_prontas = threading.Barrier(2)
+    resultados = []
+    erros = []
+
+    def get_connection_sincronizada():
+        conexao = get_connection_original()
+        conexoes_prontas.wait(timeout=5)
+        return conexao
+
+    def inserir(observacao):
+        try:
+            db.inserir_notas_novas(pd.DataFrame([_nota(6500, Observacao=observacao)]))
+            resultados.append(observacao)
+        except sqlite3.IntegrityError as erro:
+            erros.append((observacao, erro))
+
+    monkeypatch.setattr(db, "get_db_connection", get_connection_sincronizada)
+    threads = [
+        threading.Thread(target=inserir, args=("primeira",)),
+        threading.Thread(target=inserir, args=("segunda",)),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+    monkeypatch.setattr(db, "get_db_connection", get_connection_original)
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert len(resultados) == 1
+    assert len(erros) == 1
+    df = db.carregar_dados()
+    linhas = df[df["Numero_Nota"] == 6500]
+    assert len(linhas) == 1
+    assert linhas.iloc[0]["Observacao"] == resultados[0]
+
+
+def test_service_criar_notas_concorrente_nao_sobrescreve(banco_temporario, monkeypatch):
+    """Duas criações concorrentes para o mesmo Numero_Nota via o caminho
+    público (service.criar_notas): exatamente uma vence, a outra recebe
+    NotasDuplicadasErro (conflito explícito) e o registro final não é uma
+    mistura das duas tentativas (issue #18, caminho de serviço)."""
+    from input_module import db, service
+
+    inserir_original = db.inserir_notas_novas
+    conexoes_prontas = threading.Barrier(2)
+
+    def inserir_sincronizado(df):
+        conexoes_prontas.wait(timeout=5)
+        return inserir_original(df)
+
+    monkeypatch.setattr(db, "inserir_notas_novas", inserir_sincronizado)
+
+    resultados = []
+    erros = []
+
+    def criar(observacao):
+        nota = service.NovaNota(
+            Numero_Nota=6600, Status_Nota="00 Pendente",
+            Prioridade_Nota="Programável", Observacao=observacao,
+        )
+        try:
+            resultados.append((observacao, service.criar_notas([nota], usuario="teste")))
+        except service.NotasDuplicadasErro as erro:
+            erros.append((observacao, str(erro)))
+
+    threads = [
+        threading.Thread(target=criar, args=("primeira",)),
+        threading.Thread(target=criar, args=("segunda",)),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert len(resultados) == 1
+    assert len(erros) == 1
+
+    df = db.carregar_dados()
+    linhas = df[df["Numero_Nota"] == 6600]
+    assert len(linhas) == 1
+    assert linhas.iloc[0]["Observacao"] == resultados[0][0]
+
+    logs = db.carregar_logs()
+    assert (logs["Numero_Nota"] == 6600).sum() == 1  # perdedora não deixou log de criação
+
+
 def test_service_criar_nota_filha_diretamente(banco_temporario):
     from input_module import db, service
     mae = service.NovaNota(
