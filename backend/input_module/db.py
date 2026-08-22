@@ -685,11 +685,24 @@ def status_para_int(val):
     return 0
 
 
-def salvar_em_massa(df: pd.DataFrame) -> None:
-    realizar_backup()
+_COLUNAS_NOTAS = [
+    "ID_Cronologia",
+    "Numero_Nota", "Status_Obra", "Conjunto", "Circuito", "Local_Instalacao",
+    "Regional", "Planejado_DDPM", "Mes_Execucao_Planejado", "Data_Envio_Projeto",
+    "Status_Nota", "Prioridade_Nota", "Observacao", "Check", "Status_Anterior",
+    "Centro_Responsavel", "origem", "Nota_Mae"
+]
+
+
+def _normalizar_df_notas(df: pd.DataFrame) -> pd.DataFrame:
+    """Renomeia colunas legadas, converte Status/data e preenche defaults.
+
+    Compartilhado por `salvar_em_massa` (upsert) e `inserir_notas_novas`
+    (INSERT puro) — a normalização é a mesma nos dois caminhos, só a
+    instrução SQL final diverge.
+    """
     df_salvar = df.copy()
 
-    # Normalização de nomes de colunas conhecidas
     renames = {
         "Data Envio Projeto-DDPM": "Data_Envio_Projeto",
         "Data Envio Projeto": "Data_Envio_Projeto",
@@ -715,19 +728,18 @@ def salvar_em_massa(df: pd.DataFrame) -> None:
     if 'Centro_Responsavel' not in df_salvar.columns:
         df_salvar['Centro_Responsavel'] = "-"
 
-    # UPSERT: colunas para inserir ou atualizar
-    colunas_upsert = [
-        "ID_Cronologia",
-        "Numero_Nota", "Status_Obra", "Conjunto", "Circuito", "Local_Instalacao",
-        "Regional", "Planejado_DDPM", "Mes_Execucao_Planejado", "Data_Envio_Projeto",
-        "Status_Nota", "Prioridade_Nota", "Observacao", "Check", "Status_Anterior",
-        "Centro_Responsavel", "origem", "Nota_Mae"
-    ]
-
     # Garante que todas as colunas necessárias existam antes de criar os registros
-    for col in colunas_upsert:
+    for col in _COLUNAS_NOTAS:
         if col not in df_salvar.columns:
             df_salvar[col] = "-"  # Valor padrão para colunas ausentes
+
+    return df_salvar
+
+
+def salvar_em_massa(df: pd.DataFrame) -> None:
+    realizar_backup()
+    df_salvar = _normalizar_df_notas(df)
+    colunas_upsert = list(_COLUNAS_NOTAS)
 
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -762,6 +774,43 @@ def salvar_em_massa(df: pd.DataFrame) -> None:
     except Exception as e:
         print(f"Erro no banco: {e}")
         raise e
+    finally:
+        conn.close()
+
+
+def inserir_notas_novas(df: pd.DataFrame) -> None:
+    """Insere notas novas com INSERT puro — nunca UPSERT.
+
+    A decisão de duplicidade e a gravação vivem na mesma fronteira
+    transacional porque são a mesma instrução: se algum `Numero_Nota` já
+    existir, a PRIMARY KEY rejeita a linha (`sqlite3.IntegrityError`) e a
+    transação inteira sofre rollback — sem persistência parcial e sem
+    sobrescrever o registro existente. Não há corte entre "conferir se está
+    livre" e "gravar" para uma escrita concorrente explorar; o índice de
+    unicidade da própria tabela arbitra quem vence, independente de dialeto.
+    """
+    realizar_backup()
+    df_salvar = _normalizar_df_notas(df)
+    colunas = list(_COLUNAS_NOTAS)
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        colunas_no_banco = {c[1] for c in cursor.execute("PRAGMA table_info(notas)")}
+        colunas = [c for c in colunas if c in colunas_no_banco]
+        registros = df_salvar[colunas].to_records(index=False).tolist()
+
+        sql_insert = f'''
+            INSERT INTO notas ({', '.join(f'"{c}"' for c in colunas)})
+            VALUES ({', '.join(['?'] * len(colunas))})
+        '''
+
+        cursor.executemany(sql_insert, registros)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 

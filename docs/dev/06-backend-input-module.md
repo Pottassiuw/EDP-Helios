@@ -386,11 +386,54 @@ importar internals de rotas:
   -> int` — valida duplicatas (no lote e contra o banco), completa
   `Regional` (derivado de `Local_Instalacao[:3]` via
   `config.DE_PARA_REGIONAL`), `ID_Cronologia` e `origem`, grava via
-  `db.salvar_em_massa()` e retorna a quantidade inserida. Levanta
+  `db.inserir_notas_novas()` e retorna a quantidade inserida. Levanta
   `NotasDuplicadasErro` em conflito.
 
 `routes.py` apenas delega para essas funções e traduz
 `NotasDuplicadasErro` em `HTTPException(409, ...)`.
+
+### Criação concorrente sem sobrescrita (issue #18)
+
+A checagem de duplicidade em `criar_notas` (contra o lote e, via
+`db.verificar_notas_existentes`, contra o banco) é só a mensagem amigável do
+caminho comum — ela roda numa consulta separada e sozinha não impede uma
+corrida: duas requisições para o mesmo `Numero_Nota` podem passar por ela ao
+mesmo tempo (TOCTOU) antes de qualquer uma gravar.
+
+Quem garante a corretude é `db.inserir_notas_novas()`: um **INSERT puro**
+(nunca `ON CONFLICT DO UPDATE`) contra a `PRIMARY KEY` de `Numero_Nota`. A
+decisão de duplicidade e a gravação vivem na mesma fronteira transacional
+porque são a mesma instrução — se a linha já existir, a constraint da própria
+tabela rejeita a gravação (`sqlite3.IntegrityError`) e a transação inteira
+sofre rollback, sem persistência parcial. `criar_notas` captura esse erro e
+relança `NotasDuplicadasErro` (mesmo contrato público de sempre, traduzido
+para `HTTPException(409, ...)` em `routes.py`); a vencedora nunca é
+sobrescrita e a perdedora nunca grava log de criação.
+
+Isso substitui a antiga prescrição de serializar a criação com
+`BEGIN IMMEDIATE` (sintaxe exclusiva do SQLite — ver "Concorrência da
+hierarquia" abaixo para onde esse padrão ainda se aplica, a edições). A regra
+de negócio em `service.py` não conhece nenhuma sintaxe de dialeto: ela só
+sabe que um INSERT pode falhar por duplicidade. No MySQL (migração #71/#62,
+ver `14-plano-migracao-mysql.md`), a mesma chave/índice de unicidade em
+`Numero_Nota` mais um INSERT simples resolvem a corrida do mesmo jeito — o
+driver troca (`sqlite3.IntegrityError` → o equivalente do MySQL para chave
+duplicada), a lógica em `service.py` não muda.
+
+`salvar_em_massa()` continua existindo como o UPSERT genérico usado por
+edição/hierarquia/ramal — ela e `inserir_notas_novas()` compartilham a
+normalização de colunas (`_normalizar_df_notas`), só a instrução SQL final
+diverge (upsert vs. insert puro). Criação nunca deve passar por
+`salvar_em_massa()`: um upsert usado para criar sobrescreveria silenciosamente
+uma linha existente em vez de recusar.
+
+`test_inserir_notas_novas_concorrente_apenas_uma_vence` (camada de
+persistência) e `test_service_criar_notas_concorrente_nao_sobrescreve`
+(camada de serviço), em `test_input_module.py`, forçam a corrida com
+`threading.Barrier` no mesmo padrão de
+`test_travar_nota_concorrente_tem_apenas_um_vencedor`: sincronizam duas
+threads exatamente no ponto da gravação e exigem exatamente uma vencedora,
+sem overwrite e sem log duplicado.
 
 ### Coluna `origem` (Fase 2 da Carteira)
 

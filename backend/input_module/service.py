@@ -1,6 +1,7 @@
 """Caminho canônico de escrita do módulo Input (reusado por rotas e integração)."""
 import datetime
 import os
+import sqlite3
 import tempfile
 import threading
 
@@ -112,9 +113,27 @@ def _preparar_novas(notas: list[NovaNota], df_banco: pd.DataFrame | None,
 
 def criar_notas(notas: list[NovaNota], usuario: str, origem: str = "manual",
                 df_banco: pd.DataFrame | None = None) -> int:
-    """Insere notas novas no plano e registra no log de auditoria; levanta NotasDuplicadasErro em conflito."""
+    """Insere notas novas no plano e registra no log de auditoria; levanta NotasDuplicadasErro em conflito.
+
+    A checagem de duplicidade em `_preparar_novas` é só a mensagem amigável
+    do caminho comum (lote com duplicata óbvia, nota já existente numa
+    consulta recente). Quem garante a corretude sob concorrência é
+    `db.inserir_notas_novas`: um INSERT puro contra a PRIMARY KEY de
+    `Numero_Nota`. Se duas requisições para o mesmo número passarem pela
+    checagem acima ao mesmo tempo (TOCTOU), a perdedora esbarra na
+    constraint dentro do próprio INSERT — nunca sobrescreve, nunca finge
+    sucesso.
+    """
     df_novas = _preparar_novas(notas, df_banco, origem)
-    db.salvar_em_massa(df_novas)
+    try:
+        db.inserir_notas_novas(df_novas)
+    except sqlite3.IntegrityError:
+        numeros = [n.Numero_Nota for n in notas]
+        existentes = sorted(str(n) for n in numeros if n in set(db.verificar_notas_existentes(numeros)))
+        raise NotasDuplicadasErro(
+            "Notas já existentes no banco: " + ", ".join(existentes)
+            if existentes
+            else "Conflito de concorrência ao criar as notas — tente novamente.")
 
     agora = datetime.datetime.now()
     usuario_log = (usuario or "sistema").strip()
